@@ -1,4 +1,4 @@
 package wal
 
-type WALLogger struct {
+type Logger struct {
 }
