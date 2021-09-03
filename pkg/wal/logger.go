@@ -2,6 +2,7 @@ package wal
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -29,11 +30,16 @@ func Open(path string) (*Logger, error) {
 		return nil, err
 	}
 	// load stuff here
-	return &Logger{
+	l := &Logger{
 		path:   path,
 		closed: false,
 		file:   file,
-	}, nil
+	}
+	err = l.loadSegments()
+	if err != nil {
+		return nil, err
+	}
+	return l, nil
 }
 
 /*
@@ -93,6 +99,71 @@ func (l *Logger) Read() ([]byte, error) {
 	return entry, nil
 }
 
+func (l *Logger) ReadAt(index int) ([]byte, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	// error check segments
+	if index > len(l.segments) {
+		return nil, fmt.Errorf("index out of bounds")
+	}
+
+	// get segment at located at specified index
+	seg := l.segments[index]
+	// calculate entry length from start and end of segment span
+	elen := seg.span.end - seg.span.start
+	// make byte slice of entry length size
+	entry := make([]byte, elen)
+
+	// read entry into slice at that offset
+	n, err := l.file.ReadAt(entry, int64(seg.span.start))
+	if err != nil {
+		return nil, err
+	}
+	if n != elen {
+		return nil, fmt.Errorf("invalid read")
+	}
+
+	// read entry from reader into slice
+	//_, err := io.ReadFull(l.file, entry)
+	//if err != nil {
+	//	return nil, err
+	//}
+
+	return entry, nil
+}
+
+func (l *Logger) loadSegments() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var buf [8]byte
+	for {
+		// read entry length
+		_, err := io.ReadFull(l.file, buf[:])
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+			return err
+		}
+		// decode entry length
+		elen := binary.LittleEndian.Uint64(buf[:])
+		// add segment and span
+		err = l.addSegment(int(elen))
+		if err != nil {
+			return err
+		}
+		// skip to next entry
+		_, err = l.file.Seek(int64(elen), io.SeekCurrent)
+		if err != nil {
+			return err
+		}
+		// clear entry length buffer for reuse
+		buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7] = 0, 0, 0, 0, 0, 0, 0, 0
+	}
+	return nil
+
+}
+
 // Write appends a raw data to the log
 func (l *Logger) Write(data []byte) error {
 	l.mu.Lock()
@@ -128,10 +199,10 @@ func (l *Logger) addSegment(datalen int) error {
 	}
 	s := &segment{
 		path:  l.path,
-		index: l.gidx,
+		index: uint64(len(l.segments)),
 		span: span{
-			start: int(pos) - datalen,
-			end:   int(pos),
+			start: int(pos),
+			end:   int(pos) + datalen,
 		},
 	}
 	l.segments = append(l.segments, s)
@@ -139,7 +210,12 @@ func (l *Logger) addSegment(datalen int) error {
 }
 
 func (l *Logger) PrintLoggerSegments() {
-	// TODO
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	for n, s := range l.segments {
+		fmt.Printf("segment[%d]=%v\n", n, s)
+	}
 }
 
 func (l *Logger) Seek(offset int64, whence int) error {

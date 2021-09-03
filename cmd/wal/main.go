@@ -16,6 +16,19 @@ func main() {
 		log.Panicf("open: %v", err)
 	}
 
+	l.PrintLoggerSegments()
+
+	e, err := l.ReadAt(2)
+	fmt.Printf("val=%q, err=%v\n", e, err)
+	e, err = l.ReadAt(4)
+	fmt.Printf("val=%q, err=%v\n", e, err)
+	e, err = l.ReadAt(3)
+	fmt.Printf("val=%q, err=%v\n", e, err)
+	e, err = l.ReadAt(1)
+	fmt.Printf("val=%q, err=%v\n", e, err)
+	e, err = l.ReadAt(0)
+	fmt.Printf("val=%q, err=%v\n", e, err)
+
 	doWrite := false
 
 	if doWrite {
