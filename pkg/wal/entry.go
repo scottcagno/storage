@@ -1,6 +1,8 @@
 package wal
 
-import "time"
+import (
+	"time"
+)
 
 type Entry struct {
 	ID        uint64
