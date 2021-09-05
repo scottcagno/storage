@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func OpenTempFile(dir, file string) *os.File {
@@ -141,4 +142,41 @@ func WalkDir(path string) error {
 		return nil
 	}
 	return fs.WalkDir(fileSystem, ".", fn)
+}
+
+func WatchFile(path string) error {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	initialStat, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	for {
+		stat, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		if stat.Size() != initialStat.Size() || stat.ModTime() != initialStat.ModTime() {
+			break
+		}
+		time.Sleep(3 * time.Second) // poll rate
+	}
+	return nil
+}
+
+func NewFileWatch(path string) {
+	done := make(chan bool)
+	go func(done chan bool) {
+		defer func() {
+			done <- true
+		}()
+		err := WatchFile(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println("File has been changed")
+	}(done)
+	<-done
 }

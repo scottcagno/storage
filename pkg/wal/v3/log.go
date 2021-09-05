@@ -2,8 +2,10 @@ package v3
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -34,13 +36,69 @@ func Open(path string) (*WAL, error) {
 	return wal, nil
 }
 
+func (wal *WAL) firstSegment() *segment {
+	return wal.segments[0]
+}
+
+func (wal *WAL) lastSegment() *segment {
+	return wal.segments[len(wal.segments)-1]
+}
+
 func (wal *WAL) load() error {
+	// check to see if directory exists
+	_, err := os.Stat(wal.path)
+	if os.IsNotExist(err) {
+		// create it if it does not exist
+		err = os.MkdirAll(wal.path, os.ModeDir)
+		if err != nil {
+			return err
+		}
+	}
+	// simply start walking the directory
 	files, err := os.ReadDir(wal.path)
 	if err != nil {
 		return err
 	}
+	// read files in dir and load segments
 	for _, file := range files {
+		// skip files that are not log segments
+		if file.IsDir() || !strings.HasSuffix(file.Name(), "seg.log") {
+			continue
+		}
+		// read header portion of each log segment to get the checksum and index
+		header, err := readLogSegmentHeader(file.Name())
+		if err != nil {
+			return err
+		}
+		if !header.hasValidChecksum() {
+			// TODO: handle this somehow??
+			continue
+		}
+		// add to log segment cache
+		wal.segments = append(wal.segments, &segment{
+			index: header.getIndex(),
+			path:  filepath.Join(wal.path, file.Name()),
+		})
 		fmt.Println(file.Name())
+	}
+	// if no segments, create a new log segment and return
+	if len(wal.segments) == 0 {
+		wal.segments = append(wal.segments, &segment{
+			index: 1,
+			path:  filepath.Join(wal.path, segmentName(1)),
+		})
+		wal.segfile, err = os.Create(wal.segments[0].path)
+		return err
+	}
+	// open last log segment for appending
+
+	wal.segfile, err = os.OpenFile(wal.lastSegment().path, os.O_WRONLY, 0666)
+	if err != nil {
+		return err
+	}
+	_, err = wal.segfile.Seek(0, io.SeekEnd)
+	if err != nil {
+		return err
 	}
 	return nil
 }

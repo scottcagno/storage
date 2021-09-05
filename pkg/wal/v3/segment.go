@@ -21,3 +21,22 @@ type span struct {
 func segmentName(index uint64) string {
 	return fmt.Sprintf("%020d", index)
 }
+
+type segmentHeader struct {
+}
+
+func (sh *segmentHeader) hasValidChecksum() bool {
+	return true
+}
+
+func (sh *segmentHeader) getIndex() uint64 {
+	return 1
+}
+
+func readLogSegmentHeader(path string) (*segmentHeader, error) {
+	return nil, nil
+}
+
+func writeLogSegmentHeader(path string, sh *segmentHeader) error {
+	return nil
+}
