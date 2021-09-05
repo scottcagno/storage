@@ -329,7 +329,7 @@ func (l *WAL) loadSegmentEntries(s *segment) error {
 			return err
 		}
 		data = data[n:]
-		spans = append(spans, span{start, pos + n})
+		spans = append(spans, span{start, start + n})
 		start += n
 	}
 	//s.ebuf = ebuf
