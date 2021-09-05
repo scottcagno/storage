@@ -1,4 +1,4 @@
-package wal
+package v1
 
 import (
 	"encoding/binary"
@@ -110,12 +110,12 @@ func (l *Logger) ReadAt(index int) ([]byte, error) {
 	// get segment at located at specified index
 	seg := l.segments[index]
 	// calculate entry length from start and end of segment span
-	elen := seg.span.end - seg.span.start
+	elen := seg.espan.end - seg.espan.start
 	// make byte slice of entry length size
 	entry := make([]byte, elen)
 
 	// read entry into slice at that offset
-	n, err := l.file.ReadAt(entry, int64(seg.span.start))
+	n, err := l.file.ReadAt(entry, int64(seg.espan.start))
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +200,7 @@ func (l *Logger) addSegment(datalen int) error {
 	s := &segment{
 		path:  l.path,
 		index: uint64(len(l.segments)),
-		span: span{
+		espan: span{
 			start: int(pos),
 			end:   int(pos) + datalen,
 		},

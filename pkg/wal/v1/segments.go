@@ -1,4 +1,4 @@
-package wal
+package v1
 
 import "fmt"
 
@@ -12,7 +12,7 @@ var DefaultFn = func(b byte) bool {
 type segment struct {
 	path  string // path of segment file
 	index uint64 // first index of segment
-	span
+	espan span
 }
 
 type span struct {

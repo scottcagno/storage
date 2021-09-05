@@ -1,4 +1,4 @@
-package wal
+package v1
 
 import (
 	"time"

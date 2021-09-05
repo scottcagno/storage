@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/common"
-	"github.com/scottcagno/storage/pkg/wal"
+	"github.com/scottcagno/storage/pkg/wal/v1"
 	"io"
 	"log"
 )
@@ -11,7 +11,7 @@ import (
 func main() {
 
 	// open write ahead log
-	l, err := wal.Open("cmd/wal/testlog/logfile.txt")
+	l, err := v1.Open("cmd/wal/testlog/logfile.txt")
 	if err != nil {
 		log.Panicf("open: %v", err)
 	}
@@ -95,7 +95,7 @@ func testing() {
 	common.ReadData(fd, data)
 	fmt.Printf("got: %s\n", data)
 
-	spans := wal.Segments(data, wal.DefaultFn)
+	spans := v1.Segments(data, v1.DefaultFn)
 	fmt.Println("spans")
 	for i, s := range spans {
 		fmt.Printf("i: %v, s: %v, data: %s\n", i, s, data[s.Start():s.End()])
