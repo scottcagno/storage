@@ -123,3 +123,15 @@ func ListDir(path string) error {
 	}
 	return nil
 }
+
+func WalkDir(path string, fn fs.WalkDirFunc) error {
+        root := path
+	fileSystem := os.DirFS(root)
+	return fs.WalkDir(fileSystem, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(p)
+		return nil
+	})
+}
