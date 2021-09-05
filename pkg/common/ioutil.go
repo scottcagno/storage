@@ -1,9 +1,12 @@
 package common
 
 import (
+	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 )
 
 func OpenTempFile(dir, file string) *os.File {
@@ -69,10 +72,10 @@ func CreateFileSize(path string, size int64) error {
 		if err != nil {
 			return err
 		}
-                err = fd.Truncate(size)
-	        if err != nil {
-		        return err
-	        }
+		err = fd.Truncate(size)
+		if err != nil {
+			return err
+		}
 		err = fd.Close()
 		if err != nil {
 			return err
@@ -82,11 +85,15 @@ func CreateFileSize(path string, size int64) error {
 }
 
 func TruncateFile(fd *os.File, size int64) error {
-        err := fd.Truncate(size)
-        if err != nil {
-                 return err
-        }
-        return nil
+	err := fd.Truncate(size)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func CleanPath(path string) (string, error) {
+	return filepath.Abs(path)
 }
 
 func OpenFile(path string) (*os.File, error) {
@@ -106,7 +113,7 @@ func OpenFile(path string) (*os.File, error) {
 			return fd, err
 		}
 	}
-	fd, err := os.OpenFile(path, os.O_RDWR, os.ModeSticky)
+	fd, err := os.OpenFile(path, os.O_RDWR, 0666) // os.ModeSticky
 	if err != nil {
 		return nil, err
 	}
@@ -124,14 +131,14 @@ func ListDir(path string) error {
 	return nil
 }
 
-func WalkDir(path string, fn fs.WalkDirFunc) error {
-        root := path
+func WalkDir(path string) error {
+	root := path
 	fileSystem := os.DirFS(root)
-	return fs.WalkDir(fileSystem, ".", func(p string, d fs.DirEntry, err error) error {
+	fn := func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
-		fmt.Println(p)
 		return nil
-	})
+	}
+	return fs.WalkDir(fileSystem, ".", fn)
 }

@@ -11,7 +11,7 @@ import (
 func main() {
 
 	// open write ahead log
-	l, err := v1.Open("cmd/wal/testlog/logfile.txt")
+	l, err := v1.Open("cmd/wal/v1/testlog/logfile.txt")
 	if err != nil {
 		log.Panicf("open: %v", err)
 	}

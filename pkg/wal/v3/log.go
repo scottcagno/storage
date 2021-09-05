@@ -1,7 +1,9 @@
 package v3
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -16,32 +18,49 @@ type WAL struct {
 	segcache   *segment
 }
 
-func (w *WAL) load() error {
-	// TODO: all the stuff...
+func Open(path string) (*WAL, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	wal := &WAL{
+		path:   path,
+		closed: true,
+	}
+	err = wal.load()
+	if err != nil {
+		return nil, err
+	}
+	return wal, nil
+}
+
+func (wal *WAL) load() error {
+	files, err := os.ReadDir(wal.path)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		fmt.Println(file.Name())
+	}
 	return nil
 }
 
-func (w *WAL) Open(path string) (*WAL, error) {
+func (wal *WAL) Read(index uint64) ([]byte, error) {
 	// TODO: all the stuff...
 	return nil, nil
 }
 
-func (w *WAL) Read(index uint64) ([]byte, error) {
-	// TODO: all the stuff...
-	return nil, nil
-}
-
-func (w *WAL) Write(index uint64, data []byte) error {
+func (wal *WAL) Write(index uint64, data []byte) error {
 	// TODO: all the stuff...
 	return nil
 }
 
-func (w *WAL) Sync() error {
+func (wal *WAL) Sync() error {
 	// TODO: all the stuff...
 	return nil
 }
 
-func (w *WAL) Close() error {
+func (wal *WAL) Close() error {
 	// TODO: all the stuff...
 	return nil
 }
