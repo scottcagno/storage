@@ -1,6 +1,9 @@
 package v3
 
-import "fmt"
+import (
+	"fmt"
+	"path/filepath"
+)
 
 // segment represents a segment file, which
 // is a single file representing a segment
@@ -11,15 +14,24 @@ type segment struct {
 	spans []span // cached entry spans in buffer
 }
 
+func (s *segment) String() string {
+	path := filepath.Base(s.path)
+	str := fmt.Sprintf("\nsegment:\n{\n\tpath: %q,\n\tindex: %d,\n\tspans: [ ", path, s.index)
+	for i := range s.spans {
+		str += fmt.Sprintf("%d", s.spans[i])
+	}
+	return str + " ]\n}\n"
+}
+
 // span represents the offset span of a single
 // entry within the segment file.
 type span struct {
-	start int
-	end   int
+	start uint64
+	end   uint64
 }
 
 func segmentName(index uint64) string {
-	return fmt.Sprintf("%020d", index)
+	return fmt.Sprintf("wal-%020d.seg", index)
 }
 
 type segmentHeader struct {

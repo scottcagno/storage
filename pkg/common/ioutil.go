@@ -85,6 +85,11 @@ func CreateFileSize(path string, size int64) error {
 	return nil
 }
 
+func DEBUG(s string, v interface{}) {
+	log.SetPrefix("[DEBUG] ")
+	log.Printf("%s: %v\n", s, v)
+}
+
 func TruncateFile(fd *os.File, size int64) error {
 	err := fd.Truncate(size)
 	if err != nil {
