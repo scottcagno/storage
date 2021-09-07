@@ -193,9 +193,10 @@ func (l *WAL) Write(index uint64, data []byte) error {
 	if l.closed {
 		return ErrClosed
 	}
-	l.wbatch.Clear()
-	l.wbatch.Write(index, data)
-	return l.writeEntryBatch(&l.wbatch)
+	//l.wbatch.Clear()
+	//l.wbatch.Write(index, data)
+	//return l.writeEntryBatch(&l.wbatch)
+	return nil
 }
 
 func (l *WAL) Sync() error {
@@ -245,6 +246,7 @@ func (l *WAL) cycle() error {
 	return nil
 }
 
+/*
 func (l *WAL) writeEntryBatch(b *EntryBatch) error {
 	// check that all indexes in batch are sane
 	for i := 0; i < len(b.entries); i++ {
@@ -300,6 +302,7 @@ func (l *WAL) writeEntryBatch(b *EntryBatch) error {
 	b.Clear()
 	return nil
 }
+*/
 
 func (l *WAL) findSegment(index uint64) int {
 	i, j := 0, len(l.segments)

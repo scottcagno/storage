@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"io/ioutil"
 	"log"
@@ -184,4 +185,13 @@ func NewFileWatch(path string) {
 		fmt.Println("File has been changed")
 	}(done)
 	<-done
+}
+
+func FilePointerOffset(fd *os.File) int64 {
+	pos, err := fd.Seek(0, io.SeekCurrent)
+	if err != nil {
+		log.Printf("error with file pointer offset: %v\n", err)
+		return -1
+	}
+	return pos
 }
