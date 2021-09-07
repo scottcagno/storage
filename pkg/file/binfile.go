@@ -142,6 +142,32 @@ func (bf *BinFile) Write(data []byte) (uint64, error) {
 	return bf.seqn, nil
 }
 
+func (bf *BinFile) OpenFile() error {
+	bf.mu.Lock()
+	defer bf.mu.Unlock()
+	if bf.fileOpen {
+		// file is already open, do nothing
+		return nil
+	}
+	return nil
+}
+
+func (bf *BinFile) CloseFile() error {
+	bf.mu.Lock()
+	defer bf.mu.Unlock()
+	if !bf.fileOpen {
+		// file is already closed, do nothing
+		return nil
+	}
+	return nil
+}
+
+func (bf *BinFile) IsFileOpen() bool {
+	bf.mu.Lock()
+	defer bf.mu.Unlock()
+	return bf.fileOpen
+}
+
 // Count returns the number of entries in the current file or -1 if there is an error
 func (bf *BinFile) Count() int64 {
 	bf.mu.Lock()
