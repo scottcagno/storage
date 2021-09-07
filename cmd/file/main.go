@@ -5,9 +5,24 @@ import (
 	"github.com/scottcagno/storage/pkg/common"
 	"log"
 	"os"
+	"path/filepath"
 )
 
+func CleaningPath(path string) {
+	npath, err := common.CleanPath(path)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("cleaning path: %q -> %q\n", path, npath)
+	npath = filepath.ToSlash(npath)
+	fmt.Printf("cleaning path: %q -> %q\n", path, npath)
+}
+
 func main() {
+	p := `foo/bar/foo.txt`
+
+	CleaningPath(p)
+	return
 
 	f, err := common.OpenFile("cmd/file/test.txt")
 	checkErr(err)

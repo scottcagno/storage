@@ -99,8 +99,12 @@ func TruncateFile(fd *os.File, size int64) error {
 	return nil
 }
 
-func CleanPath(path string) (string, error) {
-	return filepath.Abs(path)
+func CleanPath(path string) (string, string) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		log.Panicf("cleaning path: %v\n", err)
+	}
+	return filepath.Split(filepath.ToSlash(path))
 }
 
 func OpenFile(path string) (*os.File, error) {
