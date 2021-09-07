@@ -2,65 +2,53 @@ package main
 
 import (
 	"fmt"
-	"github.com/scottcagno/storage/pkg/common"
+	"github.com/scottcagno/storage/pkg/file"
 	"log"
-	"os"
 )
+
+var data = [][]byte{
+	[]byte("This is one record."),
+	[]byte("This is another record."),
+	[]byte("Another record for the record."),
+	[]byte("I am already running out of stuff to write."),
+	[]byte("Roses are red, sometimes."),
+	[]byte("Most balls are round."),
+	[]byte("How about we turn that frown, the other way around."),
+	[]byte("I wish I could type with my mind."),
+	[]byte("Space and the cosmos and black holes are really cool."),
+	[]byte("I wonder if we can all learn to seep like my father in law?"),
+}
 
 func main() {
 
-	f, err := common.OpenFile("cmd/file/test.txt")
+	bf, err := file.Open("cmd/file/binfile/data.txt")
 	checkErr(err)
-	defer f.Close()
 
-	printFPOffset(f)
+	idx, err := bf.Write(data[0])
+	checkErr(err)
+	fmt.Printf("wrote data at index: %d\n", idx)
 
-	doWrite := false
-	if doWrite {
-		fmt.Printf("writing data... (fp: %d)\n", common.FilePointerOffset(f))
-		for i := 0; i < 10; i++ {
-			printFPOffset(f)
-			_, err := f.Write(getData(i))
-			checkErr(err)
-		}
+	fmt.Printf("last sequence number: %d\n", bf.LastSequence())
+
+	res, err := bf.Read(idx)
+	checkErr(err)
+	fmt.Printf("read at: %d, result: %q\n", idx, res)
+
+	for i := 0; i < 10; i++ {
+		_, err := bf.Write(data[i])
+		fmt.Printf("wrote data and did not record index\n")
+		checkErr(err)
+		fmt.Printf("last offset: %d\n", bf.LastOffset())
 	}
 
-	fmt.Println(">> done writing data.")
-	printFPOffset(f)
+	count := bf.Count()
+	fmt.Printf("file entry count appears to be: %d\n", count)
 
-	buf1 := getData(3)
-	_, err = f.WriteAt(buf1, 27)
+	first, last := bf.First(), bf.Last()
+	fmt.Printf("first entry index: %d, last entry index: %d\n", first, last)
+
+	err = bf.Close()
 	checkErr(err)
-	fmt.Printf("WRITE AT(%d): %q", 27, buf1)
-	printFPOffset(f)
-
-	buf2 := make([]byte, 27)
-	_, err = f.ReadAt(buf2, 27)
-	checkErr(err)
-	fmt.Printf("READ AT(%d): %q", 81, buf2)
-	printFPOffset(f)
-
-	doRead := true
-	if doRead {
-		fmt.Printf("reading data... (fp: %d)\n", common.FilePointerOffset(f))
-		for i := 0; i < 10; i++ {
-			printFPOffset(f)
-			data := make([]byte, 27)
-			_, err := f.Read(data)
-			checkErr(err)
-			fmt.Printf("read: %q", data)
-		}
-	}
-
-}
-
-func printFPOffset(f *os.File) {
-	off := common.FilePointerOffset(f)
-	fmt.Printf("fp offset: %d\n", off)
-}
-
-func getData(n int) []byte {
-	return []byte(fmt.Sprintf("#%d this is entry number %d!\n", n, n))
 }
 
 func checkErr(err error) {
