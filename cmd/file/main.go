@@ -28,7 +28,7 @@ func main() {
 	checkErr(err)
 	fmt.Printf("wrote data at index: %d\n", idx)
 
-	fmt.Printf("last sequence number: %d\n", bf.LastSequence())
+	fmt.Printf("last sequence number: %d\n", bf.LatestIndex())
 
 	res, err := bf.Read(idx)
 	checkErr(err)
@@ -38,13 +38,13 @@ func main() {
 		_, err := bf.Write(data[i])
 		fmt.Printf("wrote data and did not record index\n")
 		checkErr(err)
-		fmt.Printf("last offset: %d\n", bf.LastOffset())
+		fmt.Printf("last offset: %d\n", bf.LatestOffset())
 	}
 
-	count := bf.Count()
+	count := bf.EntryCount()
 	fmt.Printf("file entry count appears to be: %d\n", count)
 
-	first, last := bf.First(), bf.Last()
+	first, last := bf.FirstIndex(), bf.LastIndex()
 	fmt.Printf("first entry index: %d, last entry index: %d\n", first, last)
 
 	err = bf.Close()

@@ -168,15 +168,15 @@ func (bf *BinFile) IsFileOpen() bool {
 	return bf.fileOpen
 }
 
-// Count returns the number of entries in the current file or -1 if there is an error
-func (bf *BinFile) Count() int64 {
+// EntryCount returns the number of entries in the current file or -1 if there is an error
+func (bf *BinFile) EntryCount() int64 {
 	bf.mu.Lock()
 	defer bf.mu.Unlock()
 	return int64(len(bf.meta))
 }
 
-// First returns the first entry index, or -1 if there is an error
-func (bf *BinFile) First() error {
+// FirstIndex returns the first entry index, or -1 if there is an error
+func (bf *BinFile) FirstIndex() error {
 	bf.mu.Lock()
 	defer bf.mu.Unlock()
 	if !bf.fileOpen {
@@ -185,8 +185,8 @@ func (bf *BinFile) First() error {
 	return nil
 }
 
-// Last return sthe last entry index or -1 if there is an error
-func (bf *BinFile) Last() error {
+// LastIndex return sthe last entry index or -1 if there is an error
+func (bf *BinFile) LastIndex() error {
 	bf.mu.Lock()
 	defer bf.mu.Unlock()
 	if !bf.fileOpen {
@@ -195,13 +195,13 @@ func (bf *BinFile) Last() error {
 	return nil
 }
 
-func (bf *BinFile) LastSequence() uint64 {
+func (bf *BinFile) LatestIndex() uint64 {
 	bf.mu.Lock()
 	defer bf.mu.Unlock()
 	return bf.seqn
 }
 
-func (bf *BinFile) LastOffset() int64 {
+func (bf *BinFile) LatestOffset() int64 {
 	bf.mu.Lock()
 	defer bf.mu.Unlock()
 	if !bf.fileOpen {
