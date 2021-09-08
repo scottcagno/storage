@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/file"
 	"log"
+	"time"
 )
 
 var data = [][]byte{
@@ -21,31 +22,41 @@ var data = [][]byte{
 
 func main() {
 
-	bf, err := file.Open("cmd/file/binfile/data.txt")
+	bf, err := file.Open("cmd/file/binfile")
 	checkErr(err)
 
 	idx, err := bf.Write(data[0])
 	checkErr(err)
 	fmt.Printf("wrote data at index: %d\n", idx)
-
 	fmt.Printf("last sequence number: %d\n", bf.LatestIndex())
 
 	res, err := bf.Read(idx)
 	checkErr(err)
 	fmt.Printf("read at: %d, result: %q\n", idx, res)
 
-	for i := 0; i < 10; i++ {
-		_, err := bf.Write(data[i])
-		fmt.Printf("wrote data and did not record index\n")
-		checkErr(err)
-		fmt.Printf("last offset: %d\n", bf.LatestOffset())
+	for {
+		_, err = bf.Write(data[0])
+		if err != nil {
+			fmt.Println(">>> BREAKING...")
+			break
+		}
+		fmt.Printf(">>> wrote data and did not record index\n")
+		time.Sleep(64 * time.Millisecond)
 	}
 
 	count := bf.EntryCount()
 	fmt.Printf("file entry count appears to be: %d\n", count)
 
-	first, last := bf.FirstIndex(), bf.LastIndex()
-	fmt.Printf("first entry index: %d, last entry index: %d\n", first, last)
+	first, err := bf.FirstIndex()
+	checkErr(err)
+	fmt.Printf("first entry index: %d\n", first)
+
+	last, err := bf.LastIndex()
+	checkErr(err)
+	fmt.Printf("last entry index: %d\n", last)
+
+	size := bf.Size()
+	fmt.Printf("file size: %d B, %d KB, %d MB\n", size, size/1024, size/1024/1024)
 
 	err = bf.Close()
 	checkErr(err)
