@@ -4,9 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/common"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -15,15 +13,11 @@ import (
 var (
 	errOutOfBounds = errors.New("error: out of bounds")
 	errFileClosed  = errors.New("error: file is closed")
-	errMaxFileSize = errors.New("error: max file size met")
+	//errMaxFileSize = errors.New("error: max file size met")
 )
 
 const (
-	szKB         = 1 << 10
-	szMB         = 1 << 20
-	szGB         = 1 << 30
-	maxFileSize  = TestFileSize // (1<<21) 2097152 bytes (2MB)
-	TestFileSize = 1 << 14      // (1<<14) 16384 bytes (16KB)
+	maxFileSize = 2 * 1 << 20 // 2 mb
 )
 
 type entry struct {
@@ -32,13 +26,18 @@ type entry struct {
 	offset uint64
 }
 
+func (e entry) String() string {
+	return fmt.Sprintf("entry.path=%q\nentry.index=%d\nentry.offset=%d\n\n",
+		e.path, e.index, e.offset)
+}
+
 type BinFile struct {
 	mu       sync.RWMutex
 	path     string   // represents the base path
 	file     *os.File // represents the underlying data file
 	fileOpen bool     // reports if the underlying file is open or not
-	coff     uint64   // latest offset pointer in the file
-	gidx     uint64   // latest sequence number used as an index
+	offset   uint64   // latest offset pointer in the file
+	index    uint64   // latest sequence number used as an index
 	entries  []entry  // holds offset for each entry
 }
 
@@ -50,51 +49,15 @@ func Open(path string) (*BinFile, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	//err := touch(path)
-	//if err != nil {
-	//	return nil, err
-	//}
-
-	// open file
-	//fd, err := os.OpenFile(path, os.O_RDWR, 0666) // os.ModeSticky
-	//if err != nil {
-	//	return nil, err
-	//}
-
-	// check to see if the file is new
-	//fi, err := fd.Stat()
-	//if err != nil {
-	//	return nil, err
-	//}
-
 	// create new file instance
 	bf := &BinFile{
 		path: path,
-		//file:     fd,
-		//fileOpen: true,
-		//size:     uint64(fi.Size()),
 	}
-
+	// attempt to load entries
 	err = bf.load()
 	if err != nil {
 		return nil, err
 	}
-
-	// if file is not empty
-	//if bf.size > 0 {
-	//	// check grow or split
-	//	err = bf.checkGrowOrSplit(0)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	// load entry meta data
-	//	err = bf.loadEntryMeta()
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//}
-	// return new binary file
 	return bf, nil
 }
 
@@ -121,19 +84,15 @@ func (bf *BinFile) load() error {
 			// if the file is empty skip loading entries
 			continue
 		}
-		common.DEBUG(">>>", "load -> LOADING ENTRIES FOR "+file.Name())
 		path := filepath.Join(bf.path, file.Name())
-		log.Printf("loading entries from: %s (%s)\n", path, file.Name())
 		// attempt to load entries from this file
 		err = bf.loadEntries(path)
 		if err != nil {
 			return err
 		}
-		common.DEBUG(">>>", "load -> DONE LOADING ENTRIES FOR "+file.Name())
 	}
 	// check to see if we need to create a new file
 	if len(bf.entries) == 0 {
-		common.DEBUG(">>>", "load -> CREATING A NEW FILE")
 		bf.entries = append(bf.entries, entry{
 			path:   filepath.Join(bf.path, fileName(0)),
 			index:  0,
@@ -144,22 +103,22 @@ func (bf *BinFile) load() error {
 		return err
 	}
 	path := bf.entries[len(bf.entries)-1].path
-	common.DEBUG(">>>", "load -> ATTEMPTING TO OPEN THE LAST ENTRY ("+path+")")
 	// open last entry
 	bf.file, err = os.OpenFile(path, os.O_RDWR, 0666) // os.ModeSticky
 	if err != nil {
 		return err
 	}
-	common.DEBUG(">>>", "load -> SEEKING TO END OF THE LAST ENTRY")
 	n, err := bf.file.Seek(0, io.SeekEnd)
 	if err != nil {
 		return err
 	}
-	common.DEBUG(">>>", "load -> OPENED LAST ENTRY AND CALLED SEEK TO END")
-
 	bf.fileOpen = true
-	bf.coff = uint64(n)
+	bf.offset = uint64(n)
 	return nil
+}
+
+func (bf *BinFile) GetEntries() []entry {
+	return bf.entries
 }
 
 func (bf *BinFile) loadEntries(path string) error {
@@ -168,7 +127,12 @@ func (bf *BinFile) loadEntries(path string) error {
 	if err != nil {
 		return err
 	}
-	defer fd.Close()
+	defer func(fd *os.File) {
+		err := fd.Close()
+		if err != nil {
+
+		}
+	}(fd)
 	// skip through entries and load entry metadata
 	offset := uint64(0)
 	for {
@@ -186,7 +150,7 @@ func (bf *BinFile) loadEntries(path string) error {
 		// add entry offset into file cache
 		bf.entries = append(bf.entries, entry{
 			path:   fd.Name(),
-			index:  bf.gidx,
+			index:  bf.index,
 			offset: offset,
 		})
 		// skip to next entry
@@ -195,18 +159,18 @@ func (bf *BinFile) loadEntries(path string) error {
 			return err
 		}
 		offset = uint64(n)
-		bf.gidx++
+		bf.index++
 	}
 	return nil
 }
 
-func (bf *BinFile) checkGrowOrSplit(n int64) error {
-	size, maxs := bf.coff+uint64(8+n), maxFileSize-(1<<13)
-	log.Printf("%d > %d = %v\n", size, maxs, size > uint64(maxs))
+func (bf *BinFile) doSplit(n int64) error {
+	// break this down into manageable bites
+	size, maxs := bf.offset+uint64(8+n), maxFileSize-(1<<13)
 	// check to see if we should grow
 	if size > uint64(maxs) {
-		// if the current size plus n exceeds max file size less 8 KB then it's time to grow.
-		//
+		// if the current size plus n exceeds max file size
+		// less 8 KB then it's time to grow. so first we...
 		// sync current file data
 		err := bf.file.Sync()
 		if err != nil {
@@ -218,17 +182,39 @@ func (bf *BinFile) checkGrowOrSplit(n int64) error {
 			return err
 		}
 		// create new file
-		path := filepath.Join(bf.path, fileName(bf.gidx))
+		path := filepath.Join(bf.path, fileName(bf.index))
 		file, err := os.Create(path)
 		if err != nil {
 			return err
 		}
-		// assign as main file
+		// assign as main file and reset the global offset
 		bf.file = file
-		bf.coff = 0
+		bf.offset = 0
 	}
 	// otherwise, no need to grow or split
 	return nil
+}
+
+func (bf *BinFile) fileOffset() uint64 {
+	bf.mu.Lock()
+	defer bf.mu.Unlock()
+	if !bf.fileOpen {
+		return 0
+	}
+	offset, err := getOffset(bf.file)
+	//offset, err := bf.file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0
+	}
+	return offset
+}
+
+func getOffset(fd *os.File) (uint64, error) {
+	offset, err := fd.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, err
+	}
+	return uint64(offset), nil
 }
 
 func (bf *BinFile) findEntry(index uint64) uint64 {
@@ -256,7 +242,6 @@ func (bf *BinFile) Read(index uint64) ([]byte, error) {
 	}
 	// get entry offset that matches index
 	offset := bf.entries[bf.findEntry(index)].offset
-	common.DEBUG("offset", offset)
 	// read entry length
 	var buf [8]byte
 	n, err := bf.file.ReadAt(buf[:], int64(offset))
@@ -283,31 +268,45 @@ func (bf *BinFile) Write(data []byte) (uint64, error) {
 	if !bf.fileOpen {
 		return 0, errFileClosed
 	}
-	err := bf.checkGrowOrSplit(int64(len(data)))
+	// check if we need to split
+	err := bf.doSplit(int64(len(data)))
 	if err != nil {
 		return 0, err
 	}
+	// get entry offset pointer
+	bf.offset, err = getOffset(bf.file)
+	if err != nil {
+		return 0, err
+	}
+	// write entry header
 	hdr := make([]byte, 8)
 	binary.LittleEndian.PutUint64(hdr, uint64(len(data)))
 	_, err = bf.file.Write(hdr)
 	if err != nil {
 		return 0, err
 	}
+	// write entry data
 	_, err = bf.file.Write(data)
 	if err != nil {
 		return 0, err
 	}
+	// for a sync / flush to disk
 	err = bf.file.Sync()
 	if err != nil {
 		return 0, err
 	}
+	// add new data entry to the entries cache
 	bf.entries = append(bf.entries, entry{
-		index:  bf.gidx,
-		offset: bf.coff,
+		index:  bf.index,
+		offset: bf.offset,
 	})
-	bf.coff += uint64(len(hdr) + len(data))
-	bf.gidx++
-	return bf.gidx, nil
+	bf.offset, err = getOffset(bf.file)
+	if err != nil {
+		return 0, err
+	}
+	//bf.offset += uint64(len(hdr) + len(data))
+	bf.index++
+	return bf.index, nil
 }
 
 func (bf *BinFile) OpenFile() error {
@@ -363,23 +362,27 @@ func (bf *BinFile) LastIndex() (uint64, error) {
 	return bf.entries[len(bf.entries)-1].index, nil
 }
 
-func (bf *BinFile) LatestIndex() uint64 {
-	bf.mu.Lock()
-	defer bf.mu.Unlock()
-	return bf.gidx
-}
-
-func (bf *BinFile) LatestOffset() int64 {
+func (bf *BinFile) LatestIndex() (uint64, error) {
 	bf.mu.Lock()
 	defer bf.mu.Unlock()
 	if !bf.fileOpen {
-		return -1
+		return 0, errFileClosed
 	}
-	offset, err := bf.file.Seek(0, io.SeekCurrent)
+	return bf.index, nil
+}
+
+func (bf *BinFile) LatestOffset() (uint64, error) {
+	bf.mu.Lock()
+	defer bf.mu.Unlock()
+	if !bf.fileOpen {
+		return 0, errFileClosed
+	}
+	offset, err := getOffset(bf.file)
+	//offset, err := bf.file.Seek(0, io.SeekCurrent)
 	if err != nil {
-		return -1
+		return 0, err
 	}
-	return offset
+	return offset, nil
 }
 
 func (bf *BinFile) Size() uint64 {
@@ -387,7 +390,7 @@ func (bf *BinFile) Size() uint64 {
 	defer bf.mu.Unlock()
 	fi, _ := bf.file.Stat()
 	return uint64(fi.Size())
-	//return bf.coff
+	//return bf.offset
 }
 
 func (bf *BinFile) Sync() error {
@@ -420,32 +423,4 @@ func clean(path string) string {
 
 func fileName(index uint64) string {
 	return fmt.Sprintf("wal-%020d.seg", index)
-}
-
-// touch "touches" (creates if it does not exist)
-// any folders or files in the path provided
-func touch(path string) error {
-	// check to see if directory exists
-	_, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		// split for distinction
-		dir, file := filepath.Split(path)
-		// create dir it if it does not exist
-		err = os.MkdirAll(dir, os.ModeDir)
-		if err != nil {
-			return err
-		}
-		// create file if it does not exist
-		fd, err := os.Create(dir + file)
-		if err != nil {
-			return err
-		}
-		// we are just "touching" this file
-		// so we need to close it again
-		err = fd.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }

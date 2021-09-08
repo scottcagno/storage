@@ -25,23 +25,35 @@ func main() {
 	bf, err := file.Open("cmd/file/binfile")
 	checkErr(err)
 
+	for _, e := range bf.GetEntries() {
+		log.Printf("%s", e)
+		time.Sleep(250 * time.Millisecond)
+	}
+
 	idx, err := bf.Write(data[0])
 	checkErr(err)
+	latest, _ := bf.LatestIndex()
 	fmt.Printf("wrote data at index: %d\n", idx)
-	fmt.Printf("last sequence number: %d\n", bf.LatestIndex())
+	fmt.Printf("last sequence number: %d\n", latest)
 
 	res, err := bf.Read(idx)
 	checkErr(err)
 	fmt.Printf("read at: %d, result: %q\n", idx, res)
 
+	i := 0
 	for {
 		_, err = bf.Write(data[0])
 		if err != nil {
 			fmt.Println(">>> BREAKING...")
 			break
 		}
-		fmt.Printf(">>> wrote data and did not record index\n")
-		time.Sleep(64 * time.Millisecond)
+		//fmt.Printf(">>> wrote data and did not record index\n")
+		//stime.Sleep(64 * time.Millisecond)
+		i++
+		if i > 9999 {
+			fmt.Println(">> wrote batch of 10,000...")
+			i = 0
+		}
 	}
 
 	count := bf.EntryCount()
