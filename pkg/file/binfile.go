@@ -17,28 +17,39 @@ var (
 )
 
 const (
-	maxFileSize = 2 * 1 << 20 // 2 mb
+	maxFileSize = 16 * 1 << 10 //2 * 1 << 20 // 2 mb
 )
 
 type entry struct {
-	path   string
+	//path   string
 	index  uint64
 	offset uint64
 }
 
 func (e entry) String() string {
-	return fmt.Sprintf("entry.path=%q\nentry.index=%d\nentry.offset=%d\n\n",
-		e.path, e.index, e.offset)
+	return fmt.Sprintf("entry.index=%d\nentry.offset=%d\n\n", e.index, e.offset)
+}
+
+type segment struct {
+	path    string
+	index   uint64
+	entries []entry
+}
+
+func (s *segment) String() string {
+	return fmt.Sprintf("segment.path=%q\nsegment.index=%d\nsegment.entries=%d\n\n",
+		s.path, s.index, len(s.entries))
 }
 
 type BinFile struct {
 	mu       sync.RWMutex
-	path     string   // represents the base path
-	file     *os.File // represents the underlying data file
-	fileOpen bool     // reports if the underlying file is open or not
-	offset   uint64   // latest offset pointer in the file
-	index    uint64   // latest sequence number used as an index
-	entries  []entry  // holds offset for each entry
+	path     string     // represents the base path
+	file     *os.File   // represents the underlying data file
+	fileOpen bool       // reports if the underlying file is open or not
+	offset   uint64     // latest offset pointer in the file
+	index    uint64     // latest sequence number used as an index
+	segments []*segment // holds offset for each entry
+	segcache *segment   // currently cached segment
 }
 
 // Open opens a new BinFile
@@ -92,19 +103,20 @@ func (bf *BinFile) load() error {
 		}
 	}
 	// check to see if we need to create a new file
-	if len(bf.entries) == 0 {
-		bf.entries = append(bf.entries, entry{
-			path:   filepath.Join(bf.path, fileName(0)),
-			index:  0,
-			offset: 0,
+	if len(bf.segments) == 0 {
+		bf.segments = append(bf.segments, &segment{
+			path:    filepath.Join(bf.path, fileName(0)),
+			index:   0,
+			entries: []entry{{index: 0, offset: 0}},
 		})
-		bf.file, err = os.Create(bf.entries[0].path)
+		bf.segcache = bf.segments[0]
+		bf.file, err = os.Create(bf.segcache.path)
 		bf.fileOpen = true
 		return err
 	}
-	path := bf.entries[len(bf.entries)-1].path
 	// open last entry
-	bf.file, err = os.OpenFile(path, os.O_RDWR, 0666) // os.ModeSticky
+	bf.segcache = bf.segments[len(bf.segments)-1]
+	bf.file, err = os.OpenFile(bf.segcache.path, os.O_RDWR, 0666) // os.ModeSticky
 	if err != nil {
 		return err
 	}
@@ -117,8 +129,8 @@ func (bf *BinFile) load() error {
 	return nil
 }
 
-func (bf *BinFile) GetEntries() []entry {
-	return bf.entries
+func (bf *BinFile) GetSegments() []*segment {
+	return bf.segments
 }
 
 func (bf *BinFile) loadEntries(path string) error {
@@ -133,6 +145,12 @@ func (bf *BinFile) loadEntries(path string) error {
 
 		}
 	}(fd)
+	// create segment
+	seg := &segment{
+		path:    path,
+		index:   bf.index,
+		entries: make([]entry, 0),
+	}
 	// skip through entries and load entry metadata
 	offset := uint64(0)
 	for {
@@ -148,8 +166,13 @@ func (bf *BinFile) loadEntries(path string) error {
 		// decode entry length
 		elen := binary.LittleEndian.Uint64(hdr[:])
 		// add entry offset into file cache
-		bf.entries = append(bf.entries, entry{
-			path:   fd.Name(),
+		//bf.segments = append(bf.segments, &segment{
+		//	path:   fd.Name(),
+		//	index:  bf.index,
+		//	offset: offset,
+		//})
+		// add entry to segment
+		seg.entries = append(seg.entries, entry{
 			index:  bf.index,
 			offset: offset,
 		})
@@ -161,6 +184,8 @@ func (bf *BinFile) loadEntries(path string) error {
 		offset = uint64(n)
 		bf.index++
 	}
+	// add new segment to segment cache
+	bf.segments = append(bf.segments, seg)
 	return nil
 }
 
@@ -188,6 +213,12 @@ func (bf *BinFile) doSplit(n int64) error {
 			return err
 		}
 		// assign as main file and reset the global offset
+		bf.segments = append(bf.segments, &segment{
+			path:    path,
+			index:   bf.index,
+			entries: make([]entry, 0),
+		})
+		bf.segcache = bf.segments[len(bf.segments)-1]
 		bf.file = file
 		bf.offset = 0
 	}
@@ -217,11 +248,24 @@ func getOffset(fd *os.File) (uint64, error) {
 	return uint64(offset), nil
 }
 
-func (bf *BinFile) findEntry(index uint64) uint64 {
-	i, j := 0, len(bf.entries)
+func (bf *BinFile) findSegment(index uint64) *segment {
+	i, j := 0, len(bf.segments)
 	for i < j {
 		h := i + (j-i)/2
-		if index >= bf.entries[h].index {
+		if index >= bf.segments[h].index {
+			i = h + 1
+		} else {
+			j = h
+		}
+	}
+	return bf.segments[i-1]
+}
+
+func (s *segment) findEntry(index uint64) uint64 {
+	i, j := 0, len(s.entries)
+	for i < j {
+		h := i + (j-i)/2
+		if index >= s.entries[h].index {
 			i = h + 1
 		} else {
 			j = h
@@ -241,7 +285,8 @@ func (bf *BinFile) Read(index uint64) ([]byte, error) {
 		return nil, errOutOfBounds
 	}
 	// get entry offset that matches index
-	offset := bf.entries[bf.findEntry(index)].offset
+	seg := bf.findSegment(index)
+	offset := seg.entries[seg.findEntry(index)].offset
 	// read entry length
 	var buf [8]byte
 	n, err := bf.file.ReadAt(buf[:], int64(offset))
@@ -296,7 +341,7 @@ func (bf *BinFile) Write(data []byte) (uint64, error) {
 		return 0, err
 	}
 	// add new data entry to the entries cache
-	bf.entries = append(bf.entries, entry{
+	bf.segcache.entries = append(bf.segcache.entries, entry{
 		index:  bf.index,
 		offset: bf.offset,
 	})
@@ -339,7 +384,11 @@ func (bf *BinFile) IsFileOpen() bool {
 func (bf *BinFile) EntryCount() uint64 {
 	bf.mu.Lock()
 	defer bf.mu.Unlock()
-	return uint64(len(bf.entries))
+	count := 0
+	for _, seg := range bf.segments {
+		count += len(seg.entries)
+	}
+	return uint64(count)
 }
 
 // FirstIndex returns the first entry index
@@ -349,7 +398,7 @@ func (bf *BinFile) FirstIndex() (uint64, error) {
 	if !bf.fileOpen {
 		return 0, errFileClosed
 	}
-	return bf.entries[0].index, nil
+	return bf.segments[0].index, nil
 }
 
 // LastIndex returns the last entry index
@@ -359,7 +408,7 @@ func (bf *BinFile) LastIndex() (uint64, error) {
 	if !bf.fileOpen {
 		return 0, errFileClosed
 	}
-	return bf.entries[len(bf.entries)-1].index, nil
+	return bf.segcache.entries[len(bf.segcache.entries)-1].index, nil
 }
 
 func (bf *BinFile) LatestIndex() (uint64, error) {

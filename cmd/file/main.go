@@ -25,8 +25,8 @@ func main() {
 	bf, err := file.Open("cmd/file/binfile")
 	checkErr(err)
 
-	for _, e := range bf.GetEntries() {
-		log.Printf("%s", e)
+	for _, s := range bf.GetSegments() {
+		log.Printf("segment: %s", s)
 		time.Sleep(250 * time.Millisecond)
 	}
 
