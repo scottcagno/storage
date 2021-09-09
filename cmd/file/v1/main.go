@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/scottcagno/storage/pkg/file"
+	"github.com/scottcagno/storage/pkg/file/v1"
 	"log"
 	"time"
 )
@@ -22,7 +22,7 @@ var data = [][]byte{
 
 func main() {
 
-	bf, err := file.Open("cmd/file/binfile")
+	bf, err := v1.Open("cmd/file/v1/binfile")
 	checkErr(err)
 
 	for _, s := range bf.GetSegments() {
