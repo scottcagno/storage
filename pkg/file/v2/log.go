@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	maxFileSize = 16 << 10 // 16 KB
-	memPageSize = 4 << 10  // 4 KB
+	maxFileSize = 4 << 20 // 4 MB
+	memPageSize = 8 << 10 // 8 KB
 	logPrefix   = "wal-"
 	logSuffix   = ".seg"
 )
