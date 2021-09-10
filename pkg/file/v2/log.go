@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,6 +74,7 @@ type Log struct {
 	index    uint64     // this is the global index number or the next number in the sequence
 	segments []*segment // each log file segment metadata
 	active   *segment   // the active (usually last) segment
+	noSync   bool
 }
 
 // Open opens and returns a new write-ahead logger. It automatically calls the load() method
@@ -85,13 +87,15 @@ func Open(base string) (*Log, error) {
 		return nil, err
 	}
 	// create new log instance
-	l := &Log{base: base}
+	l := &Log{
+		base:     base,
+		segments: make([]*segment, 0),
+	}
 	// attempt to load segments
 	err = l.load()
 	if err != nil {
 		return nil, err
 	}
-
 	return l, nil
 }
 
@@ -157,6 +161,7 @@ func (l *Log) load() error {
 // data to read, ErrSegmentFull if the file has met the maxFileSize and a
 // new segment needs to be created, otherwise returning a segment and nil
 func (l *Log) openSegment(path string) (*segment, error) {
+	log.Printf("openSegment(%q) called\n", path)
 	// init segment to fill out
 	s := &segment{
 		path:    path,
@@ -177,7 +182,8 @@ func (l *Log) openSegment(path string) (*segment, error) {
 			return nil, err
 		}
 		// update segment remaining, and add first entry
-		s.remaining = uint64(maxFileSize - info.Size())
+		s.remaining = maxFileSize
+		log.Printf("segment.remaining=%d\n", s.remaining)
 		s.entries = append(s.entries, entry{
 			index:  0,
 			offset: 0,
@@ -236,7 +242,7 @@ func (l *Log) openSegment(path string) (*segment, error) {
 }
 
 // getSegment returns last segment, or performs binary search to find matching index
-func (l *Log) getSegment(index uint64) *segment {
+func (l *Log) getSegment(index int64) *segment {
 	// declare for later
 	i, j := 0, len(l.segments)
 	// -1 represents the last segment
@@ -247,14 +253,15 @@ func (l *Log) getSegment(index uint64) *segment {
 	// otherwise, perform binary search
 	for i < j {
 		h := i + (j-i)/2
-		if index >= l.segments[h].index {
+		if index >= int64(l.segments[h].index) {
 			i = h + 1
 		} else {
 			j = h
 		}
 	}
-	index = uint64(i - 1)
 SkipBinsearch:
+	// update index
+	index = int64(i - 1)
 	// return segment
 	return l.segments[index]
 }
@@ -305,7 +312,7 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 		return nil, ErrOutOfBounds
 	}
 	// get entry offset that matches index
-	offset := l.getSegment(index).findEntryOffset(index)
+	offset := l.getSegment(int64(index)).findEntryOffset(index)
 	// read entry length
 	var buf [8]byte
 	n, err := l.fd.ReadAt(buf[:], int64(offset))
@@ -327,7 +334,7 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	return data, nil
 }
 
-// Write attempts to write a new entry in an append only fashion. It
+// Write attempts to write a new entry in an append-only fashion. It
 // will return ErrFileClosed if the file is not open to write, otherwise
 // it will return the global index of the entry written, and nil
 func (l *Log) Write(data []byte) (uint64, error) {
@@ -338,20 +345,15 @@ func (l *Log) Write(data []byte) (uint64, error) {
 	if !l.open {
 		return 0, ErrFileClosed
 	}
-	// check if current segment needs to be cycled
+	// check to see if the current segment needs to be cycled
 	if l.active.needsCycle(len(data)) {
 		err := l.cycle()
 		if err != nil {
 			return 0, err
 		}
 	}
-	//
-	err := l.doSplit(int64(len(data)))
-	if err != nil {
-		return 0, err
-	}
-	// get entry offset pointer
-	l.offset, err = getOffset(l.file)
+	// get the file pointer offset for the entry
+	offset, err := l.fd.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return 0, err
 	}
@@ -367,29 +369,26 @@ func (l *Log) Write(data []byte) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// for a sync / flush to disk
-	err = l.fd.Sync()
-	if err != nil {
-		return 0, err
+	// check sync policy
+	if !l.noSync {
+		// perform a sync / flush to disk
+		log.Println("PERFORMING SYNC")
+		err = l.fd.Sync()
+		if err != nil {
+			return 0, err
+		}
 	}
 	// add new data entry to the entries cache
 	l.active.entries = append(l.active.entries, entry{
-		index: l.index,
-		offset:,
-	})
-	l.segcache.entries = append(l.segcache.entries, entry{
 		index:  l.index,
-		offset: l.offset,
+		offset: uint64(offset),
 	})
-	l.offset, err = getOffset(l.file)
-	if err != nil {
-		return 0, err
-	}
-	//l.offset += uint64(len(hdr) + len(data))
+	// increment global index
 	l.index++
 	return l.index, nil
 }
 
+// Sync commits the current contents of the file to stable storage
 func (l *Log) Sync() error {
 	// lock
 	l.mu.Lock()
@@ -405,6 +404,8 @@ func (l *Log) Sync() error {
 	return nil
 }
 
+// Close first commits any in-memory copy of recently written data
+// to disk and then closes the File, rendering it unusable for I/O
 func (l *Log) Close() error {
 	// lock
 	l.mu.Lock()
@@ -422,5 +423,15 @@ func (l *Log) Close() error {
 	if err != nil {
 		return err
 	}
+	// make sure to change boolean
+	l.open = false
 	return nil
+}
+
+// Path returns the base path that the write-ahead logger is using
+func (l *Log) Path() string {
+	// lock
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.base
 }
