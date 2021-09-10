@@ -2,13 +2,18 @@ package v2
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 )
 
 // clean sanitizes a given path
 func clean(path string) string {
-	return ""
+	path, err := filepath.Abs(path)
+	if err != nil {
+		panic(err)
+	}
+	return filepath.ToSlash(path)
 }
 
 // name formats and returns a log name based on an index
@@ -38,4 +43,12 @@ func openFile(path string) (*os.File, error) {
 		return nil, err
 	}
 	return fd, nil
+}
+
+func LogErr(err error) {
+	log.Printf(">> (%T) %v\n", err, err)
+}
+
+func LogLineErr(line int, err error) {
+	log.Printf(">> [line %d] (%T) %v\n", line, err, err)
 }
