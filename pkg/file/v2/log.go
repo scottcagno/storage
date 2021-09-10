@@ -2,7 +2,7 @@ package v2
 
 import (
 	"encoding/binary"
-	"fmt"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +14,10 @@ const (
 	maxFileSize = 16 << 10 // 16KB
 	logPrefix   = "wal-"
 	logSuffix   = ".seg"
+)
+
+var (
+	ErrOutOfBounds = errors.New("error: out of bounds")
 )
 
 // entry metadata for this entry within the segment
@@ -37,7 +41,7 @@ type Log struct {
 	fdOpen   bool       // true if the current file descriptor is open
 	gindex   uint64     // this is the global index number or the next number in the sequence
 	segments []*segment // each log file segment metadata
-	active   int        // the active segment index
+	active   *segment   // the active (usually last) segment
 }
 
 func Open(base string) (*Log, error) {
@@ -86,21 +90,109 @@ func (l *Log) load() error {
 			continue
 		}
 		// attempt to load segment from file
-		err = l.loadSegment(filepath.Join(l.base, file.Name()))
+		s, err := l.openSegment(filepath.Join(l.base, file.Name()))
 		if err != nil {
 			return err
 		}
+		// add segment to segment list
+		l.segments = append(l.segments, s)
 		return nil
 	}
 	// if no segments were found, we need to initialize a new one
 	if len(l.segments) == 0 {
-		return l.addSegment()
+		s, err := l.openSegment(filepath.Join(l.base, fileName(0)))
+		if err != nil {
+			return err
+		}
+		// add segment to segment list
+		l.segments = append(l.segments, s)
+		l.active = s
+		l.fdOpen = true
+		return nil
 	}
 	// otherwise, we open the last entry
-	l.useSegment()
+	s, err := l.getSegment(-1)
+	if err != nil {
+		return nil
+	}
+	l.active = s
 	return nil
 }
 
+func (l *Log) openSegment(path string) (*segment, error) {
+	// init segment to fill out
+	s := &segment{
+		path:    path,
+		index:   l.gindex,
+		entries: make([]entry, 0),
+	}
+	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		// create new file
+		fd, err := os.Create(path)
+		if err != nil {
+			return nil, err
+		}
+		err = fd.Close()
+		if err != nil {
+			return nil, err
+		}
+		// add first entry
+		s.entries = append(s.entries, entry{
+			index:  0,
+			offset: 0,
+		})
+		// return new segment
+		return s, nil
+	}
+	// otherwise, open existing segment file
+	fd, err := os.OpenFile(path, os.O_RDONLY, 0666) // os.ModeSticky
+	if err != nil {
+		return nil, err
+	}
+	// defer close
+	defer fd.Close()
+	// iterate segment entries and load metadata
+	offset := uint64(0)
+	for {
+		// read entry length
+		var hdr [8]byte
+		_, err = io.ReadFull(fd, hdr[:])
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+			return nil, err
+		}
+		// decode entry length
+		elen := binary.LittleEndian.Uint64(hdr[:])
+		// add entry to segment
+		s.entries = append(s.entries, entry{
+			index:  l.gindex,
+			offset: offset,
+		})
+		// skip to next entry
+		n, err := fd.Seek(int64(elen), io.SeekCurrent)
+		if err != nil {
+			return nil, err
+		}
+		offset = uint64(n) // update file pointer offset
+		l.gindex++         // increment global index
+	}
+	return s, nil
+}
+
+func (l *Log) getSegment(index int) (*segment, error) {
+	if index > len(l.segments)-1 {
+		return nil, ErrOutOfBounds
+	}
+	if index == -1 {
+		index = len(l.segments) - 1
+	}
+	return l.segments[index], nil
+}
+
+/*
 func (l *Log) loadSegment(path string) error {
 	// open file to read
 	fd, err := os.OpenFile(path, os.O_RDONLY, 0666) // os.ModeSticky
@@ -143,7 +235,9 @@ func (l *Log) loadSegment(path string) error {
 	l.segments = append(l.segments, seg)
 	return nil
 }
+*/
 
+/*
 func (l *Log) addSegment() error {
 	// create filename for new segment
 	name := fmt.Sprintf("%s%020d%s", logPrefix, len(l.segments), logSuffix)
@@ -177,24 +271,4 @@ func (l *Log) addSegment() error {
 	l.fdOpen = true
 	return err
 }
-
-func (l *Log) useSegment(index uint64) {}
-
-func (s *segment) loadEntryMeta(fd *os.File, offset uint64) uint64 {
-	// read entry length
-	var hdr [8]byte
-	_, err = io.ReadFull(fd, hdr[:])
-	if err != nil {
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			break
-		}
-		return err
-	}
-	// decode entry length
-	elen := binary.LittleEndian.Uint64(hdr[:])
-	// add entry to segment
-	s.entries = append(s.entries, entry{
-		index:  s.index,
-		offset: offset,
-	})
-}
+*/
