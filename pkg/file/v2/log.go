@@ -358,6 +358,31 @@ SkipBinsearch:
 	return l.segments[index]
 }
 
+func (l *Log) setActiveSegment(s *segment) error {
+	// return early if there is nothing to update
+	if l.active.path == s.path && l.active == s {
+		return nil
+	}
+	// update the active segment pointer
+	l.active = s
+	// sync current file segment
+	err := l.fd.Sync()
+	if err != nil {
+		return err
+	}
+	// close current file segment
+	err = l.fd.Close()
+	if err != nil {
+		return err
+	}
+	// open the file associated with the active segment
+	l.fd, err = os.OpenFile(l.active.path, os.O_RDWR, 0666)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // cycle adds a new segment to replace the current active (full) segment
 func (l *Log) cycle() error {
 	log.Printf("attempting to cycle: old=%q, ", l.fd.Name())
@@ -374,7 +399,7 @@ func (l *Log) cycle() error {
 	// update global index
 	l.index++
 	// create new segment
-	s, err := l.openSegment(filepath.Join(l.base, fileName(l.index)))
+	s, err := l.makeSegment(filepath.Join(l.base, fileName(l.index)))
 	if err != nil {
 		return err
 	}
@@ -407,6 +432,11 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	}
 	// get entry that matches index
 	s := l.findSegment(int64(index))
+	// update active segment if they aren't the same
+	err := l.setActiveSegment(s)
+	if err != nil {
+		return nil, err
+	}
 	offset := s.entries[s.findEntry(index)].offset
 	// read entry length
 	var buf [8]byte

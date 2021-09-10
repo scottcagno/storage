@@ -57,7 +57,7 @@ func TestLog_Read(t *testing.T) {
 	indexes := make([]uint64, 0)
 
 	// do some writing
-	for i := 0; i < 150; i++ {
+	for i := 0; i < 500; i++ {
 		data := []byte(fmt.Sprintf("#%d -- this is entry number %d for the record!", i, i))
 		idx, err := wal.Write(data)
 		if err != nil {
@@ -103,19 +103,17 @@ func TestLog_Read(t *testing.T) {
 	}
 	log.Printf("data: %q\n", data)
 
-	/*
-		// do some reading
-		for i := 0; i < len(indexes); i++ {
-			idx := indexes[i]
-			data, err := wal.Read(idx)
-			if err != nil {
-				t.Fatalf("error reading at index %d\n", idx)
-			}
-			if len(data) == 0 {
-				t.Fatalf("expected data length to be greater than 0\n")
-			}
+	// do some reading
+	for i := 0; i < len(indexes); i++ {
+		idx := indexes[i]
+		data, err := wal.Read(idx)
+		if err != nil {
+			t.Fatalf("error reading at index %d\n", idx)
 		}
-	*/
+		if len(data) == 0 {
+			t.Fatalf("expected data length to be greater than 0\n")
+		}
+	}
 
 	// close log
 	err = wal.Close()
