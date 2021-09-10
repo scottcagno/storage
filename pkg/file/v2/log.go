@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -249,90 +248,6 @@ func (l *Log) loadSegment(path string) (*segment, error) {
 	return s, nil
 }
 
-// TODO: this method may be deprecated
-// openSegment opens or creates the segment at the path provided. it will
-// return io.ErrUnexpectedEOF if the file exists but is empty and has no
-// data to read, ErrSegmentFull if the file has met the maxFileSize and a
-// new segment needs to be created, otherwise returning a segment and nil // 76 loc
-func (l *Log) openSegment(path string) (*segment, error) {
-	// init segment to fill out
-	s := &segment{
-		path:    path,
-		index:   l.index,
-		entries: make([]entry, 0),
-	}
-	// check to see if the file needs to be created, or read
-	info, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		// create new file
-		fd, err := os.Create(path)
-		if err != nil {
-			return nil, err
-		}
-		// close, because we are just "touching" it
-		err = fd.Close()
-		if err != nil {
-			return nil, err
-		}
-		// update segment remaining, and add first entry
-		s.remaining = maxFileSize
-		s.entries = append(s.entries, entry{
-			index:  0,
-			offset: 0,
-		})
-		// return new segment
-		return s, nil
-	}
-	// otherwise, check file size to make sure there is something worth reading
-	if info.Size() < 1 {
-		return s, nil
-	}
-	// update segment remaining
-	s.remaining = uint64(maxFileSize - info.Size())
-	// check to bytes remaining before continuing
-	if s.remaining < 1 {
-		return nil, ErrSegmentFull
-	}
-	// open existing segment file for reading
-	fd, err := os.OpenFile(path, os.O_RDONLY, 0666) // os.ModeSticky
-	if err != nil {
-		return nil, err
-	}
-	// defer close
-	defer fd.Close()
-	// iterate segment entries and load metadata
-	offset := uint64(0)
-	for {
-		// read entry length
-		var hdr [8]byte
-		_, err = io.ReadFull(fd, hdr[:])
-		if err != nil {
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
-				break
-			}
-			return nil, err
-		}
-		// decode entry length
-		elen := binary.LittleEndian.Uint64(hdr[:])
-		// add entry to segment
-		s.entries = append(s.entries, entry{
-			index:  l.index,
-			offset: offset,
-		})
-		// skip to next entry
-		n, err := fd.Seek(int64(elen), io.SeekCurrent)
-		if err != nil {
-			return nil, err
-		}
-		// update the file pointer offset
-		offset = uint64(n)
-		// increment global index
-		l.index++
-		// continue on to process the next entry, or exit loop and return segment
-	}
-	return s, nil
-}
-
 // findSegment returns last segment, or performs binary search to find matching index
 func (l *Log) findSegment(index int64) *segment {
 	// declare for later
@@ -385,7 +300,6 @@ func (l *Log) setActiveSegment(s *segment) error {
 
 // cycle adds a new segment to replace the current active (full) segment
 func (l *Log) cycle() error {
-	log.Printf("attempting to cycle: old=%q, ", l.fd.Name())
 	// sync current file segment
 	err := l.fd.Sync()
 	if err != nil {
@@ -412,7 +326,6 @@ func (l *Log) cycle() error {
 	if err != nil {
 		return err
 	}
-	log.Printf("new=%q\n", l.fd.Name())
 	return nil
 }
 
@@ -448,19 +361,6 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	offset += uint64(n)
 	// decode entry length
 	elen := binary.LittleEndian.Uint64(buf[:])
-
-	// DEBUGGING...
-	if elen > 1024 {
-		seg := l.findSegment(int64(index))
-		should := seg.findEntry(index)
-		off := seg.entries[should].offset
-		fmt.Printf("offset: %d, should be: %d\n", offset, off)
-		s := l.findSegment(int64(index))
-		fmt.Printf("index %d is located in the following segment\n%s", index, s)
-		e := s.findEntry(index)
-		fmt.Printf("\tin entry number %d\n\t%s\n", e, s.entries[e])
-	}
-
 	// make byte slice of entry length size
 	data := make([]byte, elen)
 	// read entry from reader into slice
