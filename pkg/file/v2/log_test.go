@@ -57,7 +57,7 @@ func TestLog_Read(t *testing.T) {
 	indexes := make([]uint64, 0)
 
 	// do some writing
-	for i := 0; i < 500; i++ {
+	for i := 0; i < 50000; i++ {
 		data := []byte(fmt.Sprintf("#%d -- this is entry number %d for the record!", i, i))
 		idx, err := wal.Write(data)
 		if err != nil {
@@ -122,9 +122,12 @@ func TestLog_Read(t *testing.T) {
 	}
 
 	// clean up
-	err = os.RemoveAll(path)
-	if err != nil {
-		t.Fatalf("got error: %v\n", err)
+	doClean := false
+	if doClean {
+		err = os.RemoveAll(path)
+		if err != nil {
+			t.Fatalf("got error: %v\n", err)
+		}
 	}
 }
 

@@ -59,25 +59,126 @@ func (s *segment) findEntry(index uint64) uint64 {
 	return uint64(i - 1)
 }
 
-type logReader struct {
-	fd   *os.File
-	open bool
+// reader provides a read-only file descriptor
+type reader struct {
+	path string   // path of the file that is currently open
+	fd   *os.File // underlying file to read from
+	open bool     // is the file open
 }
 
-type logWriter struct {
-	fd   *os.File
-	open bool
+// openReader returns a *reader for the file at the provided path
+func openReader(path string) (*reader, error) {
+	fd, err := os.OpenFile(path, os.O_RDONLY, 0666)
+	if err != nil {
+		return nil, err
+	}
+	return &reader{
+		path: path,
+		fd:   fd,
+		open: true,
+	}, nil
+}
+
+// readFrom checks the given path and if it matches, simply returns
+// the same reader, but if it is different it opens a new one recycling
+// the same file descriptor. this allows you to read from multiple files
+// fairly quickly and pain free.
+func (r *reader) readFrom(path string) (*reader, error) {
+	// if there is already a file opened
+	if r.open {
+		// and if that file has the same path, simply return r
+		if r.path == path {
+			return r, nil
+		}
+		// otherwise, a file is still opened at a different
+		// location, so we must close it before we continue
+		err := r.close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	// open a file at a new path (if we're here then the file is closed)
+	fd, err := os.OpenFile(path, os.O_RDONLY, 0666)
+	if err != nil {
+		return nil, err
+	}
+	r.path = path
+	r.fd = fd
+	r.open = true
+	return r, nil
+}
+
+// close simply closes the *reader
+func (r *reader) close() error {
+	if !r.open {
+		return ErrFileClosed
+	}
+	err := r.fd.Close()
+	if err != nil {
+		return err
+	}
+	r.open = false
+	r.path = ""
+	return nil
+}
+
+// writer provides a write-only file descriptor
+type writer struct {
+	path string   // path of the file that is currently open
+	fd   *os.File // underlying file to write to
+	open bool     // is the file open
+}
+
+// openWriter returns a *writer for the file at the provided path
+func openWriter(path string) (*writer, error) {
+	fd, err := os.OpenFile(path, os.O_WRONLY, 0666)
+	if err != nil {
+		return nil, err
+	}
+	// seek to the end of the current file to continue appending data
+	_, err = fd.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, err
+	}
+	return &writer{
+		path: path,
+		fd:   fd,
+		open: true,
+	}, nil
+}
+
+// offset returns the *writer's current file pointer offset
+func (w *writer) offset() (int64, error) {
+	if !w.open {
+		return -1, ErrFileClosed
+	}
+	return w.fd.Seek(0, io.SeekCurrent)
+}
+
+// close syncs and closes the *writer
+func (w *writer) close() error {
+	if !w.open {
+		return ErrFileClosed
+	}
+	err := w.fd.Sync()
+	if err != nil {
+		return err
+	}
+	err = w.fd.Close()
+	if err != nil {
+		return err
+	}
+	w.open = false
+	w.path = ""
+	return nil
 }
 
 // Log represents a write-ahead log structure
 type Log struct {
 	mu       sync.RWMutex
 	base     string     // base directory for the logs
-	fr       *os.File   // file reader file descriptor
-	fw       *os.File   // file writer file descriptor
-	lr       *logReader // wrapper for a reader
-	lw       *logWriter // wrapper for a writer
-	open     bool       // true if the current file descriptor is open
+	r        *reader    // read only wrapper for an *os.File and reading
+	w        *writer    // write only wrapper for an *os.File and writing
 	index    uint64     // this is the global index number or the next number in the sequence
 	segments []*segment // each log file segment metadata
 	active   *segment   // the active (usually last) segment
@@ -123,12 +224,12 @@ func (l *Log) load() error {
 		if file.IsDir() || !strings.HasSuffix(file.Name(), logSuffix) {
 			continue
 		}
-		// attempt to load segment from file
+		// attempt to load segment and entry metadata from file
 		s, err := l.loadSegment(filepath.Join(l.base, file.Name()))
 		if err != nil {
 			return err
 		}
-		// add segment to segment list
+		// add segment along with metadata to segment list
 		l.segments = append(l.segments, s)
 	}
 	// if no segments were found, we need to initialize a new one
@@ -144,23 +245,18 @@ func (l *Log) load() error {
 	// update the active segment pointer
 	l.active = l.findSegment(-1)
 	// at this point everything has been successfully created or loaded,
-	// so it is time to open a file writer associated with the active segment
-	l.fw, err = os.OpenFile(l.active.path, os.O_WRONLY, 0666)
+	// so let us open a file reader associated with the active segment
+	l.r, err = openReader(l.active.path)
 	if err != nil {
 		return err
 	}
-	// seek to the end of the current file to continue appending data
-	_, err = l.fw.Seek(0, io.SeekEnd)
+	// and also let us open a file writer associated with the active
+	// segment. openWriter automatically seeks to the end of the file
+	// so that the appending of data can start as soon as possible
+	l.w, err = openWriter(l.active.path)
 	if err != nil {
 		return err
 	}
-	// also open a file reader associated with the active segment
-	l.fr, err = os.OpenFile(l.active.path, os.O_RDONLY, 0666)
-	if err != nil {
-		return err
-	}
-	// update the log file descriptor boolean
-	l.open = true
 	return nil
 }
 
@@ -173,12 +269,11 @@ func (l *Log) makeSegment(path string) (*segment, error) {
 		index:   l.index,
 		entries: make([]entry, 0),
 	}
-	// create new file
+	// "touch" a new file
 	fd, err := os.Create(path)
 	if err != nil {
 		return nil, err
 	}
-	// close, because we are just "touching" it
 	err = fd.Close()
 	if err != nil {
 		return nil, err
@@ -209,8 +304,10 @@ func (l *Log) loadSegment(path string) (*segment, error) {
 	if err != nil {
 		return nil, err
 	}
-	// defer close
-	defer fd.Close()
+	// defer (explicitly in closure) the file close
+	defer func(fd *os.File) {
+		_ = fd.Close()
+	}(fd)
 	// iterate segment entries and load metadata
 	offset := uint64(0)
 	for {
@@ -258,7 +355,7 @@ func (l *Log) findSegment(index int64) *segment {
 	// -1 represents the last segment
 	if index == -1 {
 		i = j
-		goto SkipBinsearch
+		goto SkipBinarySearch
 	}
 	// otherwise, perform binary search
 	for i < j {
@@ -269,52 +366,17 @@ func (l *Log) findSegment(index int64) *segment {
 			j = h
 		}
 	}
-SkipBinsearch:
+SkipBinarySearch:
 	// update index
 	index = int64(i - 1)
 	// return segment
 	return l.segments[index]
 }
 
-func (l *Log) setActiveSegment(s *segment) error {
-	// return early if there is nothing to update
-	if l.active.path == s.path && l.active == s {
-		return nil
-	}
-	// update the active segment pointer
-	l.active = s
-	// sync current file segment
-	err := l.fw.Sync()
-	if err != nil {
-		return err
-	}
-	// close current file segment
-	err = l.fw.Close()
-	if err != nil {
-		return err
-	}
-	// open file writer associated with the active segment
-	l.fw, err = os.OpenFile(l.active.path, os.O_WRONLY, 0666)
-	if err != nil {
-		return err
-	}
-	// open file reader associated with the active segment
-	l.fr, err = os.OpenFile(l.active.path, os.O_RDONLY, 0666)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 // cycle adds a new segment to replace the current active (full) segment
 func (l *Log) cycle() error {
-	// sync current file segment
-	err := l.fw.Sync()
-	if err != nil {
-		return err
-	}
-	// close current file segment
-	err = l.fw.Close()
+	// sync and close current file segment
+	err := l.w.close()
 	if err != nil {
 		return err
 	}
@@ -330,12 +392,12 @@ func (l *Log) cycle() error {
 	// update the active segment pointer
 	l.active = l.findSegment(-1)
 	// open file writer associated with the active segment
-	l.fw, err = os.OpenFile(l.active.path, os.O_WRONLY, 0666)
+	l.w, err = openWriter(l.active.path)
 	if err != nil {
 		return err
 	}
-	// open file reader associated with the active segment
-	l.fr, err = os.OpenFile(l.active.path, os.O_RDONLY, 0666)
+	// update file reader associated with the active segment
+	l.r, err = l.r.readFrom(l.active.path)
 	if err != nil {
 		return err
 	}
@@ -350,7 +412,7 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	// error checking
-	if !l.open {
+	if !l.r.open {
 		return nil, ErrFileClosed
 	}
 	if index == 0 {
@@ -360,9 +422,9 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	// get entry that matches index
 	s := l.findSegment(int64(index))
 	// make sure we are reading from the correct file
-	if l.fr.Name() != s.path {
-		// open the file associated with found segment
-		l.fr, err = os.OpenFile(s.path, os.O_RDONLY, 0666)
+	if l.r.path != s.path {
+		// update the reader with file associated with found segment
+		l.r, err = l.r.readFrom(s.path)
 		if err != nil {
 			return nil, err
 		}
@@ -371,7 +433,7 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	offset := s.entries[s.findEntry(index)].offset
 	// read entry length
 	var buf [8]byte
-	n, err := l.fr.ReadAt(buf[:], int64(offset))
+	n, err := l.r.fd.ReadAt(buf[:], int64(offset))
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +444,7 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	// make byte slice of entry length size
 	data := make([]byte, elen)
 	// read entry from reader into slice
-	_, err = l.fr.ReadAt(data, int64(offset))
+	_, err = l.r.fd.ReadAt(data, int64(offset))
 	if err != nil {
 		return nil, err
 	}
@@ -398,28 +460,28 @@ func (l *Log) Write(data []byte) (uint64, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	// error checking
-	if !l.open {
+	if !l.w.open {
 		return 0, ErrFileClosed
 	}
 	// get the file pointer offset for the entry
-	offset, err := l.fw.Seek(0, io.SeekCurrent)
+	offset, err := l.w.offset()
 	if err != nil {
 		return 0, err
 	}
 	// write entry header
 	hdr := make([]byte, 8)
 	binary.LittleEndian.PutUint64(hdr, uint64(len(data)))
-	_, err = l.fw.Write(hdr)
+	_, err = l.w.fd.Write(hdr)
 	if err != nil {
 		return 0, err
 	}
 	// write entry data
-	_, err = l.fw.Write(data)
+	_, err = l.w.fd.Write(data)
 	if err != nil {
 		return 0, err
 	}
 	// perform a sync / flush to disk
-	err = l.fw.Sync()
+	err = l.w.fd.Sync()
 	if err != nil {
 		return 0, err
 	}
@@ -447,11 +509,11 @@ func (l *Log) Sync() error {
 	// lock
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if !l.open {
+	if !l.w.open {
 		return ErrFileClosed
 	}
 	// sync file
-	err := l.fw.Sync()
+	err := l.w.fd.Sync()
 	if err != nil {
 		return err
 	}
@@ -464,31 +526,23 @@ func (l *Log) Close() error {
 	// lock
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if !l.open {
+	if !l.w.open {
 		return ErrFileClosed
 	}
-	// sync file first, before closing
-	err := l.fw.Sync()
+	// sync and close
+	err := l.w.close()
 	if err != nil {
 		return err
 	}
 	// attempt to close file
-	err = l.fw.Close()
-	if err != nil {
-		return err
-	}
-	// attempt to close file
-	err = l.fr.Close()
+	err = l.r.close()
 	if err != nil {
 		return err
 	}
 	// clean up everything
 	l.base = ""
-	l.fr = nil
-	l.fw = nil
-	l.lr = nil
-	l.lw = nil
-	l.open = false
+	l.r = nil
+	l.w = nil
 	l.index = 0
 	l.segments = nil
 	l.active = nil
@@ -531,4 +585,18 @@ func (s *segment) String() string {
 	ss += fmt.Sprintf("entries: %d\n", len(s.entries))
 	ss += fmt.Sprintf("remaining: %d\n", s.remaining)
 	return ss
+}
+
+// clean sanitizes a given path
+func clean(path string) string {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		panic(err)
+	}
+	return filepath.ToSlash(path)
+}
+
+// name formats and returns a log name based on an index
+func fileName(index uint64) string {
+	return fmt.Sprintf("%s%020d%s", logPrefix, index, logSuffix)
 }
