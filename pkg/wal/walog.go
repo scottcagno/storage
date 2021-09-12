@@ -484,9 +484,9 @@ func (l *Log) Write(data []byte) (uint64, error) {
 		return 0, err
 	}
 	// write entry header
-	hdr := make([]byte, 8)
-	binary.LittleEndian.PutUint64(hdr, uint64(len(data)))
-	_, err = l.w.fd.Write(hdr)
+	var hdr [8]byte
+	binary.LittleEndian.PutUint64(hdr[:], uint64(len(data)))
+	_, err = l.w.fd.Write(hdr[:])
 	if err != nil {
 		return 0, err
 	}
