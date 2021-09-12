@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,6 +18,7 @@ const (
 	memPageSize = 8 << 10 // 8 KB
 	logPrefix   = "wal-"
 	logSuffix   = ".seg"
+	firstIndex  = 1
 )
 
 var (
@@ -196,6 +198,7 @@ func Open(base string) (*Log, error) {
 	// create new log instance
 	l := &Log{
 		base:     base,
+		index:    firstIndex,
 		segments: make([]*segment, 0),
 	}
 	// attempt to load segments
@@ -235,7 +238,7 @@ func (l *Log) load() error {
 	// if no segments were found, we need to initialize a new one
 	if len(l.segments) == 0 {
 		// create new segment file
-		s, err := l.makeSegment(filepath.Join(l.base, fileName(0)))
+		s, err := l.makeSegment(filepath.Join(l.base, fileName(firstIndex)))
 		if err != nil {
 			return err
 		}
@@ -243,7 +246,9 @@ func (l *Log) load() error {
 		l.segments = append(l.segments, s)
 	}
 	// update the active segment pointer
-	l.active = l.findSegment(-1)
+	l.active = l.lastSegment()
+	// TODO: consider removing commented code below
+	//l.active = l.findSegment(-1)
 	// at this point everything has been successfully created or loaded,
 	// so let us open a file reader associated with the active segment
 	l.r, err = openReader(l.active.path)
@@ -261,7 +266,7 @@ func (l *Log) load() error {
 }
 
 // makeSegment creates a segment at the path provided. On
-// success, it will simply return segment, and a nil error // 25 loc
+// success, it will simply return segment, and a nil error
 func (l *Log) makeSegment(path string) (*segment, error) {
 	// init segment to fill out
 	s := &segment{
@@ -280,10 +285,11 @@ func (l *Log) makeSegment(path string) (*segment, error) {
 	}
 	// update segment remaining, and add first entry
 	s.remaining = maxFileSize
-	s.entries = append(s.entries, entry{
-		index:  0,
-		offset: 0,
-	})
+	// TODO: consider removing commented code below
+	//s.entries = append(s.entries, entry{
+	//	index:  l.index,
+	//	offset: 0,
+	//})
 	// return new segment
 	return s, nil
 }
@@ -291,7 +297,7 @@ func (l *Log) makeSegment(path string) (*segment, error) {
 // loadSegment opens the segment at the path provided. it will return an
 // io.ErrUnexpectedEOF if the file exists but is empty and has no data to
 // read, ErrSegmentFull if the file has met the maxFileSize or on success
-// will simply return segment, and a nil error // 51 loc
+// will simply return segment, and a nil error
 func (l *Log) loadSegment(path string) (*segment, error) {
 	// init segment to fill out
 	s := &segment{
@@ -373,6 +379,11 @@ SkipBinarySearch:
 	return l.segments[index]
 }
 
+// lastSegment returns the last segment in the segment list
+func (l *Log) lastSegment() *segment {
+	return l.segments[len(l.segments)-1]
+}
+
 // cycle adds a new segment to replace the current active (full) segment
 func (l *Log) cycle() error {
 	// sync and close current file segment
@@ -390,7 +401,9 @@ func (l *Log) cycle() error {
 	// add segment to segment list
 	l.segments = append(l.segments, s)
 	// update the active segment pointer
-	l.active = l.findSegment(-1)
+	l.active = l.lastSegment()
+	// TODO: consider removing commented code below
+	//l.active = l.findSegment(-1)
 	// open file writer associated with the active segment
 	l.w, err = openWriter(l.active.path)
 	if err != nil {
@@ -415,12 +428,13 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	if !l.r.open {
 		return nil, ErrFileClosed
 	}
-	if index == 0 {
+	if index < firstIndex {
 		return nil, ErrOutOfBounds
 	}
 	var err error
 	// get entry that matches index
 	s := l.findSegment(int64(index))
+	log.Printf("look up index: %d\n%s\n", index, s)
 	// make sure we are reading from the correct file
 	if l.r.path != s.path {
 		// update the reader with file associated with found segment
@@ -431,6 +445,7 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	}
 	// get the entry offset that matches index
 	offset := s.entries[s.findEntry(index)].offset
+	log.Printf("entry: %s\n", s.entries[s.findEntry(index)])
 	// read entry length
 	var buf [8]byte
 	n, err := l.r.fd.ReadAt(buf[:], int64(offset))
@@ -501,7 +516,60 @@ func (l *Log) Write(data []byte) (uint64, error) {
 			return 0, err
 		}
 	}
-	return l.index, nil
+	return l.index - 1, nil
+}
+
+// Scan is a log iterator
+func (l *Log) Scan(iter func(index uint64, data []byte) bool) error {
+	// read lock
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if !l.w.open {
+		return ErrFileClosed
+	}
+	// init for any errors
+	var err error
+	// range the in memory segment index
+	for _, seg := range l.segments {
+		// make sure we are reading the right data
+		l.r, err = l.r.readFrom(seg.path)
+		if err != nil {
+			return err
+		}
+		// iterate segment entries
+		for _, ent := range seg.entries {
+			// get local offset for each entry
+			offset := ent.offset
+			// read entry length
+			var hdr [8]byte
+			_, err = l.r.fd.ReadAt(hdr[:], int64(offset))
+			if err != nil {
+				if err == io.EOF || err == io.ErrUnexpectedEOF {
+					break
+				}
+				return err
+			}
+			// update offset pointer for this entry
+			offset += uint64(len(hdr))
+			// decode entry length
+			elen := binary.LittleEndian.Uint64(hdr[:])
+			// make byte slice of entry length size
+			data := make([]byte, elen)
+			// read entry from reader into slice
+			_, err = l.r.fd.ReadAt(data, int64(offset))
+			if err != nil {
+				return err
+			}
+			// check entry against iterator boolean function
+			if !iter(ent.index, data) {
+				// if it returns false, then process next entry
+				continue
+			}
+		}
+		// outside entry loop
+	}
+	// outside segment loop
+	return nil
 }
 
 // Sync commits the current contents of the file to stable storage
@@ -556,6 +624,17 @@ func (l *Log) Path() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.base
+}
+
+// Count returns the number of entries the log has written
+func (l *Log) Count() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var count int
+	for _, s := range l.segments {
+		count += len(s.entries)
+	}
+	return count
 }
 
 // String is a stringer method for a Log

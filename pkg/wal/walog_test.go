@@ -57,7 +57,7 @@ func TestLog_Read(t *testing.T) {
 	indexes := make([]uint64, 0)
 
 	// do some writing
-	for i := 0; i < 50000; i++ {
+	for i := 0; i < 5000; i++ {
 		data := []byte(fmt.Sprintf("#%d -- this is entry number %d for the record!", i, i))
 		idx, err := wal.Write(data)
 		if err != nil {
@@ -112,6 +112,9 @@ func TestLog_Read(t *testing.T) {
 		}
 		if len(data) == 0 {
 			t.Fatalf("expected data length to be greater than 0\n")
+		}
+		if i < 50 {
+			fmt.Printf("looking up entry at index: %d -> %s\n", idx, data)
 		}
 	}
 
