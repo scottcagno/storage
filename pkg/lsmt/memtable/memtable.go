@@ -1,13 +1,23 @@
 package memtable
 
 import (
+	"errors"
 	"github.com/scottcagno/storage/pkg/index/rbtree"
 	"github.com/scottcagno/storage/pkg/lsmt"
 	"github.com/scottcagno/storage/pkg/wal"
 	"sync"
+	"time"
 )
 
-const walPath = "memdata"
+const (
+	walPath      = "memdata"
+	regularEntry = 0x1A
+	removedEntry = 0x1B
+)
+
+var (
+	ErrNotFound = errors.New("error: not found")
+)
 
 type Memtable struct {
 	mu   sync.RWMutex
@@ -44,11 +54,12 @@ func (m *Memtable) load() error {
 			if data == nil {
 				return false
 			}
-			r, err := lsmt.DecodeRecord(data)
+			var ent *lsmt.Entry
+			err := ent.UnmarshalBinary(data)
 			if err != nil {
 				return false
 			}
-			err = m.Put(string(r.Key), r.Value)
+			err = m.Put(ent.Key, ent.Value)
 			if err != nil {
 				return false
 			}
@@ -66,7 +77,13 @@ func (m *Memtable) Put(key string, value []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	// encode key-value pair into a new record
-	data, err := lsmt.EncodeRecord([]byte(key), value)
+	ent := &lsmt.Entry{
+		Type:      regularEntry,
+		Timestamp: time.Now(),
+		Key:       key,
+		Value:     value,
+	}
+	data, err := ent.MarshalBinary()
 	if err != nil {
 		return err
 	}
@@ -88,13 +105,67 @@ func (m *Memtable) Get(key string) ([]byte, error) {
 	// read lock
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return nil, nil
+	// see if it's in the memtable
+	value, ok := m.mem.Get(key)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return value, nil
 }
 
-func (m *Memtable) Del() error {
+func (m *Memtable) Del(key string) error {
 	// lock
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// encode key-value pair into a tombstone record
+	ent := &lsmt.Entry{
+		Type:      removedEntry,
+		Timestamp: time.Now(),
+		Key:       key,
+		Value:     nil,
+	}
+	data, err := ent.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	// write put entry to the write-ahead logger
+	_, err = m.wal.Write(data)
+	if err != nil {
+		return err
+	}
+	// write put entry to the memtable
+	_, ok := m.mem.Put(key, nil)
+	// update size in memtable
+	if ok {
+		m.size += int64(len(data))
+	}
+	return nil
+}
+
+func (m *Memtable) FlushToSSTable() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// create a new temp memtable while we are using this one
+	// TODO: ^ that
+
+	// create new sstable file
+	// TODO: ^ that
+
+	// iterate all of the entries in the memtable in sorted
+	// order and write each entry to the sstable file
+	// TODO: ^ that
+
+	// make sure sstable file is flushed to disk
+	// TODO: ^ that
+
+	// reset the memtable data
+	// TODO: ^ that
+
+	// close and remove the existing write-ahead log file
+	// we don't need this one anymore and open a "fresh" one
+	// TODO: ^ that
+
 	return nil
 }
 
