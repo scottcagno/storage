@@ -6,7 +6,9 @@
 package bptree
 
 import (
+	"encoding/binary"
 	"log"
+	"strconv"
 	"strings"
 	"unsafe"
 )
@@ -84,12 +86,35 @@ func NewBPTree() *BPTree {
 // Has returns a boolean indicating weather or not
 // the provided key and associated record exists.
 func (t *BPTree) Has(key string) bool {
-	return t.findRecord(key) != nil
+	return t.findEntry(key) != nil
+}
+
+// HasInt tests and returns a boolean value if the
+// provided key exists in the tree
+func (t *BPTree) HasInt(key int64) bool {
+	return t.findEntry(IntToKey(key)) != nil
 }
 
 // Add inserts a new record using the provided key. It
-// only inserts and entry if the key does not already exist.
+// only inserts an entry if the key does not already exist.
 func (t *BPTree) Add(key string, value []byte) {
+	// master insertUnique method only inserts if the key
+	// does not currently exist in the tree
+	t.insertUnique(key, value)
+}
+
+// AddInt inserts a new record using the provided integer key
+// and value. It only inserts an entry if the key does not
+// already exist.
+func (t *BPTree) AddInt(key int64, value int64) {
+	// master insertUnique method only inserts if the key
+	// does not currently exist in the tree
+	t.insertUnique(IntToKey(key), IntToVal(value))
+}
+
+// insertUnique inserts a new record using the provided key. It
+// only inserts an entry if the key does not already exist.
+func (t *BPTree) insertUnique(key string, value []byte) {
 	// If the tree is empty, start a new one and return.
 	if t.root == nil {
 		t.root = startNewTree(key, &entry{key, value})
@@ -98,6 +123,7 @@ func (t *BPTree) Add(key string, value []byte) {
 	// If the tree already exists, let's see what we
 	// get when we try to find the correct leaf.
 	leaf := findLeaf(t.root, key)
+	// check to ensure the leaf node does already contain the key
 	if leaf.hasKey(key) {
 		return // Key already exists! So lets just return.
 	}
@@ -111,19 +137,56 @@ func (t *BPTree) Add(key string, value []byte) {
 	t.root = insertIntoLeafAfterSplitting(t.root, leaf, key, &entry{key, value})
 }
 
-// Set inserts a new record using the provided key. It
-// only inserts and entry if the key does not already exist.
-func (t *BPTree) Set(key string, value []byte) {
-	t.insert(key, value)
+// Put is mainly used when you wish to upsert as it assumes the
+// data to already be contained the tree. It will  overwrite
+// duplicate keys, as it does not check to see if the key exists
+func (t *BPTree) Put(key string, value []byte) bool {
+	// master insert method treats insertion much like
+	// "setting" in a hashmap (an upsert) by default
+	return t.insert(key, value)
+}
+
+// PutInt is mainly used when you wish to upsert as it assumes the
+// data to already be contained the tree. It will overwrite
+// duplicate keys, as it does not check to see if the key exists
+func (t *BPTree) PutInt(key int64, value int64) bool {
+	// master insert method treats insertion much like
+	// "setting" in a hashmap (an upsert) by default
+	return t.insert(IntToKey(key), IntToVal(value))
 }
 
 // Get returns the record for a given key if it exists
-func (t *BPTree) Get(key string) *entry {
-	return t.findRecord(key)
+func (t *BPTree) Get(key string) (string, []byte) {
+	e := t.findEntry(key)
+	if e == nil {
+		return "", nil
+	}
+	return e.Key, e.Value
 }
 
-func (t *BPTree) Del(key string) {
-	t.delete(key)
+// GetInt returns the record for a given key if it exists
+func (t *BPTree) GetInt(key int64) (int64, int64) {
+	e := t.findEntry(IntToKey(key))
+	if e == nil {
+		return -1, -1
+	}
+	return KeyToInt(e.Key), ValToInt(e.Value)
+}
+
+func (t *BPTree) Del(key string) (string, []byte) {
+	e := t.delete(key)
+	if e == nil {
+		return "", nil
+	}
+	return e.Key, e.Value
+}
+
+func (t *BPTree) DelInt(key int64) (int64, int64) {
+	e := t.delete(IntToKey(key))
+	if e == nil {
+		return -1, -1
+	}
+	return KeyToInt(e.Key), ValToInt(e.Value)
 }
 
 func (t *BPTree) Range(iter func(k string, v []byte) bool) {
@@ -131,11 +194,11 @@ func (t *BPTree) Range(iter func(k string, v []byte) bool) {
 	if c == nil {
 		return
 	}
-	var record *entry
+	var e *entry
 	for {
 		for i := 0; i < c.numKeys; i++ {
-			record = (*entry)(c.pointers[i])
-			if record != nil && !iter(record.Key, record.Value) {
+			e = (*entry)(c.pointers[i])
+			if e != nil && !iter(e.Key, e.Value) {
 				continue
 			}
 		}
@@ -147,20 +210,22 @@ func (t *BPTree) Range(iter func(k string, v []byte) bool) {
 	}
 }
 
-func (t *BPTree) Min() *entry {
+func (t *BPTree) Min() (string, []byte) {
 	c := findFirstLeaf(t.root)
 	if c == nil {
-		return nil
+		return "", nil
 	}
-	return (*entry)(c.pointers[0])
+	e := (*entry)(c.pointers[0])
+	return e.Key, e.Value
 }
 
-func (t *BPTree) Max() *entry {
+func (t *BPTree) Max() (string, []byte) {
 	c := findLastLeaf(t.root)
 	if c == nil {
-		return nil
+		return "", nil
 	}
-	return (*entry)(c.pointers[c.numKeys-1])
+	e := (*entry)(c.pointers[c.numKeys-1])
+	return e.Key, e.Value
 }
 
 func (t *BPTree) Len() int {
@@ -169,6 +234,10 @@ func (t *BPTree) Len() int {
 		count += n.numKeys
 	}
 	return count
+}
+
+func (t *BPTree) Size() int {
+	return 0
 }
 
 func (t *BPTree) Close() {
@@ -181,12 +250,12 @@ func (t *BPTree) Close() {
 // the B+ tree, causing the tree to be adjusted
 // however necessary to maintain the B+ tree
 // properties
-func (t *BPTree) insert(key string, value []byte) {
+func (t *BPTree) insert(key string, value []byte) bool {
 
 	// CASE: BPTree does not exist yet, start a new tree
 	if t.root == nil {
 		t.root = startNewTree(key, &entry{key, value})
-		return
+		return false
 	}
 
 	// The current implementation ignores duplicates (will treat it kind of like a set operation)
@@ -195,7 +264,7 @@ func (t *BPTree) insert(key string, value []byte) {
 
 		// If the key already exists in this tree then proceed to update Value and return
 		recordPointer.Value = value
-		return
+		return true
 	}
 
 	// No Record found, so create a new Record for the Value. NOTE: Normally t.find would not return
@@ -207,12 +276,12 @@ func (t *BPTree) insert(key string, value []byte) {
 	// Leaf has room for the key and recordPointer--insert into leaf and return
 	if leaf.numKeys < defaultOrder-1 {
 		insertIntoLeaf(leaf, key, &entry{key, value})
-		return
+		return false
 	}
 
 	// Leaf does not have enough room and needs to be split
 	t.root = insertIntoLeafAfterSplitting(t.root, leaf, key, &entry{key, value})
-	return
+	return false
 }
 
 // startNewTree first insertion case: starts a new tree
@@ -497,9 +566,9 @@ func (t *BPTree) find(key string) (*bpNode, *entry) {
 }
 
 /*
- *	findRecord finds and returns the Record to which a key refers
+ *	findEntry finds and returns the entry to which a key refers
  */
-func (t *BPTree) findRecord(key string) *entry {
+func (t *BPTree) findEntry(key string) *entry {
 	leaf := findLeaf(t.root, key)
 	if leaf == nil {
 		return nil
@@ -582,12 +651,15 @@ func (n *bpNode) nextLeaf() *bpNode {
 /*
  * delete is the master delete function
  */
-func (t *BPTree) delete(key string) {
-	keyLeaf, keyRecord := t.find(key)
-	if keyRecord != nil && keyLeaf != nil {
-		t.root = deleteEntry(t.root, keyLeaf, key, unsafe.Pointer(keyRecord))
-		keyRecord = nil
+func (t *BPTree) delete(key string) *entry {
+	var old *entry
+	keyLeaf, keyEntry := t.find(key)
+	if keyEntry != nil && keyLeaf != nil {
+		t.root = deleteEntry(t.root, keyLeaf, key, unsafe.Pointer(keyEntry))
+		old = keyEntry
+		keyEntry = nil
 	}
+	return old // return the old entry we just deleted
 }
 
 /*
@@ -978,4 +1050,37 @@ func Itob(i int64) []byte {
 		byte(i >> 8),
 		byte(i),
 	}
+}
+
+func IntToKey(key int64) string {
+	return "i" + strconv.FormatInt(key, 10)
+}
+
+func KeyToInt(key string) int64 {
+	if len(key) != 11 || key[0] != 'i' {
+		return -1
+	}
+	ikey, err := strconv.ParseInt(key[1:], 10, 0)
+	if err != nil {
+		return -1
+	}
+	return ikey
+}
+
+func IntToVal(val int64) []byte {
+	buf := make([]byte, 1+binary.MaxVarintLen64)
+	buf[0] = 'i'
+	_ = binary.PutVarint(buf[1:], val)
+	return buf
+}
+
+func ValToInt(val []byte) int64 {
+	if len(val) != 11 || val[0] != 'i' {
+		return -1
+	}
+	ival, n := binary.Varint(val[1:])
+	if ival == 0 && n <= 0 {
+		return -1
+	}
+	return ival
 }

@@ -20,11 +20,11 @@ func TestNewBPTree(t *testing.T) {
 }
 
 // signature: Has(key string) (bool, int64)
-func TestRbTree_Has(t *testing.T) {
+func TestBPTree_Has(t *testing.T) {
 	tree := NewBPTree()
 	util.AssertLen(t, 0, tree.Len())
 	for i := 0; i < n*thousand; i++ {
-		tree.Set(makeKey(i), makeVal(i))
+		tree.Put(makeKey(i), makeVal(i))
 	}
 	for i := 0; i < n*thousand; i++ {
 		ok := tree.Has(makeKey(i))
@@ -37,11 +37,11 @@ func TestRbTree_Has(t *testing.T) {
 }
 
 // signature: HasInt(key int64) (bool, int64)
-func TestRbTree_HasInt(t *testing.T) {
+func TestBPTree_HasInt(t *testing.T) {
 	tree := NewBPTree()
 	util.AssertLen(t, 0, tree.Len())
 	for i := 0; i < n*thousand; i++ {
-		tree.SetInt(int64(i), int64(i))
+		tree.PutInt(int64(i), int64(i))
 	}
 	for i := 0; i < n*thousand; i++ {
 		ok := tree.HasInt(int64(i))
@@ -54,11 +54,11 @@ func TestRbTree_HasInt(t *testing.T) {
 }
 
 // signature: Put(key string, val []byte) ([]byte, bool)
-func TestRbTree_Put(t *testing.T) {
+func TestBPTree_Put(t *testing.T) {
 	tree := NewBPTree()
 	util.AssertLen(t, 0, tree.Len())
 	for i := 0; i < n*thousand; i++ {
-		_, existing := tree.Set(makeKey(i), makeVal(i))
+		existing := tree.Put(makeKey(i), makeVal(i))
 		if existing { // existing=updated
 			t.Errorf("putting: %v", existing)
 		}
@@ -68,11 +68,11 @@ func TestRbTree_Put(t *testing.T) {
 }
 
 // signature: PutInt(key int64, val int64) (int64, bool)
-func TestRbTree_PutInt(t *testing.T) {
+func TestBPTree_PutInt(t *testing.T) {
 	tree := NewBPTree()
 	util.AssertLen(t, 0, tree.Len())
 	for i := 0; i < n*thousand; i++ {
-		_, existing := tree.SetInt(int64(i), int64(i))
+		existing := tree.PutInt(int64(i), int64(i))
 		if existing { // existing=updated
 			t.Errorf("putting: %v", existing)
 		}
@@ -82,50 +82,50 @@ func TestRbTree_PutInt(t *testing.T) {
 }
 
 // signature: Get(key string) ([]byte, bool)
-func TestRbTree_Get(t *testing.T) {
+func TestBPTree_Get(t *testing.T) {
 	tree := NewBPTree()
 	for i := 0; i < n*thousand; i++ {
-		tree.Set(makeKey(i), makeVal(i))
+		tree.Put(makeKey(i), makeVal(i))
 	}
 	util.AssertLen(t, n*thousand, tree.Len())
 	for i := 0; i < n*thousand; i++ {
-		val, ok := tree.Get(makeKey(i))
-		if !ok {
-			t.Errorf("getting: %v", ok)
+		_, v := tree.Get(makeKey(i))
+		if v == nil {
+			t.Errorf("getting: %v", v)
 		}
-		util.AssertEqual(t, makeVal(i), val)
+		util.AssertEqual(t, makeVal(i), v)
 	}
 	tree.Close()
 }
 
 // signature: GetInt(key int64) (int64, bool)
-func TestRbTree_GetInt(t *testing.T) {
+func TestBPTree_GetInt(t *testing.T) {
 	tree := NewBPTree()
 	for i := 0; i < n*thousand; i++ {
-		tree.SetInt(int64(i), int64(i))
+		tree.PutInt(int64(i), int64(i))
 	}
 	util.AssertLen(t, n*thousand, tree.Len())
 	for i := 0; i < n*thousand; i++ {
-		val, ok := tree.GetInt(int64(i))
-		if !ok {
-			t.Errorf("getting: %v", ok)
+		_, v := tree.GetInt(int64(i))
+		if v == -1 {
+			t.Errorf("getting: %v", v)
 		}
-		util.AssertEqual(t, int64(i), val)
+		util.AssertEqual(t, int64(i), v)
 	}
 	tree.Close()
 }
 
 // signature: Del(key string) ([]byte, bool)
-func TestRbTree_Del(t *testing.T) {
+func TestBPTree_Del(t *testing.T) {
 	tree := NewBPTree()
 	for i := 0; i < n*thousand; i++ {
-		tree.Set(makeKey(i), makeVal(i))
+		tree.Put(makeKey(i), makeVal(i))
 	}
 	util.AssertLen(t, n*thousand, tree.Len())
 	for i := 0; i < n*thousand; i++ {
-		_, ok := tree.Del(makeKey(i))
-		if !ok {
-			t.Errorf("delete: %v", ok)
+		_, v := tree.Del(makeKey(i))
+		if v == nil {
+			t.Errorf("delete: %v", v)
 		}
 	}
 	util.AssertLen(t, 0, tree.Len())
@@ -133,16 +133,16 @@ func TestRbTree_Del(t *testing.T) {
 }
 
 // signature: DelInt(key int64) (int64, bool)
-func TestRbTree_DelInt(t *testing.T) {
+func TestBPTree_DelInt(t *testing.T) {
 	tree := NewBPTree()
 	for i := 0; i < n*thousand; i++ {
-		tree.SetInt(int64(i), int64(i))
+		tree.PutInt(int64(i), int64(i))
 	}
 	util.AssertLen(t, n*thousand, tree.Len())
 	for i := 0; i < n*thousand; i++ {
-		_, ok := tree.DelInt(int64(i))
-		if !ok {
-			t.Errorf("delete: %v", ok)
+		_, v := tree.DelInt(int64(i))
+		if v == -1 {
+			t.Errorf("delete: %v", v)
 		}
 	}
 	util.AssertLen(t, 0, tree.Len())
@@ -150,23 +150,23 @@ func TestRbTree_DelInt(t *testing.T) {
 }
 
 // signature: Len() int
-func TestRbTree_Len(t *testing.T) {
+func TestBPTree_Len(t *testing.T) {
 	tree := NewBPTree()
 	for i := 0; i < n*thousand; i++ {
-		tree.Set(makeKey(i), makeVal(i))
+		tree.Put(makeKey(i), makeVal(i))
 	}
 	util.AssertLen(t, n*thousand, tree.Len())
 	tree.Close()
 }
 
 // signature: Size() int64
-func TestRbTree_Size(t *testing.T) {
+func TestBPTree_Size(t *testing.T) {
 	tree := NewBPTree()
 	var numBytes int64
 	for i := 0; i < n*thousand; i++ {
 		key, val := makeKey(i), makeVal(i)
 		numBytes += int64(len(key) + len(val))
-		tree.Set(key, val)
+		tree.Put(key, val)
 	}
 	util.AssertLen(t, numBytes, tree.Size())
 	log.Printf("size=%d\n", numBytes)
@@ -174,14 +174,14 @@ func TestRbTree_Size(t *testing.T) {
 }
 
 // signature: Min() (string, []byte, bool)
-func TestRbTree_Min(t *testing.T) {
+func TestBPTree_Min(t *testing.T) {
 	tree := NewBPTree()
 	for i := 0; i < n*thousand; i++ {
-		tree.Set(makeKey(i), makeVal(i))
+		tree.Put(makeKey(i), makeVal(i))
 	}
 	util.AssertLen(t, n*thousand, tree.Len())
-	k, _, ok := tree.Min()
-	if !ok {
+	k, v := tree.Min()
+	if v == nil {
 		t.Errorf("min: %v", tree)
 	}
 	util.AssertEqual(t, makeKey(0), k)
@@ -189,32 +189,31 @@ func TestRbTree_Min(t *testing.T) {
 }
 
 // signature: Max() (string, []byte, bool)
-func TestRbTree_Max(t *testing.T) {
+func TestBPTree_Max(t *testing.T) {
 	tree := NewBPTree()
 	for i := 0; i < n*thousand; i++ {
-		tree.Set(makeKey(i), makeVal(i))
+		tree.Put(makeKey(i), makeVal(i))
 	}
 	util.AssertLen(t, n*thousand, tree.Len())
-	k, _, ok := tree.Max()
-	if !ok {
+	k, v := tree.Max()
+	if v == nil {
 		t.Errorf("min: %v", tree)
 	}
 	util.AssertEqual(t, makeKey(n*thousand-1), k)
 	tree.Close()
 }
 
-// signature: ScanFront(iter Iterator)
-func TestRbTree_ScanFront(t *testing.T) {
+func TestBPTree_Range(t *testing.T) {
 	tree := NewBPTree()
 	for i := 0; i < n*thousand; i++ {
-		tree.Set(makeKey(i), makeVal(i))
+		tree.Put(makeKey(i), makeVal(i))
 	}
 	util.AssertLen(t, n*thousand, tree.Len())
 
 	printInfo := true
 
 	// do scan front
-	tree.ScanFront(func(key string, value []byte) bool {
+	tree.Range(func(key string, value []byte) bool {
 		if key == "" {
 			t.Errorf("scan front, issue with key: %v", key)
 			return false
@@ -228,102 +227,8 @@ func TestRbTree_ScanFront(t *testing.T) {
 	tree.Close()
 }
 
-// signature: ScanBack(iter Iterator)
-func TestRbTree_ScanBack(t *testing.T) {
-	tree := NewBPTree()
-	for i := 0; i < n*thousand; i++ {
-		tree.Set(makeKey(i), makeVal(i))
-	}
-	util.AssertLen(t, n*thousand, tree.Len())
-
-	printInfo := true
-
-	tree.ScanBack(func(key string, value []byte) bool {
-		if key == "" {
-			t.Errorf("scan back, issue with key: %v", key)
-			return false
-		}
-		if printInfo {
-			log.Printf("key: %s\n", key)
-		}
-		return true
-	})
-
-	tree.Close()
-}
-
-// signature: ScanRange(start Entry, end Entry, iter Iterator)
-func TestRbTree_ScanRange(t *testing.T) {
-	tree := NewBPTree()
-	for i := 0; i < n*thousand; i++ {
-		tree.Set(makeKey(i), makeVal(i))
-	}
-	util.AssertLen(t, n*thousand, tree.Len())
-
-	printInfo := true
-
-	start, stop := makeKey(300), makeKey(700)
-	tree.ScanRange(start, stop, func(key string, value []byte) bool {
-		if key == "" && key < start && key > stop {
-			t.Errorf("scan range, issue with key: %v", key)
-			return false
-		}
-		if printInfo {
-			log.Printf("key: %s\n", key)
-		}
-		return true
-	})
-
-	tree.Close()
-}
-
-// signature: ToList() (*list.List, error)
-func TestRbTree_ToList(t *testing.T) {
-	tree := NewBPTree()
-	for i := 0; i < n*thousand; i++ {
-		tree.Set(makeKey(i), makeVal(i))
-	}
-	util.AssertLen(t, n*thousand, tree.Len())
-
-	l, err := tree.ToList()
-	if err != nil {
-		t.Errorf("tolist: %v", err)
-	}
-	util.AssertLen(t, n*thousand, l.Len())
-	l = nil
-	tree.Close()
-}
-
-// signature: FromList(li *list.List) error
-func TestRbTree_FromList(t *testing.T) {
-	tree := NewBPTree()
-	for i := 0; i < n*thousand; i++ {
-		tree.Set(makeKey(i), makeVal(i))
-	}
-	util.AssertLen(t, n*thousand, tree.Len())
-	treeList, err := tree.ToList()
-	if err != nil {
-		t.Errorf("to list: %v", err)
-	}
-	util.AssertLen(t, n*thousand, treeList.Len())
-	tree.Close()
-
-	tree = NewBPTree()
-	util.AssertLen(t, 0, tree.Len())
-
-	err = tree.FromList(treeList)
-	if err != nil {
-		t.Errorf("from list: %v", err)
-	}
-	treeList = nil
-	util.AssertLen(t, n*thousand, tree.Len())
-
-	tree.Close()
-}
-
-// signature: Close()
-func TestRbTree_Close(t *testing.T) {
-	var tree *RBTree
+func TestBPTree_Close(t *testing.T) {
+	var tree *BPTree
 	tree = NewBPTree()
 	tree.Close()
 }
