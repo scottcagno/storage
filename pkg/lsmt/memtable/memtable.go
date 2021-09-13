@@ -4,13 +4,16 @@ import (
 	"errors"
 	"github.com/scottcagno/storage/pkg/index/rbtree"
 	"github.com/scottcagno/storage/pkg/lsmt"
+	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/wal"
+	"runtime"
 	"sync"
 	"time"
 )
 
 const (
-	walPath      = "memdata"
+	walPath      = "memdatas"
+	sstPath      = "sstables"
 	regularEntry = 0x1A
 	removedEntry = 0x1B
 )
@@ -145,33 +148,60 @@ func (m *Memtable) Del(key string) error {
 func (m *Memtable) FlushToSSTable() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	// create a new temp memtable while we are using this one
-	// TODO: ^ that
-
 	// create new sstable file
-	// TODO: ^ that
-
+	sst, err := sstable.Create(sstPath)
+	if err != nil {
+		return err
+	}
 	// iterate all of the entries in the memtable in sorted
 	// order and write each entry to the sstable file
-	// TODO: ^ that
-
+	m.mem.ScanFront(func(e rbtree.Entry) bool {
+		ent := &lsmt.Entry{
+			Type:      regularEntry,
+			Timestamp: time.Now(),
+			Key:       e.Key,
+			Value:     e.Value,
+		}
+		if ent.Key != "" && ent.Value == nil {
+			ent.Type = removedEntry
+		}
+		data, err := ent.MarshalBinary()
+		if err != nil {
+			return false
+		}
+		err = sst.Write(data)
+		if err != nil {
+			return false
+		}
+		return true
+	})
 	// make sure sstable file is flushed to disk
-	// TODO: ^ that
-
+	err = sst.Sync()
+	if err != nil {
+		return err
+	}
 	// reset the memtable data
-	// TODO: ^ that
-
-	// close and remove the existing write-ahead log file
-	// we don't need this one anymore and open a "fresh" one
-	// TODO: ^ that
-
+	m.mem = m.mem.Reset()
+	// reset the write-ahead log file
+	m.wal, err = m.wal.Reset()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
+// Close closes down the memtable
 func (m *Memtable) Close() error {
 	// lock
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// close stuff down
+	m.mem.Close()
+	err := m.wal.Close()
+	if err != nil {
+		return err
+	}
+	m.size = 0
+	runtime.GC()
 	return nil
 }

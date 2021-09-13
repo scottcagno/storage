@@ -618,6 +618,42 @@ func (l *Log) Close() error {
 	return nil
 }
 
+// Reset clears everything
+func (l *Log) Reset() (*Log, error) {
+	// lock
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.w.open {
+		return nil, ErrFileClosed
+	}
+	// sync and close
+	err := l.w.close()
+	if err != nil {
+		return nil, err
+	}
+	// attempt to close file
+	err = l.r.close()
+	if err != nil {
+		return nil, err
+	}
+	// clean up everything
+	path := l.base
+	l.base = ""
+	l.r = nil
+	l.w = nil
+	l.index = 0
+	l.segments = nil
+	l.active = nil
+	runtime.GC()
+	// clean up files
+	err = os.RemoveAll(path)
+	if err != nil {
+		return nil, err
+	}
+	// init "fresh" one
+	return Open(path)
+}
+
 // Path returns the base path that the write-ahead logger is using
 func (l *Log) Path() string {
 	// lock

@@ -3,6 +3,7 @@ package rbtree
 import (
 	"container/list"
 	"fmt"
+	"runtime"
 	"strings"
 )
 
@@ -240,6 +241,17 @@ func (t *rbTree) Close() {
 	t.root = nil
 	t.count = 0
 	return
+}
+
+func (t *rbTree) Reset() *rbTree {
+	// clear all data
+	t.NIL = nil
+	t.root = nil
+	t.count = 0
+	// collect
+	runtime.GC()
+	// re-initialize
+	return newRBTree()
 }
 
 func (t *rbTree) insert(z *rbNode) (*rbNode, bool) {
