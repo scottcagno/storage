@@ -2,7 +2,7 @@ package bptree
 
 import (
 	"fmt"
-	"github.com/scottcagno/leviathan/pkg/util"
+	"github.com/scottcagno/storage/pkg/util"
 	"log"
 	"testing"
 )
@@ -210,7 +210,7 @@ func TestBPTree_Range(t *testing.T) {
 	}
 	util.AssertLen(t, n*thousand, tree.Len())
 
-	printInfo := true
+	printInfo := false
 
 	// do scan front
 	tree.Range(func(key string, value []byte) bool {

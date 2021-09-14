@@ -236,8 +236,27 @@ func (t *BPTree) Len() int {
 	return count
 }
 
-func (t *BPTree) Size() int {
-	return 0
+func (t *BPTree) Size() int64 {
+	c := findFirstLeaf(t.root)
+	if c == nil {
+		return 0
+	}
+	var s int64
+	var e *entry
+	for {
+		for i := 0; i < c.numKeys; i++ {
+			e = (*entry)(c.pointers[i])
+			if e != nil {
+				s += int64(len(e.Key) + len(e.Value))
+			}
+		}
+		if c.pointers[defaultOrder-1] != nil {
+			c = (*bpNode)(c.pointers[defaultOrder-1])
+		} else {
+			break
+		}
+	}
+	return s
 }
 
 func (t *BPTree) Close() {
