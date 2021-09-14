@@ -2,6 +2,7 @@ package wal
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"reflect"
@@ -190,6 +191,100 @@ func TestLog_ReadWriteOne(t *testing.T) {
 		t.Fatalf("error reading: %v\n", err)
 	}
 	log.Printf("data: %q\n", data)
+
+	// close log
+	err = wal.Close()
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+
+	// clean up
+	err = os.RemoveAll(path)
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+}
+
+func TestLog_Truncate(t *testing.T) {
+
+	// open log
+	wal, err := OpenWithOptions(Options{BasePath: "logs", MaxFileSize: 2 << 10})
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+
+	// get path for cleanup
+	path := wal.Path()
+
+	// do some writing
+	for i := 0; i < 500; i++ {
+		data := []byte(fmt.Sprintf("#%d -- this is entry number %d for the record!", i, i))
+		_, err := wal.Write(data)
+		if err != nil {
+			t.Fatalf("error writing: %v\n", err)
+		}
+	}
+
+	// close log
+	err = wal.Close()
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+
+	// open log
+	wal, err = OpenWithOptions(Options{BasePath: "logs", MaxFileSize: 2 << 10})
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+
+	// test truncate
+	err = wal.Truncate(256, io.SeekStart)
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+
+	// close log
+	err = wal.Close()
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+
+	doClean := false
+
+	// clean up
+	if doClean {
+		err = os.RemoveAll(path)
+		if err != nil {
+			t.Fatalf("got error: %v\n", err)
+		}
+	}
+}
+
+func TestLog_Scan(t *testing.T) {
+
+	// open log
+	wal, err := Open("logs")
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+
+	// get path for cleanup
+	path := wal.Path()
+
+	// do some writing
+	for i := 0; i < 25; i++ {
+		data := []byte(fmt.Sprintf("#%d -- this is entry number %d for the record!", i, i))
+		_, err := wal.Write(data)
+		if err != nil {
+			t.Fatalf("error writing: %v\n", err)
+		}
+	}
+
+	// finally, test out the sacn
+	err = wal.Scan(func(index uint64, data []byte) bool {
+		fmt.Printf("index: %d, data: %q\n", index, data)
+		return true
+	})
 
 	// close log
 	err = wal.Close()

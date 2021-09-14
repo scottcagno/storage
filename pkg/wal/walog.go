@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,18 +13,30 @@ import (
 )
 
 const (
-	maxFileSize = 4 << 20 // 4 MB
-	memPageSize = 8 << 10 // 8 KB
-	logPrefix   = "wal-"
-	logSuffix   = ".seg"
-	firstIndex  = 1
+	defaultFileSize = uint64(4 << 20) // 4 MB
+	memPageSize     = 256             //8 << 10 // 8 KB
+	logPrefix       = "wal-"
+	logSuffix       = ".seg"
+	firstIndex      = uint64(1)
 )
 
+var maxFileSize = defaultFileSize
+
 var (
-	ErrOutOfBounds = errors.New("error: out of bounds")
-	ErrSegmentFull = errors.New("error: segment is full")
-	ErrFileClosed  = errors.New("error: file closed")
+	ErrOutOfBounds    = errors.New("error: out of bounds")
+	ErrSegmentFull    = errors.New("error: segment is full")
+	ErrFileClosed     = errors.New("error: file closed")
+	ErrBadArgument    = errors.New("error: bad argument")
+	ErrNoPathProvided = errors.New("error: no path provided")
+	ErrOptionsMissing = errors.New("error: options missing")
 )
+
+// Options is a configurable options struct
+// which can be passed to a new logger instance
+type Options struct {
+	BasePath    string
+	MaxFileSize uint64
+}
 
 // entry metadata for this entry within the segment
 type entry struct {
@@ -191,6 +202,35 @@ type Log struct {
 func Open(base string) (*Log, error) {
 	// clean path and create directory structure
 	base = clean(base)
+	err := os.MkdirAll(base, os.ModeDir)
+	if err != nil {
+		return nil, err
+	}
+	// create new log instance
+	l := &Log{
+		base:     base,
+		index:    firstIndex,
+		segments: make([]*segment, 0),
+	}
+	// attempt to load segments
+	err = l.load()
+	if err != nil {
+		return nil, err
+	}
+	return l, nil
+}
+
+// OpenWithOptions opens a new write-ahead logger with configurable options set
+func OpenWithOptions(op Options) (*Log, error) {
+	if op.BasePath == "" {
+		return nil, ErrOptionsMissing
+	}
+	if op.MaxFileSize == 0 {
+		op.MaxFileSize = defaultFileSize
+	}
+	maxFileSize = op.MaxFileSize
+	// clean path and create directory structure
+	base := clean(op.BasePath)
 	err := os.MkdirAll(base, os.ModeDir)
 	if err != nil {
 		return nil, err
@@ -384,6 +424,12 @@ func (l *Log) lastSegment() *segment {
 	return l.segments[len(l.segments)-1]
 }
 
+// lastIndex returns the last index in the provided segment
+func (s *segment) lastIndex() uint64 {
+	e := s.entries[len(s.entries)-1]
+	return e.index
+}
+
 // cycle adds a new segment to replace the current active (full) segment
 func (l *Log) cycle() error {
 	// sync and close current file segment
@@ -434,7 +480,6 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	var err error
 	// get entry that matches index
 	s := l.findSegment(int64(index))
-	log.Printf("look up index: %d\n%s\n", index, s)
 	// make sure we are reading from the correct file
 	if l.r.path != s.path {
 		// update the reader with file associated with found segment
@@ -445,7 +490,6 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	}
 	// get the entry offset that matches index
 	offset := s.entries[s.findEntry(index)].offset
-	log.Printf("entry: %s\n", s.entries[s.findEntry(index)])
 	// read entry length
 	var buf [8]byte
 	n, err := l.r.fd.ReadAt(buf[:], int64(offset))
@@ -527,6 +571,15 @@ func (l *Log) Scan(iter func(index uint64, data []byte) bool) error {
 	if !l.w.open {
 		return ErrFileClosed
 	}
+	err := l.scan(iter)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// scan is a log iterator for "internal use only"
+func (l *Log) scan(iter func(index uint64, data []byte) bool) error {
 	// init for any errors
 	var err error
 	// range the in memory segment index
@@ -618,40 +671,142 @@ func (l *Log) Close() error {
 	return nil
 }
 
-// Reset clears everything
-func (l *Log) Reset() (*Log, error) {
+// Truncate truncates the entries according to whence
+func (l *Log) Truncate(index uint64, whence int) error {
 	// lock
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if !l.w.open {
-		return nil, ErrFileClosed
+	// error checking
+	if !l.r.open {
+		return ErrFileClosed
 	}
-	// sync and close
-	err := l.w.close()
+	if index < firstIndex || index > l.lastSegment().lastIndex() {
+		return ErrOutOfBounds
+	}
+	if whence != io.SeekStart && whence != io.SeekEnd {
+		return ErrBadArgument
+	}
+	var err error
+	// get entry that matches index
+	s := l.findSegment(int64(index))
+	// make sure we are reading from the correct file
+	if l.r.path != s.path {
+		// update the reader with file associated with found segment
+		l.r, err = l.r.readFrom(s.path)
+		if err != nil {
+			return err
+		}
+	}
+	// set up the indexes according to the whence
+	var begIndex, endIndex uint64
+	if whence == io.SeekStart {
+		begIndex, endIndex = firstIndex, index
+	}
+	if whence == io.SeekEnd {
+		begIndex, endIndex = index, l.lastSegment().lastIndex()
+	}
+	// create a temp file to write into
+	tempf, err := os.Create(filepath.Join(l.base, "TEMP"))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	// attempt to close file
+	defer tempf.Close()
+	// keep track of which segment indexes need cleaned up
+	var segi []int
+	// range the in memory segment index
+	for i, seg := range l.segments {
+		// check to make sure we can't skip right away
+		if seg.index < begIndex || seg.lastIndex() > endIndex {
+			continue
+		}
+		// note that segment at index "i" will need cleaning up later
+		segi = append(segi, i)
+		// now, assuming we are in an applicable
+		// segment, let's make sure we are switching
+		// out reader to the correct segment as well
+		l.r, err = l.r.readFrom(seg.path)
+		if err != nil {
+			return err
+		}
+		// iterate segment entries
+		for _, ent := range seg.entries {
+			// get local offset for each entry
+			offset := ent.offset
+			// read entry length
+			var hdr [8]byte
+			_, err = l.r.fd.ReadAt(hdr[:], int64(offset))
+			if err != nil {
+				if err == io.EOF || err == io.ErrUnexpectedEOF {
+					break
+				}
+				return err
+			}
+			// update offset pointer for this entry
+			offset += uint64(len(hdr))
+			// decode entry length
+			elen := binary.LittleEndian.Uint64(hdr[:])
+			// make byte slice of entry length size
+			data := make([]byte, elen)
+			// read entry from reader into slice
+			_, err = l.r.fd.ReadAt(data, int64(offset))
+			if err != nil {
+				return err
+			}
+			// write entry header to temp file
+			_, err = tempf.Write(hdr[:])
+			if err != nil {
+				return err
+			}
+			// write entry data to temp file
+			_, err = tempf.Write(data)
+			if err != nil {
+				return err
+			}
+			// make sure to sync
+			err = tempf.Sync()
+			if err != nil {
+				return err
+			}
+			// on to the next entry
+		}
+		// outside entry loop
+	}
+	// close temp file
+	err = tempf.Close()
+	if err != nil {
+		return err
+	}
+	// close file handlers and clean stuff up
 	err = l.r.close()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	// clean up everything
-	path := l.base
-	l.base = ""
-	l.r = nil
-	l.w = nil
-	l.index = 0
-	l.segments = nil
-	l.active = nil
-	runtime.GC()
-	// clean up files
-	err = os.RemoveAll(path)
+	// clean up segments that are no longer being used
+	for _, i := range segi {
+		fmt.Printf("removing segment: %q\n", l.segments[i].path)
+		err = os.RemoveAll(l.segments[i].path)
+		if err != nil {
+			return err
+		}
+		if i < len(l.segments)-1 {
+			copy(l.segments[i:], l.segments[i+1:])
+		}
+		l.segments[len(l.segments)-1] = nil // or the zero value of T
+		l.segments = l.segments[:len(l.segments)-1]
+	}
+	// re-activate last segment
+	l.active = l.lastSegment()
+	// re-open reader again
+	l.r, err = l.r.readFrom(l.active.path)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	// init "fresh" one
-	return Open(path)
+	// rename temp file
+	err = os.Rename(filepath.Join(l.base, "TEMP"), filepath.Join(l.base, fileName(begIndex)))
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // Path returns the base path that the write-ahead logger is using
