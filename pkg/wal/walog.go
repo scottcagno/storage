@@ -1,6 +1,7 @@
 package wal
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -395,14 +396,9 @@ func (l *Log) loadSegment(path string) (*segment, error) {
 }
 
 // findSegment returns last segment, or performs binary search to find matching index
-func (l *Log) findSegment(index int64) *segment {
+func (l *Log) findSegmentIndex(index int64) int {
 	// declare for later
 	i, j := 0, len(l.segments)
-	// -1 represents the last segment
-	if index == -1 {
-		i = j
-		goto SkipBinarySearch
-	}
 	// otherwise, perform binary search
 	for i < j {
 		h := i + (j-i)/2
@@ -412,11 +408,7 @@ func (l *Log) findSegment(index int64) *segment {
 			j = h
 		}
 	}
-SkipBinarySearch:
-	// update index
-	index = int64(i - 1)
-	// return segment
-	return l.segments[index]
+	return i - 1
 }
 
 // lastSegment returns the last segment in the segment list
@@ -479,7 +471,7 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	}
 	var err error
 	// get entry that matches index
-	s := l.findSegment(int64(index))
+	s := l.segments[l.findSegmentIndex(int64(index))]
 	// make sure we are reading from the correct file
 	if l.r.path != s.path {
 		// update the reader with file associated with found segment
@@ -671,6 +663,118 @@ func (l *Log) Close() error {
 	return nil
 }
 
+func (l *Log) truncateFront(index uint64) error {
+	// do bounds check
+	lastIndex := l.lastSegment().lastIndex()
+	if index == 0 ||
+		lastIndex == 0 ||
+		index < firstIndex || index > lastIndex {
+		return ErrOutOfBounds
+	}
+	if index == firstIndex {
+		return nil // nothing to truncate
+	}
+
+	fmt.Printf("truncate-front: %d\n", index)
+	segidx := l.findSegmentIndex(int64(index))
+	for i := 0; i < segidx; i++ {
+		s := l.segments[i]
+		fmt.Printf("remove segment: %q (%d)\n", filepath.Base(s.path), s.index)
+		err := os.Remove(s.path)
+		if err != nil {
+			return err
+		}
+	}
+	s := l.segments[segidx]
+	fmt.Printf("prune entries within segment: %q (%d)\n", filepath.Base(s.path), s.index)
+	// create temp buffer
+	var buf bytes.Buffer
+	// scan through entries
+	for _, ent := range s.entries {
+		if index > ent.index {
+			fmt.Printf("re-write entry: %s", ent)
+			offset := ent.offset
+			// read entry length
+			var hdr [8]byte
+			n, err := l.r.fd.ReadAt(hdr[:], int64(offset))
+			if err != nil {
+				if err == io.EOF || err == io.ErrUnexpectedEOF {
+					break
+				}
+				return err
+			}
+			// update offset for reading entry into slice
+			offset += uint64(n)
+			// decode entry length
+			elen := binary.LittleEndian.Uint64(hdr[:])
+			// make byte slice of entry length size
+			data := make([]byte, elen)
+			// read entry from reader into slice
+			_, err = l.r.fd.ReadAt(data, int64(offset))
+			if err != nil {
+				return err
+			}
+			// write entry length into temp file
+			_, err = buf.Write(hdr[:])
+			if err != nil {
+				return err
+			}
+			// write entry into buffer
+			_, err = buf.Write(data)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("bytes buffer length: %d\n", buf.Len())
+			continue
+		}
+		fmt.Printf("remove entry: %s", ent)
+	}
+	// create a temp file to write into
+	f, err := os.Create(filepath.Join(l.base, fileName(0)))
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(buf.Bytes())
+	if err != nil {
+		return err
+	}
+	err = f.Sync()
+	if err != nil {
+		return err
+	}
+	err = f.Close()
+	if err != nil {
+		return err
+	}
+	err = os.Remove(s.path)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (l *Log) truncateBack(index uint64) error {
+	// do bounds check
+	lastIndex := l.lastSegment().lastIndex()
+	if index == 0 ||
+		lastIndex == 0 ||
+		index < firstIndex || index > lastIndex {
+		return ErrOutOfBounds
+	}
+	if index == lastIndex {
+		return nil // nothing to truncate
+	}
+
+	fmt.Printf("truncate-back: %d\n", index)
+	segidx := l.findSegmentIndex(int64(index))
+	for i := len(l.segments) - 1; i > segidx; i-- {
+		s := l.segments[i]
+		fmt.Printf("remove segment: %q (%d)\n", filepath.Base(s.path), s.index)
+	}
+
+	return nil
+}
+
 // Truncate truncates the entries according to whence
 func (l *Log) Truncate(index uint64, whence int) error {
 	// lock
@@ -688,7 +792,7 @@ func (l *Log) Truncate(index uint64, whence int) error {
 	}
 	var err error
 	// get entry that matches index
-	s := l.findSegment(int64(index))
+	s := l.segments[l.findSegmentIndex(int64(index))]
 	// make sure we are reading from the correct file
 	if l.r.path != s.path {
 		// update the reader with file associated with found segment

@@ -2,7 +2,6 @@ package wal
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"reflect"
@@ -205,7 +204,7 @@ func TestLog_ReadWriteOne(t *testing.T) {
 	}
 }
 
-func TestLog_Truncate(t *testing.T) {
+func TestLog_TruncateFront(t *testing.T) {
 
 	// open log
 	wal, err := OpenWithOptions(Options{BasePath: "logs", MaxFileSize: 2 << 10})
@@ -238,7 +237,7 @@ func TestLog_Truncate(t *testing.T) {
 	}
 
 	// test truncate
-	err = wal.Truncate(256, io.SeekStart)
+	err = wal.truncateFront(256)
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}
@@ -250,6 +249,61 @@ func TestLog_Truncate(t *testing.T) {
 	}
 
 	doClean := false
+
+	// clean up
+	if doClean {
+		err = os.RemoveAll(path)
+		if err != nil {
+			t.Fatalf("got error: %v\n", err)
+		}
+	}
+}
+
+func TestLog_TruncateBack(t *testing.T) {
+
+	// open log
+	wal, err := OpenWithOptions(Options{BasePath: "logs", MaxFileSize: 2 << 10})
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+
+	// get path for cleanup
+	path := wal.Path()
+
+	// do some writing
+	for i := 0; i < 500; i++ {
+		data := []byte(fmt.Sprintf("#%d -- this is entry number %d for the record!", i, i))
+		_, err := wal.Write(data)
+		if err != nil {
+			t.Fatalf("error writing: %v\n", err)
+		}
+	}
+
+	// close log
+	err = wal.Close()
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+
+	// open log
+	wal, err = OpenWithOptions(Options{BasePath: "logs", MaxFileSize: 2 << 10})
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+
+	// test truncate
+	err = wal.truncateBack(256)
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+
+	// close log
+	err = wal.Close()
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+
+	doClean := true
 
 	// clean up
 	if doClean {
@@ -403,12 +457,12 @@ func Test_IndexLocation(t *testing.T) {
 }
 
 func locateSegment(wal *Log, index uint64) {
-	s := wal.findSegment(int64(index))
+	s := wal.segments[wal.findSegmentIndex(int64(index))]
 	fmt.Printf("index %d is located in the following segment\n%s\n", index, s)
 }
 
 func locateEntry(wal *Log, index uint64) {
-	s := wal.findSegment(int64(index))
+	s := wal.segments[wal.findSegmentIndex(int64(index))]
 	fmt.Printf("index %d is located in the following segment\n%s", index, s)
 	e := s.findEntry(index)
 	fmt.Printf("\tin entry number %d\n\t%s\n", e, s.entries[e])
