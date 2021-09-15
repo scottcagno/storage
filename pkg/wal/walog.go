@@ -279,7 +279,7 @@ func (l *Log) load() error {
 	// if no segments were found, we need to initialize a new one
 	if len(l.segments) == 0 {
 		// create new segment file
-		s, err := l.makeSegment(filepath.Join(l.base, fileName(firstIndex)))
+		s, err := l.makeSegmentFromIndex(firstIndex)
 		if err != nil {
 			return err
 		}
@@ -335,6 +335,41 @@ func (l *Log) makeSegment(path string) (*segment, error) {
 	return s, nil
 }
 
+// makeSegmentFromIndex creates a segment using the index provided.
+// On success, it will simply return segment, and a nil error
+func (l *Log) makeSegmentFromIndex(index uint64) (*segment, error) {
+	// init segment to fill out
+	s := &segment{
+		path:    filepath.Join(l.base, fileName(index)),
+		index:   index,
+		entries: make([]entry, 0),
+	}
+	// "touch" a new file
+	fd, err := os.Create(s.path)
+	if err != nil {
+		return nil, err
+	}
+	// write segment header
+	var shdr [8]byte
+	binary.LittleEndian.PutUint64(shdr[:], index)
+	_, err = l.w.fd.Write(shdr[:])
+	if err != nil {
+		return nil, err
+	}
+	err = fd.Sync()
+	if err != nil {
+		return nil, err
+	}
+	err = fd.Close()
+	if err != nil {
+		return nil, err
+	}
+	// update segment remaining, and add first entry
+	s.remaining = maxFileSize
+	// return new segment
+	return s, nil
+}
+
 // loadSegment opens the segment at the path provided. it will return an
 // io.ErrUnexpectedEOF if the file exists but is empty and has no data to
 // read, ErrSegmentFull if the file has met the maxFileSize or on success
@@ -343,7 +378,6 @@ func (l *Log) loadSegment(path string) (*segment, error) {
 	// init segment to fill out
 	s := &segment{
 		path:    path,
-		index:   l.index,
 		entries: make([]entry, 0),
 	}
 	// open existing segment file for reading
@@ -355,6 +389,14 @@ func (l *Log) loadSegment(path string) (*segment, error) {
 	defer func(fd *os.File) {
 		_ = fd.Close()
 	}(fd)
+	// read segment header
+	var shdr [8]byte
+	_, err = io.ReadFull(fd, shdr[:])
+	if err != nil {
+		return nil, err
+	}
+	// decode starting index into current segment
+	s.index = binary.LittleEndian.Uint64(shdr[:])
 	// iterate segment entries and load metadata
 	offset := uint64(0)
 	for {
@@ -430,9 +472,10 @@ func (l *Log) cycle() error {
 		return err
 	}
 	// update global index
-	l.index++
+	//l.index++
 	// create new segment
-	s, err := l.makeSegment(filepath.Join(l.base, fileName(l.index)))
+	//s, err := l.makeSegment(filepath.Join(l.base, fileName(l.index+1)))
+	s, err := l.makeSegmentFromIndex(l.index + 1)
 	if err != nil {
 		return err
 	}
@@ -453,6 +496,28 @@ func (l *Log) cycle() error {
 		return err
 	}
 	return nil
+}
+
+func (l *Log) readEntry(offset int64) ([]byte, error) {
+	// read entry length
+	var buf [8]byte
+	n, err := l.r.fd.ReadAt(buf[:], offset)
+	if err != nil {
+		return nil, err
+	}
+	// update offset for reading entry into slice
+	offset += int64(n)
+	// decode entry length
+	elen := binary.LittleEndian.Uint64(buf[:])
+	// make byte slice of entry length size
+	data := make([]byte, elen)
+	// read entry from reader into slice
+	_, err = l.r.fd.ReadAt(data, offset)
+	if err != nil {
+		return nil, err
+	}
+	// return entry data
+	return data, nil
 }
 
 // Read attempts to read the entry at the index provided. It will
@@ -501,6 +566,32 @@ func (l *Log) Read(index uint64) ([]byte, error) {
 	}
 	// return entry data
 	return data, nil
+}
+
+func (l *Log) writeEntry(data []byte) (int64, error) {
+	// get the file pointer offset for the entry
+	offset, err := l.w.offset()
+	if err != nil {
+		return -1, err
+	}
+	// write entry header
+	var hdr [8]byte
+	binary.LittleEndian.PutUint64(hdr[:], uint64(len(data)))
+	_, err = l.w.fd.Write(hdr[:])
+	if err != nil {
+		return -1, err
+	}
+	// write entry data
+	_, err = l.w.fd.Write(data)
+	if err != nil {
+		return -1, err
+	}
+	// perform a sync / flush to disk
+	err = l.w.fd.Sync()
+	if err != nil {
+		return -1, err
+	}
+	return offset, nil
 }
 
 // Write attempts to write a new entry in an append-only fashion. It
@@ -677,6 +768,8 @@ func (l *Log) truncateFront(index uint64) error {
 
 	fmt.Printf("truncate-front: %d\n", index)
 	segidx := l.findSegmentIndex(int64(index))
+
+	// remove all segments
 	for i := 0; i < segidx; i++ {
 		s := l.segments[i]
 		fmt.Printf("remove segment: %q (%d)\n", filepath.Base(s.path), s.index)
@@ -685,6 +778,8 @@ func (l *Log) truncateFront(index uint64) error {
 			return err
 		}
 	}
+	return nil
+
 	s := l.segments[segidx]
 	fmt.Printf("prune entries within segment: %q (%d)\n", filepath.Base(s.path), s.index)
 	// create temp buffer

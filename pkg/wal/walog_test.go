@@ -236,6 +236,11 @@ func TestLog_TruncateFront(t *testing.T) {
 		t.Fatalf("got error: %v\n", err)
 	}
 
+	fmt.Printf("--- PRINTING SEGMENT INFO ---\n")
+	for _, s := range wal.segments {
+		fmt.Printf("%s\n", s)
+	}
+
 	// test truncate
 	err = wal.truncateFront(256)
 	if err != nil {
