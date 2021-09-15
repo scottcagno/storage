@@ -217,12 +217,19 @@ func (l *WAL) getLastSegment() *segment {
 	return l.segments[len(l.segments)-1]
 }
 
+// cycleSegment adds a new segment to replace the current (active) segment
+func (l *WAL) cycleSegment() error {
+	// TODO: implement
+	return nil
+}
+
 // Read reads an entry from the write-ahead log at the specified index
 func (l *WAL) Read(index uint64) ([]byte, error) {
 	// read lock
 	l.lock.RLock()
 	defer l.lock.RUnlock()
 	// error checking
+	// TODO: implement
 	// reading, etc...
 	return nil, nil
 }
@@ -233,6 +240,7 @@ func (l *WAL) ReadEntry(index uint64) (*binary.Entry, error) {
 	l.lock.RLock()
 	defer l.lock.RUnlock()
 	// error checking
+	// TODO: implement
 	// reading, etc...
 	return nil, nil
 }
@@ -243,6 +251,7 @@ func (l *WAL) Write(data []byte) (uint64, error) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	// error checking
+	// TODO: implement
 	// reading, etc...
 	return 0, nil
 }
@@ -253,6 +262,7 @@ func (l *WAL) WriteEntry(e *binary.Entry) (uint64, error) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	// error checking
+	// TODO: implement
 	// reading, etc...
 	return 0, nil
 }
@@ -262,6 +272,7 @@ func (l *WAL) Scan() error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
+	// TODO: implement
 	return nil
 }
 
@@ -270,10 +281,12 @@ func (l *WAL) Close() error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
+	// TODO: implement
 	return nil
 }
 
 // String is the stringer method for the write-ahead log
-func (l *WAL) String() error {
-	return nil
+func (l *WAL) String() string {
+	// TODO: implement
+	return ""
 }
