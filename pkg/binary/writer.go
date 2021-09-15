@@ -33,14 +33,14 @@ func OpenWriter(path string) (*Writer, error) {
 	}, nil
 }
 
-// WriteEntry writes the provided entry to disk
-func (w *Writer) WriteEntry(e *Entry) (int64, error) {
+// EncodeEntry writes the provided entry to disk
+func EncodeEntry(w io.WriteSeeker, e *Entry) (int64, error) {
 	// error check
 	if e == nil {
 		return -1, ErrBadEntry
 	}
 	// get the file pointer offset for the entry
-	offset, err := w.Offset()
+	offset, err := w.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return -1, err
 	}
@@ -48,38 +48,48 @@ func (w *Writer) WriteEntry(e *Entry) (int64, error) {
 	buf := make([]byte, 24)
 	// encode and write entry id
 	binary.LittleEndian.PutUint64(buf[0:8], e.Id)
-	_, err = w.fd.Write(buf[0:8])
+	_, err = w.Write(buf[0:8])
 	if err != nil {
 		return -1, err
 	}
 	// encode and write entry key length
 	binary.LittleEndian.PutUint64(buf[8:16], uint64(len(e.Key)))
-	_, err = w.fd.Write(buf[8:16])
+	_, err = w.Write(buf[8:16])
 	if err != nil {
 		return -1, err
 	}
 	// encode and write entry value length
 	binary.LittleEndian.PutUint64(buf[16:24], uint64(len(e.Value)))
-	_, err = w.fd.Write(buf[16:24])
+	_, err = w.Write(buf[16:24])
 	if err != nil {
 		return -1, err
 	}
 	// write entry key
-	_, err = w.fd.Write(e.Key)
+	_, err = w.Write(e.Key)
 	if err != nil {
 		return -1, err
 	}
 	// write entry value
-	_, err = w.fd.Write(e.Value)
-	if err != nil {
-		return -1, err
-	}
-	// perform a sync and force flush to disk
-	err = w.fd.Sync()
+	_, err = w.Write(e.Value)
 	if err != nil {
 		return -1, err
 	}
 	return offset, nil
+}
+
+// WriteEntry writes the provided entry to disk
+func (w *Writer) WriteEntry(e *Entry) (int64, error) {
+	// call encode entry
+	offset, err := EncodeEntry(w.fd, e)
+	if err != nil {
+		return -1, err
+	}
+	// make sure we call sync!!
+	err = w.fd.Sync()
+	if err != nil {
+		return -1, err
+	}
+	return offset, err
 }
 
 // Offset returns the *Writer's current file pointer offset

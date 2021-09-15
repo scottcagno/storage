@@ -57,22 +57,21 @@ func (r *Reader) ReadFrom(path string) (*Reader, error) {
 	return r, nil
 }
 
-// ReadEntry reads the next encoded entry, sequentially
-func (r *Reader) ReadEntry() (*Entry, error) {
+func DecodeEntry(r io.Reader) (*Entry, error) {
 	// make buffer
 	buf := make([]byte, 24)
 	// read entry id
-	_, err := r.fd.Read(buf[0:8])
+	_, err := r.Read(buf[0:8])
 	if err != nil {
 		return nil, err
 	}
 	// read entry key length
-	_, err = r.fd.Read(buf[8:16])
+	_, err = r.Read(buf[8:16])
 	if err != nil {
 		return nil, err
 	}
 	// read entry value length
-	_, err = r.fd.Read(buf[16:24])
+	_, err = r.Read(buf[16:24])
 	if err != nil {
 		return nil, err
 	}
@@ -89,12 +88,12 @@ func (r *Reader) ReadEntry() (*Entry, error) {
 		Value: make([]byte, vlen),
 	}
 	// read key from data into entry key
-	_, err = r.fd.Read(e.Key)
+	_, err = r.Read(e.Key)
 	if err != nil {
 		return nil, err
 	}
 	// read value key from data into entry value
-	_, err = r.fd.Read(e.Value)
+	_, err = r.Read(e.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -102,26 +101,25 @@ func (r *Reader) ReadEntry() (*Entry, error) {
 	return e, nil
 }
 
-// ReadEntryAt reads an encoded entry at the specified offset
-func (r *Reader) ReadEntryAt(offset int64) (*Entry, error) {
+func DecodeEntryAt(r io.ReaderAt, offset int64) (*Entry, error) {
 	// make buffer
 	buf := make([]byte, 24)
 	// read entry id
-	n, err := r.fd.ReadAt(buf[0:8], offset)
+	n, err := r.ReadAt(buf[0:8], offset)
 	if err != nil {
 		return nil, err
 	}
 	// update offset
 	offset += int64(n)
 	// read entry key length
-	n, err = r.fd.ReadAt(buf[8:16], offset)
+	n, err = r.ReadAt(buf[8:16], offset)
 	if err != nil {
 		return nil, err
 	}
 	// update offset
 	offset += int64(n)
 	// read entry value length
-	n, err = r.fd.ReadAt(buf[16:24], offset)
+	n, err = r.ReadAt(buf[16:24], offset)
 	if err != nil {
 		return nil, err
 	}
@@ -140,19 +138,31 @@ func (r *Reader) ReadEntryAt(offset int64) (*Entry, error) {
 		Value: make([]byte, vlen),
 	}
 	// read key from data into entry key
-	n, err = r.fd.ReadAt(e.Key, offset)
+	n, err = r.ReadAt(e.Key, offset)
 	if err != nil {
 		return nil, err
 	}
 	// update offset
 	offset += int64(n)
 	// read value key from data into entry value
-	_, err = r.fd.ReadAt(e.Value, offset)
+	_, err = r.ReadAt(e.Value, offset)
 	if err != nil {
 		return nil, err
 	}
 	// return entry
 	return e, nil
+}
+
+// ReadEntry reads the next encoded entry, sequentially
+func (r *Reader) ReadEntry() (*Entry, error) {
+	// call decode entry
+	return DecodeEntry(r.fd)
+}
+
+// ReadEntryAt reads the encoded entry at the offset provided
+func (r *Reader) ReadEntryAt(offset int64) (*Entry, error) {
+	// call decode entry at
+	return DecodeEntryAt(r.fd, offset)
 }
 
 // Offset returns the *Reader's current file pointer offset

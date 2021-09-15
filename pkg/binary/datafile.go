@@ -160,3 +160,9 @@ func Touch(path string) (string, error) {
 	// return sanitized path (creating any files or folders)
 	return path, nil
 }
+
+// Offset is a helper function that returns the current
+// offset of the provided reader or writer
+func Offset(rw io.ReadWriteSeeker) (int64, error) {
+	return rw.Seek(0, io.SeekCurrent)
+}
