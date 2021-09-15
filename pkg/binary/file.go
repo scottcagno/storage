@@ -29,27 +29,34 @@ func (e *Entry) String() string {
 
 // Touch cleans and initializes the path, files and folders
 func Touch(path string) (string, error) {
+	// get absolute path
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
 	}
+	// convert any slashes
 	path = filepath.ToSlash(path)
+	// check to see if the path exists
 	_, err = os.Stat(path)
 	if os.IsNotExist(err) {
+		// create dirs if they need creating
 		dir, file := filepath.Split(path)
 		err = os.MkdirAll(dir, os.ModeDir)
 		if err != nil {
 			return "", err
 		}
+		// create and files if the need creating
 		fd, err := os.Create(dir + file)
 		if err != nil {
 			return "", err
 		}
+		// close, because we are just touching them
 		err = fd.Close()
 		if err != nil {
 			return "", err
 		}
 	}
+	// return sanitized path (creating any files or folders)
 	return path, nil
 }
 
@@ -62,14 +69,12 @@ type Reader struct {
 
 // OpenReader returns a *reader for the file at the provided path
 func OpenReader(path string) (*Reader, error) {
-	path, err := Touch(path)
-	if err != nil {
-		return nil, err
-	}
+	// open file at specified path
 	fd, err := os.OpenFile(path, os.O_RDONLY, 0666)
 	if err != nil {
 		return nil, err
 	}
+	// return new reader
 	return &Reader{
 		path: path,
 		fd:   fd,
@@ -206,17 +211,21 @@ func (r *Reader) ReadEntryAt(offset int64) (*Entry, error) {
 
 // Offset returns the *Reader's current file pointer offset
 func (r *Reader) Offset() (int64, error) {
+	// check to make sure file is open
 	if !r.open {
 		return -1, ErrFileClosed
 	}
+	// return current offset
 	return r.fd.Seek(0, io.SeekCurrent)
 }
 
 // Close simply closes the *Reader
 func (r *Reader) Close() error {
+	// check to make sure file is not already closed
 	if !r.open {
 		return ErrFileClosed
 	}
+	// close the reader
 	err := r.fd.Close()
 	if err != nil {
 		return err
@@ -235,10 +244,7 @@ type Writer struct {
 
 // OpenWriter returns a *writer for the file at the provided path
 func OpenWriter(path string) (*Writer, error) {
-	path, err := Touch(path)
-	if err != nil {
-		return nil, err
-	}
+	// open file at specified path
 	fd, err := os.OpenFile(path, os.O_WRONLY, 0666)
 	if err != nil {
 		return nil, err
@@ -248,6 +254,7 @@ func OpenWriter(path string) (*Writer, error) {
 	if err != nil {
 		return nil, err
 	}
+	// return new writer
 	return &Writer{
 		path: path,
 		fd:   fd,
@@ -306,21 +313,26 @@ func (w *Writer) WriteEntry(e *Entry) (int64, error) {
 
 // Offset returns the *Writer's current file pointer offset
 func (w *Writer) Offset() (int64, error) {
+	// check to make sure file is not closed
 	if !w.open {
 		return -1, ErrFileClosed
 	}
+	// return current offset using seek
 	return w.fd.Seek(0, io.SeekCurrent)
 }
 
 // Close syncs and closes the *writer
 func (w *Writer) Close() error {
+	// ensure file is not closed
 	if !w.open {
 		return ErrFileClosed
 	}
+	// flush any cached or buffered data to the drive
 	err := w.fd.Sync()
 	if err != nil {
 		return err
 	}
+	// close writer
 	err = w.fd.Close()
 	if err != nil {
 		return err
@@ -337,55 +349,75 @@ type DataFile struct {
 	w *Writer
 }
 
+// OpenDataFile opens and returns a new datafile
 func OpenDataFile(path string) (*DataFile, error) {
+	// create and sanitize the path
 	path, err := Touch(path)
 	if err != nil {
 		return nil, err
 	}
+	// open a new reader
 	r, err := OpenReader(path)
 	if err != nil {
 		return nil, err
 	}
+	// open a new writer
 	w, err := OpenWriter(path)
 	if err != nil {
 		return nil, err
 	}
+	// init data file and return
 	return &DataFile{
 		r: r,
 		w: w,
 	}, nil
 }
 
+// WriteEntry writes an entry in an append-only fashion
 func (d *DataFile) WriteEntry(e *Entry) (int64, error) {
+	// lock
 	d.Lock()
 	defer d.Unlock()
+	// write entry (sequentially, append-only)
 	return d.w.WriteEntry(e)
 }
 
+// ReadEntry attempts to read and return the next entry sequentially
 func (d *DataFile) ReadEntry() (*Entry, error) {
+	// read lock
 	d.RLock()
 	defer d.RUnlock()
+	// read next entry sequentially
 	return d.r.ReadEntry()
 }
 
+// ReadEntryAt attempts to read and return an entry at the specified offset
 func (d *DataFile) ReadEntryAt(offset int64) (*Entry, error) {
+	// lock
 	d.RLock()
 	defer d.RUnlock()
+	// read entry at specified offset
 	return d.r.ReadEntryAt(offset)
 }
 
+// Range iterates the entries as long as the provided boolean function is true
 func (d *DataFile) Range(iter func(e *Entry) bool) error {
+	// lock
 	d.Lock()
 	defer d.Unlock()
+	// grab the reader's offset, so we can set it back later
 	offset, err := d.r.Offset()
 	if err != nil {
 		return err
 	}
+	// go to the beginning of the file
 	_, err = d.r.fd.Seek(0, io.SeekStart)
 	if err != nil {
 		return err
 	}
+	// start loop
 	for {
+		// read entry, and check for EOF
 		e, err := d.r.ReadEntry()
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
@@ -393,10 +425,13 @@ func (d *DataFile) Range(iter func(e *Entry) bool) error {
 			}
 			return err
 		}
+		// entry is good, lets pass it to our boolean function
 		if !iter(e) {
-			continue
+			continue // if iter(e) returns false, continue to next entry
 		}
 	}
+	// we are done reading all the entries (hopefully), so
+	// we seek back to where we were at the start of this function
 	_, err = d.r.fd.Seek(offset, io.SeekStart)
 	if err != nil {
 		return err
@@ -404,13 +439,17 @@ func (d *DataFile) Range(iter func(e *Entry) bool) error {
 	return nil
 }
 
+// Close closes the DataFile
 func (d *DataFile) Close() error {
+	// lock
 	d.Lock()
 	defer d.Unlock()
+	// close reader
 	err := d.r.Close()
 	if err != nil {
 		return err
 	}
+	// close writer
 	err = d.w.Close()
 	if err != nil {
 		return err
