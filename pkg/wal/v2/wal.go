@@ -4,8 +4,10 @@ import (
 	"errors"
 	"github.com/scottcagno/storage/pkg/binary"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -235,7 +237,30 @@ func (l *WAL) getLastSegment() *segment {
 
 // cycleSegment adds a new segment to replace the current (active) segment
 func (l *WAL) cycleSegment() error {
-	// TODO: implement
+	// sync and close current file segment
+	err := l.w.Close()
+	if err != nil {
+		return err
+	}
+	// create a new segment file
+	s, err := l.makeSegmentFile()
+	if err != nil {
+		return err
+	}
+	// add segment to segment index list
+	l.segments = append(l.segments, s)
+	// update the active segment pointer
+	l.active = l.getLastSegment()
+	// open file writer associated with active segment
+	l.w, err = binary.OpenWriter(l.active.path)
+	if err != nil {
+		return err
+	}
+	// update file reader associated with the active segment
+	l.r, err = binary.OpenReader(l.active.path)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -305,20 +330,152 @@ func (l *WAL) Write(key []byte, value []byte) (uint64, error) {
 }
 
 // Scan provides an iterator method for the write-ahead log
-func (l *WAL) Scan() error {
+func (l *WAL) Scan(iter func(index uint64, key, value []byte) bool) error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
-	// TODO: implement
+	// init for any errors
+	var err error
+	// range the segment index
+	for _, sidx := range l.segments {
+		// make sure we are reading the right data
+		l.r, err = l.r.ReadFrom(sidx.path)
+		if err != nil {
+			return err
+		}
+		// range the segment entries index
+		for _, eidx := range sidx.entries {
+			// read entry
+			e, err := l.r.ReadEntryAt(eidx.offset)
+			if err != nil {
+				if err == io.EOF || err == io.ErrUnexpectedEOF {
+					break
+				}
+				return err
+			}
+			// check entry against iterator boolean function
+			if !iter(e.Id, e.Key, e.Value) {
+				// if it returns false, then process next entry
+				continue
+			}
+		}
+		// outside entry loop
+	}
+	// outside segment loop
 	return nil
 }
 
-// Close closes the write-ahead log
+// TruncateFront removes all segments and entries before specified index
+func (l *WAL) TruncateFront(index uint64) error {
+	// lock
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	log.Printf("truncate front...\n")
+	// perform bounds check
+	if index == 0 ||
+		l.lastIndex == 0 ||
+		index < l.firstIndex || index > l.lastIndex {
+		return ErrOutOfBounds
+	}
+	if index == l.firstIndex {
+		return nil // nothing to truncate
+	}
+	// locate segment in segment index list containing specified index
+	sidx := l.findSegmentIndex(index)
+	// isolate whole segments that can be removed
+	for i := 0; i < sidx; i++ {
+		// remove segment file
+		path := l.segments[i].path
+		log.Printf("removing segment: %q\n", filepath.Base(path))
+		err := os.Remove(path)
+		if err != nil {
+			return err
+		}
+	}
+	log.Printf("1) segment index list len=%d, firstIndex=%d, lastIndex=%d\n",
+		len(l.segments), l.segments[0].entries[0].index, l.getLastSegment().getLastIndex())
+	// remove segments from segment index (cut, i-j)
+	i, j := 0, sidx
+	copy(l.segments[i:], l.segments[j:])
+	for k, n := len(l.segments)-j+i, len(l.segments); k < n; k++ {
+		l.segments[k] = nil // or the zero value of T
+	}
+	l.segments = l.segments[:len(l.segments)-j+i]
+	// update firstIndex
+	l.firstIndex = l.segments[0].index
+	log.Printf("2) segment index list len=%d, firstIndex=%d, lastIndex=%d\n",
+		len(l.segments), l.segments[0].entries[0].index, l.getLastSegment().getLastIndex())
+	return nil
+}
+
+// TruncateBack removes all segments and entries after specified index
+func (l *WAL) TruncateBack(index uint64) error {
+	// lock
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	log.Printf("truncate front...\n")
+	// perform bounds check
+	if index == 0 ||
+		l.lastIndex == 0 ||
+		index < l.firstIndex || index > l.lastIndex {
+		return ErrOutOfBounds
+	}
+	if index == l.lastIndex {
+		return nil // nothing to truncate
+	}
+	// locate segment in segment index list containing specified index
+	sidx := l.findSegmentIndex(index)
+	// isolate whole segments that can be removed
+	for i := int(l.lastIndex); i > sidx; i-- {
+		// remove segment file
+		path := l.segments[i].path
+		log.Printf("removing segment: %q\n", filepath.Base(path))
+		err := os.Remove(path)
+		if err != nil {
+			return err
+		}
+	}
+	log.Printf("1) segment index list len=%d, firstIndex=%d, lastIndex=%d\n",
+		len(l.segments), l.segments[0].entries[0].index, l.getLastSegment().getLastIndex())
+	// remove segments from segment index (cut, i-j)
+	i, j := int(l.lastIndex), sidx
+	copy(l.segments[i:], l.segments[j:])
+	for k, n := len(l.segments)-j+i, len(l.segments); k < n; k++ {
+		l.segments[k] = nil // or the zero value of T
+	}
+	l.segments = l.segments[:len(l.segments)-j+i]
+	// update firstIndex
+	l.firstIndex = l.segments[0].index
+	log.Printf("2) segment index list len=%d, firstIndex=%d, lastIndex=%d\n",
+		len(l.segments), l.segments[0].entries[0].index, l.getLastSegment().getLastIndex())
+	return nil
+}
+
+// Close syncs and closes the write-ahead log
 func (l *WAL) Close() error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
-	// TODO: implement
+	// sync and close writer
+	err := l.w.Close()
+	if err != nil {
+		return err
+	}
+	// close reader
+	err = l.r.Close()
+	if err != nil {
+		return err
+	}
+	// clean everything else up
+	l.base = ""
+	l.r = nil
+	l.w = nil
+	l.firstIndex = 0
+	l.lastIndex = 0
+	l.segments = nil
+	l.active = nil
+	// force gc for good measure
+	runtime.GC()
 	return nil
 }
 
