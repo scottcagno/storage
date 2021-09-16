@@ -2,6 +2,7 @@ package v2
 
 import (
 	"fmt"
+	"path/filepath"
 	"time"
 )
 
@@ -19,16 +20,30 @@ type segment struct {
 	remaining uint64  // remaining is the bytes left after max file size minus entry data
 }
 
+// String is the stringer method for a segment
+func (s *segment) String() string {
+	var ss string
+	ss += fmt.Sprintf("path: %q\n", filepath.Base(s.path))
+	ss += fmt.Sprintf("index: %d\n", s.index)
+	ss += fmt.Sprintf("entries: %d\n", len(s.entries))
+	ss += fmt.Sprintf("remaining: %d\n", s.remaining)
+	return ss
+}
+
 // makeFileName returns a file name using the provided timestamp.
 // If t is nil, it will create a new name using time.Now()
 func makeFileName(t time.Time) string {
-	tf := t.Format("2006-01-03-15:04:05.000000")
-	return fmt.Sprintf("%s-%s-%s", logPrefix, tf, logSuffix)
+	//tf := t.Format("2006-01-03_15:04:05:000000")
+	//return fmt.Sprintf("%s%s%s", logPrefix, time.RFC3339Nano, logSuffix)
+	return fmt.Sprintf("%s%d%s", logPrefix, time.Now().UnixMicro(), logSuffix)
 }
 
 // getLastIndex returns the last index in the entries list
 func (s *segment) getLastIndex() uint64 {
-	return s.entries[len(s.entries)-1].index
+	if len(s.entries) > 0 {
+		return s.entries[len(s.entries)-1].index
+	}
+	return s.index
 }
 
 // findEntryIndex performs binary search to find the entry containing provided index

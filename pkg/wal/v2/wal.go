@@ -2,6 +2,7 @@ package v2
 
 import (
 	"errors"
+	"fmt"
 	"github.com/scottcagno/storage/pkg/binary"
 	"io"
 	"log"
@@ -14,8 +15,8 @@ import (
 )
 
 const (
-	logPrefix = ""
-	logSuffix = ""
+	logPrefix = "wal-"
+	logSuffix = ".seg"
 
 	defaultMaxFileSize uint64 = 4 << 20 // 4 MB
 )
@@ -43,8 +44,8 @@ type WAL struct {
 	active     *segment       // active is the current active segment
 }
 
-// OpenWAL opens and returns a new write-ahead log structure
-func OpenWAL(path string) (*WAL, error) {
+// Open opens and returns a new write-ahead log structure
+func Open(path string) (*WAL, error) {
 	// make sure we are working with absolute paths
 	base, err := filepath.Abs(path)
 	if err != nil {
@@ -61,8 +62,11 @@ func OpenWAL(path string) (*WAL, error) {
 	l := &WAL{
 		base:       base,
 		firstIndex: 1,
+		lastIndex:  1,
 		segments:   make([]*segment, 0),
 	}
+	log.SetPrefix("[WAL] ")
+	log.Printf("wal.Open:\n%s\n", l.base)
 	// attempt to load segments
 	err = l.loadIndex()
 	if err != nil {
@@ -128,7 +132,14 @@ func (l *WAL) loadIndex() error {
 		return err
 	}
 	// finally, update the firstIndex and lastIndex
-	l.firstIndex = l.segments[0].entries[0].index
+	log.Printf("+++++++++++++++ %s, %v\n", l.segments[0], l.segments[0].entries)
+	if l.segments[0] == nil {
+		log.Printf("DEBUG:1\n")
+	}
+	l.firstIndex = 1
+	if len(l.segments[0].entries) > 0 {
+		l.firstIndex = l.segments[0].entries[0].index
+	}
 	l.lastIndex = l.getLastSegment().getLastIndex()
 	return nil
 }
@@ -164,14 +175,14 @@ func (l *WAL) loadSegmentFile(path string) (*segment, error) {
 		// reader for the entry later
 		offset, err := binary.Offset(fd)
 		if err != nil {
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
-				break
-			}
 			return nil, err
 		}
 		// read and decode entry
 		e, err := binary.DecodeEntry(fd)
 		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
 			return nil, err
 		}
 		// get current offset
@@ -207,11 +218,14 @@ func (l *WAL) makeSegmentFile() (*segment, error) {
 		return nil, err
 	}
 	// create and return new segment
-	return &segment{
+	s := &segment{
 		path:      path,
 		index:     l.lastIndex + 1,
+		entries:   make([]entry, 0),
 		remaining: maxFileSize,
-	}, nil
+	}
+	log.Printf("makeSegmentFile: %s\n", s)
+	return s, nil
 }
 
 // findSegmentIndex performs binary search to find the segment containing provided index
@@ -479,8 +493,30 @@ func (l *WAL) Close() error {
 	return nil
 }
 
+func (l *WAL) Path() string {
+	return l.base
+}
+
 // String is the stringer method for the write-ahead log
 func (l *WAL) String() string {
-	// TODO: implement
-	return ""
+	var ss string
+	ss += fmt.Sprintf("\n\n[write-ahead log]\n")
+	ss += fmt.Sprintf("base: %q\n", l.base)
+	ss += fmt.Sprintf("firstIndex: %d\n", l.firstIndex)
+	ss += fmt.Sprintf("lastIndex: %d\n", l.lastIndex)
+	ss += fmt.Sprintf("segments: %d\n", len(l.segments))
+	if l.active != nil {
+		ss += fmt.Sprintf("active: %q\n", filepath.Base(l.active.path))
+	}
+	if len(l.segments) > 0 {
+		for i, s := range l.segments {
+			ss += fmt.Sprintf("segment[%d]:\n", i)
+			ss += fmt.Sprintf("\tpath: %q\n", filepath.Base(s.path))
+			ss += fmt.Sprintf("\tindex: %d\n", s.index)
+			ss += fmt.Sprintf("\tentries: %d\n", len(s.entries))
+			ss += fmt.Sprintf("\tremaining: %d\n", s.remaining)
+		}
+	}
+	ss += "\n"
+	return ss
 }
