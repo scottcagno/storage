@@ -239,14 +239,14 @@ func (l *WAL) cycleSegment() error {
 	return nil
 }
 
-// ReadEntry reads an entry from the write-ahead log at the specified index
-func (l *WAL) ReadEntry(index uint64) (*binary.Entry, error) {
+// Read reads an entry from the write-ahead log at the specified index
+func (l *WAL) Read(index uint64) ([]byte, []byte, error) {
 	// read lock
 	l.lock.RLock()
 	defer l.lock.RUnlock()
 	// error checking
 	if index < l.firstIndex || index > l.lastIndex {
-		return nil, ErrOutOfBounds
+		return nil, nil, ErrOutOfBounds
 	}
 	var err error
 	// find the segment containing the provided index
@@ -254,25 +254,29 @@ func (l *WAL) ReadEntry(index uint64) (*binary.Entry, error) {
 	// make sure we are reading from the correct file
 	l.r, err = l.r.ReadFrom(s.path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// find the offset for the entry containing the provided index
 	offset := s.entries[s.findEntryIndex(index)].offset
 	// read entry at offset
 	e, err := l.r.ReadEntryAt(offset)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return e, nil
+	return e.Key, e.Value, nil
 }
 
 // WriteEntry writes an entry to the write-ahead log in an append-only fashion
-func (l *WAL) WriteEntry(e *binary.Entry) (uint64, error) {
+func (l *WAL) Write(key []byte, value []byte) (uint64, error) {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	// write entry
-	offset, err := l.w.WriteEntry(e)
+	offset, err := l.w.WriteEntry(&binary.Entry{
+		Id:    l.lastIndex,
+		Key:   key,
+		Value: value,
+	})
 	if err != nil {
 		return 0, err
 	}
