@@ -30,3 +30,19 @@ func makeFileName(t time.Time) string {
 func (s *segment) getLastIndex() uint64 {
 	return s.entries[len(s.entries)-1].index
 }
+
+// findEntryIndex performs binary search to find the entry containing provided index
+func (s *segment) findEntryIndex(index uint64) int {
+	// declare for later
+	i, j := 0, len(s.entries)
+	// otherwise, perform binary search
+	for i < j {
+		h := i + (j-i)/2
+		if index >= s.entries[h].index {
+			i = h + 1
+		} else {
+			j = h
+		}
+	}
+	return i - 1
+}

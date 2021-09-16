@@ -212,6 +212,22 @@ func (l *WAL) makeSegmentFile() (*segment, error) {
 	}, nil
 }
 
+// findSegmentIndex performs binary search to find the segment containing provided index
+func (l *WAL) findSegmentIndex(index uint64) int {
+	// declare for later
+	i, j := 0, len(l.segments)
+	// otherwise, perform binary search
+	for i < j {
+		h := i + (j-i)/2
+		if index >= l.segments[h].index {
+			i = h + 1
+		} else {
+			j = h
+		}
+	}
+	return i - 1
+}
+
 // getLastSegment returns the tail segment in the segments index list
 func (l *WAL) getLastSegment() *segment {
 	return l.segments[len(l.segments)-1]
@@ -223,37 +239,31 @@ func (l *WAL) cycleSegment() error {
 	return nil
 }
 
-// Read reads an entry from the write-ahead log at the specified index
-func (l *WAL) Read(index uint64) ([]byte, error) {
-	// read lock
-	l.lock.RLock()
-	defer l.lock.RUnlock()
-	// error checking
-	// TODO: implement
-	// reading, etc...
-	return nil, nil
-}
-
 // ReadEntry reads an entry from the write-ahead log at the specified index
 func (l *WAL) ReadEntry(index uint64) (*binary.Entry, error) {
 	// read lock
 	l.lock.RLock()
 	defer l.lock.RUnlock()
 	// error checking
-	// TODO: implement
-	// reading, etc...
-	return nil, nil
-}
-
-// Write writes an entry to the write-ahead log in an append-only fashion
-func (l *WAL) Write(data []byte) (uint64, error) {
-	// lock
-	l.lock.Lock()
-	defer l.lock.Unlock()
-	// error checking
-	// TODO: implement
-	// reading, etc...
-	return 0, nil
+	if index < l.firstIndex || index > l.lastIndex {
+		return nil, ErrOutOfBounds
+	}
+	var err error
+	// find the segment containing the provided index
+	s := l.segments[l.findSegmentIndex(index)]
+	// make sure we are reading from the correct file
+	l.r, err = l.r.ReadFrom(s.path)
+	if err != nil {
+		return nil, err
+	}
+	// find the offset for the entry containing the provided index
+	offset := s.entries[s.findEntryIndex(index)].offset
+	// read entry at offset
+	e, err := l.r.ReadEntryAt(offset)
+	if err != nil {
+		return nil, err
+	}
+	return e, nil
 }
 
 // WriteEntry writes an entry to the write-ahead log in an append-only fashion
@@ -261,10 +271,33 @@ func (l *WAL) WriteEntry(e *binary.Entry) (uint64, error) {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
-	// error checking
-	// TODO: implement
-	// reading, etc...
-	return 0, nil
+	// write entry
+	offset, err := l.w.WriteEntry(e)
+	if err != nil {
+		return 0, err
+	}
+	// add new entry to the segment index
+	l.active.entries = append(l.active.entries, entry{
+		index:  l.lastIndex,
+		offset: offset,
+	})
+	// update lastIndex
+	l.lastIndex++
+	// grab the current offset written
+	offset2, err := l.w.Offset()
+	if err != nil {
+		return 0, err
+	}
+	// update segment remaining
+	l.active.remaining -= uint64(offset2 - offset)
+	// check to see if the active segment needs to be cycled
+	if l.active.remaining < 64 {
+		err = l.cycleSegment()
+		if err != nil {
+			return 0, err
+		}
+	}
+	return l.lastIndex - 1, nil
 }
 
 // Scan provides an iterator method for the write-ahead log
