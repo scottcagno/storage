@@ -5,4 +5,5 @@ type Storage interface {
 	Put(key string, value []byte) error
 	Get(key string) ([]byte, error)
 	Del(key string) error
+	Close() error
 }

@@ -3,14 +3,9 @@ package memtable
 import (
 	"errors"
 	"github.com/scottcagno/storage/pkg/index/rbtree"
-	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/wal"
 	"runtime"
 	"sync"
-)
-
-const (
-	walPath = "data/memtable"
 )
 
 var (
@@ -18,16 +13,15 @@ var (
 )
 
 type Memtable struct {
-	mu       sync.RWMutex
-	mem      *rbtree.RBTree
-	wal      *wal.WriteAheadLog
-	sstables []*sstable.SSTable
-	size     int64
+	mu   sync.RWMutex
+	mem  *rbtree.RBTree
+	wal  *wal.WriteAheadLog
+	size int64
 }
 
 // Open opens and returns a Memtable instance
-func Open() (*Memtable, error) {
-	l, err := wal.Open(walPath)
+func Open(path string) (*Memtable, error) {
+	l, err := wal.Open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -45,9 +39,6 @@ func Open() (*Memtable, error) {
 // loadFromLog checks and loads any entries that
 // were saved to the commit log.
 func (m *Memtable) loadFromLog() error {
-	// read lock
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	// check to see if there are entries in the
 	// write-ahead log we must load back into
 	// the Memtable
@@ -56,8 +47,8 @@ func (m *Memtable) loadFromLog() error {
 			if k == nil {
 				return false
 			}
-			err := m.Put(string(k), v)
-			if err != nil {
+			_, ok := m.mem.Put(string(k), v)
+			if !ok {
 				return false
 			}
 			return true
@@ -71,14 +62,14 @@ func (m *Memtable) loadFromLog() error {
 
 // Put adds a key and value pair to the Memtable
 func (m *Memtable) Put(key string, value []byte) error {
-	// lock
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	// write put entry to the write-ahead logger
 	_, err := m.wal.Write([]byte(key), value)
 	if err != nil {
 		return err
 	}
+	// lock
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	// write put entry to the memtable
 	_, ok := m.mem.Put(key, value)
 	// update size in memtable
@@ -104,14 +95,14 @@ func (m *Memtable) Get(key string) ([]byte, error) {
 
 // Del writes a tombstone to the Memtable
 func (m *Memtable) Del(key string) error {
-	// lock
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	// write del entry to the write-ahead logger
 	_, err := m.wal.Write([]byte(key), nil)
 	if err != nil {
 		return err
 	}
+	// lock
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	// write put entry to the memtable
 	_, ok := m.mem.Put(key, nil)
 	// update size in memtable
@@ -132,15 +123,15 @@ func (m *Memtable) Size() int64 {
 
 // Close closes down the memtable
 func (m *Memtable) Close() error {
-	// lock
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	// close stuff down
-	m.mem.Close()
 	err := m.wal.Close()
 	if err != nil {
 		return err
 	}
+	// lock
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.mem.Close()
 	m.size = 0
 	runtime.GC()
 	return nil
