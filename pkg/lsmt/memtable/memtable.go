@@ -3,19 +3,14 @@ package memtable
 import (
 	"errors"
 	"github.com/scottcagno/storage/pkg/index/rbtree"
-	"github.com/scottcagno/storage/pkg/lsmt"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/wal"
 	"runtime"
 	"sync"
-	"time"
 )
 
 const (
-	walPath      = "data/memtable"
-	sstPath      = "data/sstable"
-	regularEntry = 0x1A
-	removedEntry = 0x1B
+	walPath = "data/memtable"
 )
 
 var (
@@ -23,13 +18,15 @@ var (
 )
 
 type Memtable struct {
-	mu   sync.RWMutex
-	mem  *rbtree.RBTree
-	wal  *wal.WriteAheadLog
-	size int64
+	mu       sync.RWMutex
+	mem      *rbtree.RBTree
+	wal      *wal.WriteAheadLog
+	sstables []*sstable.SSTable
+	size     int64
 }
 
-func OpenMemtable() (*Memtable, error) {
+// Open opens and returns a Memtable instance
+func Open() (*Memtable, error) {
 	l, err := wal.Open(walPath)
 	if err != nil {
 		return nil, err
@@ -38,14 +35,16 @@ func OpenMemtable() (*Memtable, error) {
 		mem: rbtree.NewRBTree(),
 		wal: l,
 	}
-	err = m.load()
+	err = m.loadFromLog()
 	if err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-func (m *Memtable) load() error {
+// loadFromLog checks and loads any entries that
+// were saved to the commit log.
+func (m *Memtable) loadFromLog() error {
 	// read lock
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -53,16 +52,11 @@ func (m *Memtable) load() error {
 	// write-ahead log we must load back into
 	// the Memtable
 	if m.wal.Count() > 0 {
-		err := m.wal.Scan(func(index uint64, data []byte) bool {
-			if data == nil {
+		err := m.wal.Scan(func(i uint64, k, v []byte) bool {
+			if k == nil {
 				return false
 			}
-			var ent *lsmt.Entry
-			err := ent.UnmarshalBinary(data)
-			if err != nil {
-				return false
-			}
-			err = m.Put(ent.Key, ent.Value)
+			err := m.Put(string(k), v)
 			if err != nil {
 				return false
 			}
@@ -75,23 +69,13 @@ func (m *Memtable) load() error {
 	return nil
 }
 
+// Put adds a key and value pair to the Memtable
 func (m *Memtable) Put(key string, value []byte) error {
 	// lock
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// encode key-value pair into a new record
-	ent := &lsmt.Entry{
-		Type:      regularEntry,
-		Timestamp: time.Now(),
-		Key:       key,
-		Value:     value,
-	}
-	data, err := ent.MarshalBinary()
-	if err != nil {
-		return err
-	}
 	// write put entry to the write-ahead logger
-	_, err = m.wal.Write(data)
+	_, err := m.wal.Write([]byte(key), value)
 	if err != nil {
 		return err
 	}
@@ -99,11 +83,12 @@ func (m *Memtable) Put(key string, value []byte) error {
 	_, ok := m.mem.Put(key, value)
 	// update size in memtable
 	if ok {
-		m.size += int64(len(data))
+		m.size += int64(len(key) + len(value))
 	}
 	return nil
 }
 
+// Get attempts to find a key-value pair in the Memtable
 func (m *Memtable) Get(key string) ([]byte, error) {
 	// read lock
 	m.mu.RLock()
@@ -113,26 +98,17 @@ func (m *Memtable) Get(key string) ([]byte, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
+	// return the value if it is found
 	return value, nil
 }
 
+// Del writes a tombstone to the Memtable
 func (m *Memtable) Del(key string) error {
 	// lock
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// encode key-value pair into a tombstone record
-	ent := &lsmt.Entry{
-		Type:      removedEntry,
-		Timestamp: time.Now(),
-		Key:       key,
-		Value:     nil,
-	}
-	data, err := ent.MarshalBinary()
-	if err != nil {
-		return err
-	}
-	// write put entry to the write-ahead logger
-	_, err = m.wal.Write(data)
+	// write del entry to the write-ahead logger
+	_, err := m.wal.Write([]byte(key), nil)
 	if err != nil {
 		return err
 	}
@@ -140,54 +116,18 @@ func (m *Memtable) Del(key string) error {
 	_, ok := m.mem.Put(key, nil)
 	// update size in memtable
 	if ok {
-		m.size += int64(len(data))
+		m.size += int64(len(key))
 	}
 	return nil
 }
 
-func (m *Memtable) FlushToSSTable() error {
+// Size returns current active size of memtable
+func (m *Memtable) Size() int64 {
+	// lock
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// create new sstable file
-	sst, err := sstable.Create(sstPath)
-	if err != nil {
-		return err
-	}
-	// iterate all of the entries in the memtable in sorted
-	// order and write each entry to the sstable file
-	m.mem.ScanFront(func(e rbtree.Entry) bool {
-		ent := &lsmt.Entry{
-			Type:      regularEntry,
-			Timestamp: time.Now(),
-			Key:       e.Key,
-			Value:     e.Value,
-		}
-		if ent.Key != "" && ent.Value == nil {
-			ent.Type = removedEntry
-		}
-		data, err := ent.MarshalBinary()
-		if err != nil {
-			return false
-		}
-		err = sst.Write(data)
-		if err != nil {
-			return false
-		}
-		return true
-	})
-	// make sure sstable file is flushed to disk
-	err = sst.Sync()
-	if err != nil {
-		return err
-	}
-	// reset the memtable data
-	m.mem = m.mem.Reset()
-	// reset the write-ahead log file
-	m.wal, err = m.wal.Reset()
-	if err != nil {
-		return err
-	}
-	return nil
+	// return size
+	return m.size
 }
 
 // Close closes down the memtable
