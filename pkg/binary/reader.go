@@ -155,12 +155,20 @@ func DecodeEntryAt(r io.ReaderAt, offset int64) (*Entry, error) {
 
 // ReadEntry reads the next encoded entry, sequentially
 func (r *Reader) ReadEntry() (*Entry, error) {
+	// check to make sure file is open
+	if !r.open {
+		return nil, ErrFileClosed
+	}
 	// call decode entry
 	return DecodeEntry(r.fd)
 }
 
 // ReadEntryAt reads the encoded entry at the offset provided
 func (r *Reader) ReadEntryAt(offset int64) (*Entry, error) {
+	// check to make sure file is open
+	if !r.open {
+		return nil, ErrFileClosed
+	}
 	// call decode entry at
 	return DecodeEntryAt(r.fd, offset)
 }
@@ -173,6 +181,16 @@ func (r *Reader) Offset() (int64, error) {
 	}
 	// return current offset
 	return r.fd.Seek(0, io.SeekCurrent)
+}
+
+// Seek exposes io.Seeker
+func (r *Reader) Seek(offset int64, whence int) (int64, error) {
+	// check to make sure file is open
+	if !r.open {
+		return -1, ErrFileClosed
+	}
+	// seek to offset according to whence
+	return r.fd.Seek(offset, whence)
 }
 
 // Close simply closes the *Reader

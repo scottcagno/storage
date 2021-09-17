@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	logPrefix = "wal-"
-	logSuffix = ".seg"
+	LogPrefix = "wal-"
+	LogSuffix = ".seg"
 
 	defaultMaxFileSize uint64 = 4 << 20 // 4 MB
 )
@@ -64,8 +64,8 @@ func (s *segment) String() string {
 // If t is nil, it will create a new name using time.Now()
 func makeFileName(t time.Time) string {
 	//tf := t.Format("2006-01-03_15:04:05:000000")
-	//return fmt.Sprintf("%s%s%s", logPrefix, time.RFC3339Nano, logSuffix)
-	return fmt.Sprintf("%s%d%s", logPrefix, time.Now().UnixMicro(), logSuffix)
+	//return fmt.Sprintf("%s%s%s", LogPrefix, time.RFC3339Nano, LogSuffix)
+	return fmt.Sprintf("%s%d%s", LogPrefix, time.Now().UnixMicro(), LogSuffix)
 }
 
 // getFirstIndex returns the first index in the entries list
@@ -156,8 +156,8 @@ func (l *WriteAheadLog) loadIndex() error {
 	for _, file := range files {
 		// skip non data files
 		if file.IsDir() ||
-			!strings.HasPrefix(file.Name(), logPrefix) ||
-			!strings.HasSuffix(file.Name(), logSuffix) {
+			!strings.HasPrefix(file.Name(), LogPrefix) ||
+			!strings.HasSuffix(file.Name(), LogSuffix) {
 			continue // skip this, continue on to the next file
 		}
 		// attempt to load segment (and index entries in segment)
