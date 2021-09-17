@@ -538,6 +538,36 @@ func (l *WriteAheadLog) TruncateFront(index uint64) error {
 	return nil
 }
 
+// Count returns the number of entries currently in the write-ahead log
+func (l *WriteAheadLog) Count() int {
+	// lock
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	// get count
+	var count int
+	for _, s := range l.segments {
+		count += len(s.entries)
+	}
+	// return count
+	return count
+}
+
+// FirstIndex returns the write-ahead logs first index
+func (l *WriteAheadLog) FirstIndex() uint64 {
+	// lock
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	return l.firstIndex
+}
+
+// LastIndex returns the write-ahead logs first index
+func (l *WriteAheadLog) LastIndex() uint64 {
+	// lock
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	return l.lastIndex
+}
+
 // Close syncs and closes the write-ahead log
 func (l *WriteAheadLog) Close() error {
 	// lock
