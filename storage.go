@@ -1,4 +1,4 @@
-package pkg
+package storage
 
 // Storage is an interface for this package
 type Storage interface {
