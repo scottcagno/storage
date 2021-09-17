@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	walPath      = "memdatas"
-	sstPath      = "sstables"
+	walPath      = "data/memtable"
+	sstPath      = "data/sstable"
 	regularEntry = 0x1A
 	removedEntry = 0x1B
 )
@@ -25,7 +25,7 @@ var (
 type Memtable struct {
 	mu   sync.RWMutex
 	mem  *rbtree.RBTree
-	wal  *wal.Log
+	wal  *wal.WriteAheadLog
 	size int64
 }
 
