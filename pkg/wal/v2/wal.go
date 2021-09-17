@@ -38,6 +38,11 @@ type entry struct {
 	offset int64  // offset is the actual offset of this entry in the segment file
 }
 
+// String is the stringer method for an entry
+func (e entry) String() string {
+	return fmt.Sprintf("entry.index=%d, entry.offset=%d", e.index, e.offset)
+}
+
 // segment contains the metadata for the file segment
 type segment struct {
 	path      string  // path is the full path to this segment file
@@ -62,6 +67,11 @@ func makeFileName(t time.Time) string {
 	//tf := t.Format("2006-01-03_15:04:05:000000")
 	//return fmt.Sprintf("%s%s%s", logPrefix, time.RFC3339Nano, logSuffix)
 	return fmt.Sprintf("%s%d%s", logPrefix, time.Now().UnixMicro(), logSuffix)
+}
+
+// getFirstIndex returns the first index in the entries list
+func (s *segment) getFirstIndex() uint64 {
+	return s.index
 }
 
 // getLastIndex returns the last index in the entries list
@@ -117,12 +127,10 @@ func Open(path string) (*WAL, error) {
 	// create a new write-ahead log instance
 	l := &WAL{
 		base:       base,
-		firstIndex: 1,
+		firstIndex: 0,
 		lastIndex:  1,
 		segments:   make([]*segment, 0),
 	}
-	log.SetPrefix("[WAL] ")
-	log.Printf("wal.Open:\n%s\n", l.base)
 	// attempt to load segments
 	err = l.loadIndex()
 	if err != nil {
@@ -188,14 +196,8 @@ func (l *WAL) loadIndex() error {
 		return err
 	}
 	// finally, update the firstIndex and lastIndex
-	log.Printf("+++++++++++++++ %s, %v\n", l.segments[0], l.segments[0].entries)
-	if l.segments[0] == nil {
-		log.Printf("DEBUG:1\n")
-	}
-	l.firstIndex = 1
-	if len(l.segments[0].entries) > 0 {
-		l.firstIndex = l.segments[0].entries[0].index
-	}
+	l.firstIndex = l.segments[0].index
+	// and update last index
 	l.lastIndex = l.getLastSegment().getLastIndex()
 	return nil
 }
@@ -249,6 +251,8 @@ func (l *WAL) loadSegmentFile(path string) (*segment, error) {
 		})
 		// continue to process the next entry
 	}
+	// make sure to fill out the segment index from the first entry index
+	s.index = s.entries[0].index
 	// get the offset of the reader to calculate bytes remaining
 	offset, err := binary.Offset(fd)
 	if err != nil {
@@ -276,11 +280,10 @@ func (l *WAL) makeSegmentFile() (*segment, error) {
 	// create and return new segment
 	s := &segment{
 		path:      path,
-		index:     l.lastIndex + 1,
+		index:     l.lastIndex,
 		entries:   make([]entry, 0),
 		remaining: maxFileSize,
 	}
-	log.Printf("makeSegmentFile: %s\n", s)
 	return s, nil
 }
 
@@ -408,6 +411,7 @@ func (l *WAL) Scan(iter func(index uint64, key, value []byte) bool) error {
 	var err error
 	// range the segment index
 	for _, sidx := range l.segments {
+		fmt.Printf("segment: %s\n", sidx)
 		// make sure we are reading the right data
 		l.r, err = l.r.ReadFrom(sidx.path)
 		if err != nil {
@@ -475,6 +479,62 @@ func (l *WAL) TruncateFront(index uint64) error {
 	l.firstIndex = l.segments[0].index
 	log.Printf("2) segment index list len=%d, firstIndex=%d, lastIndex=%d\n",
 		len(l.segments), l.segments[0].entries[0].index, l.getLastSegment().getLastIndex())
+	// trim partial segment
+	var err error
+	var entries []entry
+	if l.segments[0].index < index {
+		l.r, err = l.r.ReadFrom(l.segments[0].path)
+		if err != nil {
+			return err
+		}
+		tmp, err := os.Create(filepath.Join(l.base, "wal-temp.seg"))
+		if err != nil {
+			return err
+		}
+		for _, eidx := range l.segments[0].entries {
+			// keep these entries
+			if eidx.index >= index {
+				// append to a new entries list
+				entries = append(entries, eidx)
+				// read entry data
+				e, err := l.r.ReadEntryAt(eidx.offset)
+				if err != nil {
+					return err
+				}
+				// write entry to new temp file
+				eidx.offset, err = binary.EncodeEntry(tmp, e)
+				if err != nil {
+					return err
+				}
+				// append to a new entries list
+				entries = append(entries, eidx)
+			}
+		}
+		// move reader
+		l.r, err = l.r.ReadFrom(l.active.path)
+		if err != nil {
+			return err
+		}
+		// sync temp file
+		err = tmp.Sync()
+		if err != nil {
+			return err
+		}
+		// close temp file
+		err = tmp.Close()
+		if err != nil {
+			return err
+		}
+		// remove file
+		err = os.Remove(l.segments[0].path)
+		if err != nil {
+			return err
+		}
+		// update segment
+		l.segments[0].path = tmp.Name()
+		l.segments[0].entries = entries
+		l.segments[0].index = entries[0].index
+	}
 	return nil
 }
 
@@ -496,7 +556,7 @@ func (l *WAL) TruncateBack(index uint64) error {
 	// locate segment in segment index list containing specified index
 	sidx := l.findSegmentIndex(index)
 	// isolate whole segments that can be removed
-	for i := int(l.lastIndex); i > sidx; i-- {
+	for i := int(l.lastIndex); i >= sidx; i-- {
 		// remove segment file
 		path := l.segments[i].path
 		log.Printf("removing segment: %q\n", filepath.Base(path))

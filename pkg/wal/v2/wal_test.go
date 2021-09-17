@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-func TestLog_TruncateFront(t *testing.T) {
+func TestWAL(t *testing.T) {
 	//
 	// set max file size
-	maxFileSize = 1 << 10
+	maxFileSize = 2 << 10
 	//
 	// open log
 	wal, err := Open("logs")
@@ -22,8 +22,54 @@ func TestLog_TruncateFront(t *testing.T) {
 	//
 	// do some writing
 	for i := 0; i < 500; i++ {
-		key := []byte(fmt.Sprintf("key-%04d", i))
-		val := []byte(fmt.Sprintf("my-value-%06d", i))
+		key := []byte(fmt.Sprintf("key-%04d", i+1))
+		val := []byte(fmt.Sprintf("my-value-%06d", i+1))
+		_, err := wal.Write(key, val)
+		if err != nil {
+			t.Fatalf("error writing: %v\n", err)
+		}
+	}
+	//
+	// do some reading
+	wal.Scan(func(i uint64, k, v []byte) bool {
+		fmt.Printf("index=%d, key=%q, value=%q\n", i, k, v)
+		return true
+	})
+	//
+	// close log
+	err = wal.Close()
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+	//
+	// clean up
+	doClean := false
+	if doClean {
+		err = os.RemoveAll(path)
+		if err != nil {
+			t.Fatalf("got error: %v\n", err)
+		}
+	}
+}
+
+func TestLog_TruncateFront(t *testing.T) {
+	//
+	// set max file size
+	maxFileSize = 2 << 10
+	//
+	// open log
+	wal, err := Open("logs")
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
+	//
+	// get path for cleanup
+	path := wal.Path()
+	//
+	// do some writing
+	for i := 0; i < 500; i++ {
+		key := []byte(fmt.Sprintf("key-%04d", i+1))
+		val := []byte(fmt.Sprintf("my-value-%06d", i+1))
 		_, err := wal.Write(key, val)
 		if err != nil {
 			t.Fatalf("error writing: %v\n", err)
@@ -61,6 +107,10 @@ func TestLog_TruncateFront(t *testing.T) {
 	err = wal.TruncateFront(256)
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
+	}
+	fmt.Printf("--- PRINTING SEGMENT INFO ---\n")
+	for _, s := range wal.segments {
+		fmt.Printf("%s\n", s)
 	}
 	//
 	// close log
