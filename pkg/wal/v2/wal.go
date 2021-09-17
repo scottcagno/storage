@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/binary"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -444,7 +443,6 @@ func (l *WAL) TruncateFront(index uint64) error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
-	log.Printf("truncate front...\n")
 	// perform bounds check
 	if index == 0 ||
 		l.lastIndex == 0 ||
@@ -459,15 +457,11 @@ func (l *WAL) TruncateFront(index uint64) error {
 	// isolate whole segments that can be removed
 	for i := 0; i < sidx; i++ {
 		// remove segment file
-		path := l.segments[i].path
-		log.Printf("removing segment: %q\n", filepath.Base(path))
-		err := os.Remove(path)
+		err := os.Remove(l.segments[i].path)
 		if err != nil {
 			return err
 		}
 	}
-	log.Printf("1) segment index list len=%d, firstIndex=%d, lastIndex=%d\n",
-		len(l.segments), l.segments[0].entries[0].index, l.getLastSegment().getLastIndex())
 	// remove segments from segment index (cut, i-j)
 	i, j := 0, sidx
 	copy(l.segments[i:], l.segments[j:])
@@ -477,107 +471,70 @@ func (l *WAL) TruncateFront(index uint64) error {
 	l.segments = l.segments[:len(l.segments)-j+i]
 	// update firstIndex
 	l.firstIndex = l.segments[0].index
-	log.Printf("2) segment index list len=%d, firstIndex=%d, lastIndex=%d\n",
-		len(l.segments), l.segments[0].entries[0].index, l.getLastSegment().getLastIndex())
-	// trim partial segment
+	// prepare to re-write partial segment
 	var err error
 	var entries []entry
+	tmpfd, err := os.Create(filepath.Join(l.base, "tmp-partial.seg"))
+	if err != nil {
+		return err
+	}
+	// after the segment index cut, segment 0 will
+	// contain the partials that we must re-write
 	if l.segments[0].index < index {
+		// make sure we are reading from the correct path
 		l.r, err = l.r.ReadFrom(l.segments[0].path)
 		if err != nil {
 			return err
 		}
-		tmp, err := os.Create(filepath.Join(l.base, "wal-temp.seg"))
-		if err != nil {
-			return err
-		}
-		for _, eidx := range l.segments[0].entries {
-			// keep these entries
-			if eidx.index >= index {
-				// append to a new entries list
-				entries = append(entries, eidx)
-				// read entry data
-				e, err := l.r.ReadEntryAt(eidx.offset)
-				if err != nil {
-					return err
-				}
-				// write entry to new temp file
-				eidx.offset, err = binary.EncodeEntry(tmp, e)
-				if err != nil {
-					return err
-				}
-				// append to a new entries list
-				entries = append(entries, eidx)
+		// range the entries within this segment to find
+		// the ones that are greater than the index and
+		// write those to a temporary buffer....
+		for _, ent := range l.segments[0].entries {
+			if ent.index < index {
+				continue // skip
 			}
+			// read entry
+			e, err := l.r.ReadEntryAt(ent.offset)
+			if err != nil {
+				return err
+			}
+			// write entry to temp file
+			ent.offset, err = binary.EncodeEntry(tmpfd, e)
+			if err != nil {
+				return err
+			}
+			// sync write
+			err = tmpfd.Sync()
+			if err != nil {
+				return err
+			}
+			// append to a new entries list
+			entries = append(entries, ent)
 		}
-		// move reader
+		// move reader back to active segment file
 		l.r, err = l.r.ReadFrom(l.active.path)
 		if err != nil {
 			return err
 		}
-		// sync temp file
-		err = tmp.Sync()
-		if err != nil {
-			return err
-		}
 		// close temp file
-		err = tmp.Close()
+		err = tmpfd.Close()
 		if err != nil {
 			return err
 		}
-		// remove file
+		// remove partial segment file
 		err = os.Remove(l.segments[0].path)
 		if err != nil {
 			return err
 		}
-		// update segment
-		l.segments[0].path = tmp.Name()
-		l.segments[0].entries = entries
-		l.segments[0].index = entries[0].index
-	}
-	return nil
-}
-
-// TruncateBack removes all segments and entries after specified index
-func (l *WAL) TruncateBack(index uint64) error {
-	// lock
-	l.lock.Lock()
-	defer l.lock.Unlock()
-	log.Printf("truncate front...\n")
-	// perform bounds check
-	if index == 0 ||
-		l.lastIndex == 0 ||
-		index < l.firstIndex || index > l.lastIndex {
-		return ErrOutOfBounds
-	}
-	if index == l.lastIndex {
-		return nil // nothing to truncate
-	}
-	// locate segment in segment index list containing specified index
-	sidx := l.findSegmentIndex(index)
-	// isolate whole segments that can be removed
-	for i := int(l.lastIndex); i >= sidx; i-- {
-		// remove segment file
-		path := l.segments[i].path
-		log.Printf("removing segment: %q\n", filepath.Base(path))
-		err := os.Remove(path)
+		// change temp file name
+		err = os.Rename(tmpfd.Name(), l.segments[0].path)
 		if err != nil {
 			return err
 		}
+		// update segment
+		l.segments[0].entries = entries
+		l.segments[0].index = entries[0].index
 	}
-	log.Printf("1) segment index list len=%d, firstIndex=%d, lastIndex=%d\n",
-		len(l.segments), l.segments[0].entries[0].index, l.getLastSegment().getLastIndex())
-	// remove segments from segment index (cut, i-j)
-	i, j := int(l.lastIndex), sidx
-	copy(l.segments[i:], l.segments[j:])
-	for k, n := len(l.segments)-j+i, len(l.segments); k < n; k++ {
-		l.segments[k] = nil // or the zero value of T
-	}
-	l.segments = l.segments[:len(l.segments)-j+i]
-	// update firstIndex
-	l.firstIndex = l.segments[0].index
-	log.Printf("2) segment index list len=%d, firstIndex=%d, lastIndex=%d\n",
-		len(l.segments), l.segments[0].entries[0].index, l.getLastSegment().getLastIndex())
 	return nil
 }
 
