@@ -2,7 +2,6 @@ package index
 
 import (
 	"bytes"
-	"github.com/scottcagno/data-structures/pkg/_reference/_rbtree"
 	"github.com/scottcagno/storage/pkg/index/bptree"
 	"github.com/scottcagno/storage/pkg/index/rbtree"
 	"math/rand"

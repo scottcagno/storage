@@ -2,7 +2,7 @@ package rbtree
 
 import (
 	"fmt"
-	"github.com/scottcagno/leviathan/pkg/util"
+	"github.com/scottcagno/storage/pkg/util"
 	"log"
 	"testing"
 )
