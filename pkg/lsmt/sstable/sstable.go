@@ -50,8 +50,10 @@ func (b *Batch) Close() {
 
 // SSTableIndex is a sparse index for the SSTable
 type SSTableIndex struct {
-	path  string         // path is the path of the sstable file that is being indexed
-	index *bptree.BPTree // index is a sparse index for a given table
+	path       string         // path is the path of the sstable file that is being indexed
+	index      *bptree.BPTree // index is a sparse index for a given table
+	FirstIndex string         // index of first key in the index
+	LastIndex  string         // index of last key in the index
 }
 
 // OpenSSTableIndex opens and returns a new *SSTableIndex
@@ -94,7 +96,15 @@ func OpenSSTableIndex(rate int, path string) (*SSTableIndex, error) {
 		// otherwise, index entry
 		si.index.Put(string(e.Key), bptree.IntToVal(e.Id))
 	}
+	// make sure to set the first and last index keys
+	si.FirstIndex, _ = si.index.Min()
+	si.LastIndex, _ = si.index.Max()
 	return si, nil
+}
+
+// Path returns the path of the sstable file that is indexed
+func (si *SSTableIndex) Path() string {
+	return si.path
 }
 
 // Search searches the sparse index for a key, and returns
@@ -188,6 +198,11 @@ func Open(path string) (*SSTable, error) {
 		r:    breader,
 		w:    nil,
 	}, nil
+}
+
+// Path returns the full path of the sstable file
+func (s *SSTable) Path() string {
+	return s.path
 }
 
 // Read reads the next single entry from the sstable file sequentially
@@ -289,6 +304,33 @@ func (s *SSTable) Scan(iter func(e *binary.Entry) bool) error {
 	defer s.lock.Unlock()
 	// seek to beginning of file
 	_, err := s.r.Seek(0, io.SeekStart)
+	if err != nil {
+		return err
+	}
+	// scan the table sequentially
+	for {
+		e, err := s.r.ReadEntry()
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+			return err
+		}
+		if !iter(e) {
+			continue
+		}
+	}
+	return nil
+}
+
+// ScanOffset provides an iterator for the sstable
+// that starts scanning at the offset provided
+func (s *SSTable) ScanOffset(offset int64, iter func(e *binary.Entry) bool) error {
+	// lock
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	// seek to offset provided
+	_, err := s.r.Seek(offset, io.SeekStart)
 	if err != nil {
 		return err
 	}

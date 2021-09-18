@@ -36,6 +36,11 @@ func Open(path string) (*Memtable, error) {
 	return m, nil
 }
 
+// Path returns the path of the commit log
+func (m *Memtable) Path() string {
+	return m.wal.Path()
+}
+
 // loadFromLog checks and loads any entries that
 // were saved to the commit log.
 func (m *Memtable) loadFromLog() error {
@@ -43,11 +48,11 @@ func (m *Memtable) loadFromLog() error {
 	// write-ahead log we must load back into
 	// the Memtable
 	if m.wal.Count() > 0 {
-		err := m.wal.Scan(func(i uint64, k, v []byte) bool {
-			if k == nil {
+		err := m.wal.Scan(func(i int64, k string, v []byte) bool {
+			if k == "" {
 				return false
 			}
-			_, ok := m.mem.Put(string(k), v)
+			_, ok := m.mem.Put(k, v)
 			if !ok {
 				return false
 			}
@@ -63,7 +68,7 @@ func (m *Memtable) loadFromLog() error {
 // Put adds a key and value pair to the Memtable
 func (m *Memtable) Put(key string, value []byte) error {
 	// write put entry to the write-ahead logger
-	_, err := m.wal.Write([]byte(key), value)
+	_, err := m.wal.Write(key, value)
 	if err != nil {
 		return err
 	}
@@ -96,7 +101,7 @@ func (m *Memtable) Get(key string) ([]byte, error) {
 // Del writes a tombstone to the Memtable
 func (m *Memtable) Del(key string) error {
 	// write del entry to the write-ahead logger
-	_, err := m.wal.Write([]byte(key), nil)
+	_, err := m.wal.Write(key, nil)
 	if err != nil {
 		return err
 	}
@@ -109,6 +114,16 @@ func (m *Memtable) Del(key string) error {
 	if ok {
 		m.size += int64(len(key))
 	}
+	return nil
+}
+
+// Scan iterates all the entries in order
+func (m *Memtable) Scan(iter func(key string, value []byte) bool) error {
+	// lock
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// iterate
+	m.mem.ScanFront(iter)
 	return nil
 }
 

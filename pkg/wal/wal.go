@@ -360,7 +360,7 @@ func (l *WriteAheadLog) Read(index int64) (string, []byte, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	return e.Key, e.Value, nil
+	return string(e.Key), e.Value, nil
 }
 
 // WriteEntry writes an entry to the write-ahead log in an append-only fashion
@@ -371,7 +371,7 @@ func (l *WriteAheadLog) Write(key string, value []byte) (int64, error) {
 	// write entry
 	offset, err := l.w.WriteEntry(&binary.Entry{
 		Id:    l.lastIndex,
-		Key:   key,
+		Key:   []byte(key),
 		Value: value,
 	})
 	if err != nil {
@@ -427,7 +427,7 @@ func (l *WriteAheadLog) Scan(iter func(index int64, key string, value []byte) bo
 				return err
 			}
 			// check entry against iterator boolean function
-			if !iter(e.Id, e.Key, e.Value) {
+			if !iter(e.Id, string(e.Key), e.Value) {
 				// if it returns false, then process next entry
 				continue
 			}

@@ -22,7 +22,7 @@ func TestWAL(t *testing.T) {
 	//
 	// do some writing
 	for i := 0; i < 500; i++ {
-		key := []byte(fmt.Sprintf("key-%04d", i+1))
+		key := fmt.Sprintf("key-%04d", i+1)
 		val := []byte(fmt.Sprintf("my-value-%06d", i+1))
 		_, err := wal.Write(key, val)
 		if err != nil {
@@ -31,7 +31,7 @@ func TestWAL(t *testing.T) {
 	}
 	//
 	// do some reading
-	wal.Scan(func(i uint64, k, v []byte) bool {
+	wal.Scan(func(i int64, k string, v []byte) bool {
 		fmt.Printf("index=%d, key=%q, value=%q\n", i, k, v)
 		return true
 	})
@@ -68,7 +68,7 @@ func TestLog_TruncateFront(t *testing.T) {
 	//
 	// do some writing
 	for i := 0; i < 500; i++ {
-		key := []byte(fmt.Sprintf("key-%04d", i+1))
+		key := fmt.Sprintf("key-%04d", i+1)
 		val := []byte(fmt.Sprintf("my-value-%06d", i+1))
 		_, err := wal.Write(key, val)
 		if err != nil {
