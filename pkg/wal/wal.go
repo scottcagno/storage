@@ -33,8 +33,8 @@ var (
 
 // entry contains the metadata for a single entry within the file segment
 type entry struct {
-	index  uint64 // index is the "id" of this entry
-	offset int64  // offset is the actual offset of this entry in the segment file
+	index  int64 // index is the "id" of this entry
+	offset int64 // offset is the actual offset of this entry in the segment file
 }
 
 // String is the stringer method for an entry
@@ -45,7 +45,7 @@ func (e entry) String() string {
 // segment contains the metadata for the file segment
 type segment struct {
 	path      string  // path is the full path to this segment file
-	index     uint64  // starting index of the segment
+	index     int64   // starting index of the segment
 	entries   []entry // entries is an index of the entries in the segment
 	remaining uint64  // remaining is the bytes left after max file size minus entry data
 }
@@ -69,12 +69,12 @@ func makeFileName(t time.Time) string {
 }
 
 // getFirstIndex returns the first index in the entries list
-func (s *segment) getFirstIndex() uint64 {
+func (s *segment) getFirstIndex() int64 {
 	return s.index
 }
 
 // getLastIndex returns the last index in the entries list
-func (s *segment) getLastIndex() uint64 {
+func (s *segment) getLastIndex() int64 {
 	if len(s.entries) > 0 {
 		return s.entries[len(s.entries)-1].index
 	}
@@ -82,7 +82,7 @@ func (s *segment) getLastIndex() uint64 {
 }
 
 // findEntryIndex performs binary search to find the entry containing provided index
-func (s *segment) findEntryIndex(index uint64) int {
+func (s *segment) findEntryIndex(index int64) int {
 	// declare for later
 	i, j := 0, len(s.entries)
 	// otherwise, perform binary search
@@ -103,8 +103,8 @@ type WriteAheadLog struct {
 	base       string         // base is the base filepath
 	r          *binary.Reader // r is a binary reader
 	w          *binary.Writer // w is a binary writer
-	firstIndex uint64         // firstIndex is the index of the first entry
-	lastIndex  uint64         // lastIndex is the index of the last entry
+	firstIndex int64          // firstIndex is the index of the first entry
+	lastIndex  int64          // lastIndex is the index of the last entry
 	segments   []*segment     // segments is an index of the current file segments
 	active     *segment       // active is the current active segment
 }
@@ -287,7 +287,7 @@ func (l *WriteAheadLog) makeSegmentFile() (*segment, error) {
 }
 
 // findSegmentIndex performs binary search to find the segment containing provided index
-func (l *WriteAheadLog) findSegmentIndex(index uint64) int {
+func (l *WriteAheadLog) findSegmentIndex(index int64) int {
 	// declare for later
 	i, j := 0, len(l.segments)
 	// otherwise, perform binary search
@@ -337,13 +337,13 @@ func (l *WriteAheadLog) cycleSegment() error {
 }
 
 // Read reads an entry from the write-ahead log at the specified index
-func (l *WriteAheadLog) Read(index uint64) ([]byte, []byte, error) {
+func (l *WriteAheadLog) Read(index int64) (string, []byte, error) {
 	// read lock
 	l.lock.RLock()
 	defer l.lock.RUnlock()
 	// error checking
 	if index < l.firstIndex || index > l.lastIndex {
-		return nil, nil, ErrOutOfBounds
+		return "", nil, ErrOutOfBounds
 	}
 	var err error
 	// find the segment containing the provided index
@@ -351,20 +351,20 @@ func (l *WriteAheadLog) Read(index uint64) ([]byte, []byte, error) {
 	// make sure we are reading from the correct file
 	l.r, err = l.r.ReadFrom(s.path)
 	if err != nil {
-		return nil, nil, err
+		return "", nil, err
 	}
 	// find the offset for the entry containing the provided index
 	offset := s.entries[s.findEntryIndex(index)].offset
 	// read entry at offset
 	e, err := l.r.ReadEntryAt(offset)
 	if err != nil {
-		return nil, nil, err
+		return "", nil, err
 	}
 	return e.Key, e.Value, nil
 }
 
 // WriteEntry writes an entry to the write-ahead log in an append-only fashion
-func (l *WriteAheadLog) Write(key []byte, value []byte) (uint64, error) {
+func (l *WriteAheadLog) Write(key string, value []byte) (int64, error) {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -402,7 +402,7 @@ func (l *WriteAheadLog) Write(key []byte, value []byte) (uint64, error) {
 }
 
 // Scan provides an iterator method for the write-ahead log
-func (l *WriteAheadLog) Scan(iter func(index uint64, key, value []byte) bool) error {
+func (l *WriteAheadLog) Scan(iter func(index int64, key string, value []byte) bool) error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -439,7 +439,7 @@ func (l *WriteAheadLog) Scan(iter func(index uint64, key, value []byte) bool) er
 }
 
 // TruncateFront removes all segments and entries before specified index
-func (l *WriteAheadLog) TruncateFront(index uint64) error {
+func (l *WriteAheadLog) TruncateFront(index int64) error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -553,7 +553,7 @@ func (l *WriteAheadLog) Count() int {
 }
 
 // FirstIndex returns the write-ahead logs first index
-func (l *WriteAheadLog) FirstIndex() uint64 {
+func (l *WriteAheadLog) FirstIndex() int64 {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -561,7 +561,7 @@ func (l *WriteAheadLog) FirstIndex() uint64 {
 }
 
 // LastIndex returns the write-ahead logs first index
-func (l *WriteAheadLog) LastIndex() uint64 {
+func (l *WriteAheadLog) LastIndex() int64 {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()

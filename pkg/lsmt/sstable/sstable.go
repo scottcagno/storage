@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/scottcagno/storage/pkg/binary"
+	"github.com/scottcagno/storage/pkg/index/bptree"
 	"io"
 	"os"
 	"path/filepath"
@@ -47,12 +48,78 @@ func (b *Batch) Close() {
 	return
 }
 
+// SSTableIndex is a sparse index for the SSTable
+type SSTableIndex struct {
+	path  string         // path is the path of the sstable file that is being indexed
+	index *bptree.BPTree // index is a sparse index for a given table
+}
+
+// OpenSSTableIndex opens and returns a new *SSTableIndex
+// for the SSTable file located at the path provided
+func OpenSSTableIndex(rate int, path string) (*SSTableIndex, error) {
+	// check to make sure sstable
+	// exists at provided path
+	_, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	// open sstable
+	sst, err := Open(path)
+	if err != nil {
+		return nil, err
+	}
+	// dont forget to close
+	defer sst.Close()
+	// create new sstable index structure
+	// to load data into
+	si := &SSTableIndex{
+		path:  path,
+		index: bptree.NewBPTree(),
+	}
+	// scan through the sstable entries
+	// and fill index at rate specified
+	// scan the table sequentially
+	for count := 0; ; count++ {
+		e, err := sst.Read()
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+			return nil, err
+		}
+		// if count entries not at rate, just continue to next entry
+		if count%rate != 0 {
+			continue
+		}
+		// otherwise, index entry
+		si.index.Put(string(e.Key), bptree.IntToVal(e.Id))
+	}
+	return si, nil
+}
+
+// Search searches the sparse index for a key, and returns
+// the offset of found key and true if it is an exact offset
+// or false if it is an approximate offset. It will return -1
+// along with false if there is any kind of error.
+func (si *SSTableIndex) Search(key string) (int64, bool) {
+	k, v := si.index.GetClosest(key)
+	if v == nil {
+		return -1, false
+	}
+	return bptree.ValToInt(v), k == key
+}
+
+// Close closes up the index
+func (si *SSTableIndex) Close() {
+	si.index.Close()
+}
+
 // SSTable is a sorted strings table
 type SSTable struct {
-	lock  sync.RWMutex
-	r     *binary.Reader // r is a binary file reader for this table
-	w     *binary.Writer // r is a binary file writer for this table
-	index uint64         // index is the sequentially running index for this sstable
+	lock sync.RWMutex
+	path string         // path is the filepath of this sstable
+	r    *binary.Reader // r is a binary file reader for this table
+	w    *binary.Writer // r is a binary file writer for this table
 }
 
 // makeFileName returns a file name using the provided timestamp.
@@ -98,8 +165,9 @@ func Create(base string) (*SSTable, error) {
 	}
 	// return new sstable
 	return &SSTable{
-		r: breader,
-		w: bwriter,
+		path: path,
+		r:    breader,
+		w:    bwriter,
 	}, nil
 }
 
@@ -116,8 +184,9 @@ func Open(path string) (*SSTable, error) {
 	}
 	// return sstable
 	return &SSTable{
-		r: breader,
-		w: nil,
+		path: path,
+		r:    breader,
+		w:    nil,
 	}, nil
 }
 
@@ -152,19 +221,22 @@ func (s *SSTable) Write(key string, value []byte) error {
 	// lock
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	// get offset to add to entry
+	offset, err := s.w.Offset()
+	if err != nil {
+		return err
+	}
 	// create entry
 	e := &binary.Entry{
-		Id:    s.index,
+		Id:    offset,
 		Key:   []byte(key),
 		Value: value,
 	}
 	// write entry
-	_, err := s.w.WriteEntry(e)
+	_, err = s.w.WriteEntry(e)
 	if err != nil {
 		return err
 	}
-	// increment table index
-	s.index++
 	return nil
 }
 
@@ -174,15 +246,18 @@ func (s *SSTable) WriteBatch(batch *Batch) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	for _, e := range batch.entries {
-		// update entry id
-		e.Id = s.index
-		// write entry
-		_, err := s.w.WriteEntry(e)
+		// get offset to add to entry
+		offset, err := s.w.Offset()
 		if err != nil {
 			return err
 		}
-		// increment sstable index
-		s.index++
+		// update entry
+		e.Id = offset
+		// write entry
+		_, err = s.w.WriteEntry(e)
+		if err != nil {
+			return err
+		}
 	}
 	batch.Close()
 	return nil
@@ -243,10 +318,12 @@ func (s *SSTable) Close() error {
 	if err != nil {
 		return err
 	}
-	// call close
-	err = s.w.Close()
-	if err != nil {
-		return err
+	if s.w != nil {
+		// call close
+		err = s.w.Close()
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

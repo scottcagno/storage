@@ -45,22 +45,22 @@ func EncodeEntry(w io.WriteSeeker, e *Entry) (int64, error) {
 		return -1, err
 	}
 	// make buffer
-	buf := make([]byte, 24)
+	buf := make([]byte, 26)
 	// encode and write entry id
-	binary.LittleEndian.PutUint64(buf[0:8], e.Id)
-	_, err = w.Write(buf[0:8])
+	binary.PutVarint(buf[0:10], e.Id)
+	_, err = w.Write(buf[0:10])
 	if err != nil {
 		return -1, err
 	}
 	// encode and write entry key length
-	binary.LittleEndian.PutUint64(buf[8:16], uint64(len(e.Key)))
-	_, err = w.Write(buf[8:16])
+	binary.LittleEndian.PutUint64(buf[10:18], uint64(len(e.Key)))
+	_, err = w.Write(buf[10:18])
 	if err != nil {
 		return -1, err
 	}
 	// encode and write entry value length
-	binary.LittleEndian.PutUint64(buf[16:24], uint64(len(e.Value)))
-	_, err = w.Write(buf[16:24])
+	binary.LittleEndian.PutUint64(buf[18:26], uint64(len(e.Value)))
+	_, err = w.Write(buf[18:26])
 	if err != nil {
 		return -1, err
 	}

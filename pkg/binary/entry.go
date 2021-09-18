@@ -4,7 +4,7 @@ import "fmt"
 
 // Entry is a binary entry
 type Entry struct {
-	Id    uint64
+	Id    int64
 	Key   []byte
 	Value []byte
 }

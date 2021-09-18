@@ -56,6 +56,22 @@ func (n *bpNode) hasKey(key string) bool {
 	return false
 }
 
+func (n *bpNode) closest(key string) (*entry, bool) {
+	if n.isLeaf {
+		i := 0
+		for ; i < n.numKeys; i++ {
+			if Compare(key, n.keys[i]) < 0 {
+				break
+			}
+		}
+		if i > 0 {
+			i--
+		}
+		return (*entry)(n.pointers[i]), true
+	}
+	return nil, false
+}
+
 func (n *bpNode) record(key string) (*entry, bool) {
 	if n.isLeaf {
 		for i := 0; i < n.numKeys; i++ {
@@ -153,6 +169,18 @@ func (t *BPTree) PutInt(key int64, value int64) bool {
 	// master insert method treats insertion much like
 	// "setting" in a hashmap (an upsert) by default
 	return t.insert(IntToKey(key), IntToVal(value))
+}
+
+func (t *BPTree) GetClosest(key string) (string, []byte) {
+	l := findLeaf(t.root, key)
+	if l == nil {
+		return "", nil
+	}
+	e, ok := l.closest(key)
+	if !ok {
+		return "", nil
+	}
+	return e.Key, e.Value
 }
 
 // Get returns the record for a given key if it exists

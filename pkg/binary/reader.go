@@ -59,28 +59,28 @@ func (r *Reader) ReadFrom(path string) (*Reader, error) {
 
 func DecodeEntry(r io.Reader) (*Entry, error) {
 	// make buffer
-	buf := make([]byte, 24)
+	buf := make([]byte, 26)
 	// read entry id
-	_, err := r.Read(buf[0:8])
+	_, err := r.Read(buf[0:10])
 	if err != nil {
 		return nil, err
 	}
 	// read entry key length
-	_, err = r.Read(buf[8:16])
+	_, err = r.Read(buf[10:18])
 	if err != nil {
 		return nil, err
 	}
 	// read entry value length
-	_, err = r.Read(buf[16:24])
+	_, err = r.Read(buf[18:26])
 	if err != nil {
 		return nil, err
 	}
 	// decode id
-	id := binary.LittleEndian.Uint64(buf[0:8])
+	id, _ := binary.Varint(buf[0:10])
 	// decode key length
-	klen := binary.LittleEndian.Uint64(buf[8:16])
+	klen := binary.LittleEndian.Uint64(buf[10:18])
 	// decode value length
-	vlen := binary.LittleEndian.Uint64(buf[16:24])
+	vlen := binary.LittleEndian.Uint64(buf[18:26])
 	// make entry to read data into
 	e := &Entry{
 		Id:    id,
@@ -103,34 +103,34 @@ func DecodeEntry(r io.Reader) (*Entry, error) {
 
 func DecodeEntryAt(r io.ReaderAt, offset int64) (*Entry, error) {
 	// make buffer
-	buf := make([]byte, 24)
+	buf := make([]byte, 26)
 	// read entry id
-	n, err := r.ReadAt(buf[0:8], offset)
+	n, err := r.ReadAt(buf[0:10], offset)
 	if err != nil {
 		return nil, err
 	}
 	// update offset
 	offset += int64(n)
 	// read entry key length
-	n, err = r.ReadAt(buf[8:16], offset)
+	n, err = r.ReadAt(buf[10:18], offset)
 	if err != nil {
 		return nil, err
 	}
 	// update offset
 	offset += int64(n)
 	// read entry value length
-	n, err = r.ReadAt(buf[16:24], offset)
+	n, err = r.ReadAt(buf[18:26], offset)
 	if err != nil {
 		return nil, err
 	}
 	// update offset for reading key data a bit below
 	offset += int64(n)
 	// decode id
-	id := binary.LittleEndian.Uint64(buf[0:8])
+	id, _ := binary.Varint(buf[0:10])
 	// decode key length
-	klen := binary.LittleEndian.Uint64(buf[8:16])
+	klen := binary.LittleEndian.Uint64(buf[10:18])
 	// decode value length
-	vlen := binary.LittleEndian.Uint64(buf[16:24])
+	vlen := binary.LittleEndian.Uint64(buf[18:26])
 	// make entry to read data into
 	e := &Entry{
 		Id:    id,
