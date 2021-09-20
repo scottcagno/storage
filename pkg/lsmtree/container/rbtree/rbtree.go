@@ -1,4 +1,4 @@
-package memtable
+package rbtree
 
 import (
 	"container/list"
@@ -14,7 +14,7 @@ type rbNodeEntry struct {
 }
 
 func (e rbNodeEntry) String() string {
-	return fmt.Sprintf("segEntry.key=%q, segEntry.value=%q\n", e.key, e.value)
+	return fmt.Sprintf("rbNodeEntry.key=%q, rbNodeEntry.value=%q\n", e.key, e.value)
 }
 
 var empty = *new(rbNodeEntry)
@@ -256,7 +256,7 @@ func (t *rbTree) FromList(li *list.List) error {
 		ent, ok := e.Value.(rbNodeEntry)
 		if !ok {
 			return fmt.Errorf("Error: cannot add to tree, element (%T) "+
-				"does not implement the segEntry interface\n", ent.value)
+				"does not implement the rbNodeEntry interface\n", ent.value)
 		}
 		t.put(ent.key, ent.value)
 	}
@@ -292,7 +292,7 @@ func (t *rbTree) insert(z *rbNode) (*rbNode, bool) {
 			t.size -= int64(len(x.entry.key) + len(x.entry.value))
 			t.size += int64(len(z.entry.key) + len(z.entry.value))
 			// originally we were just returning x
-			// without updating the segEntry, but if we
+			// without updating the rbNodeEntry, but if we
 			// want it to have similar behavior to
 			// a hashmap then we need to update any
 			// entries that already exist in the tree
