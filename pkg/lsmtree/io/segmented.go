@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -175,7 +176,10 @@ func (sf *SegmentedFile) loadSegmentIndex() error {
 	// point to the "tail" (the last segment in the segment list)
 	sf.active = sf.getLastSegment()
 	// load active segment entry index
-	loadEntryIndex(sf.active)
+	_, err = sf.active.loadEntryIndex()
+	if err != nil {
+		return err
+	}
 	// we should be good to go, lets attempt to open a file
 	// reader to work with the active segment
 	sf.r, err = binary.OpenReader(sf.active.path)
@@ -288,7 +292,7 @@ func OpenSegment2(path string) (*segment, error) {
 	return s, nil
 }
 
-func loadEntryIndex(s *segment) (int64, error) {
+func (s *segment) loadEntryIndex() (int64, error) {
 	// attempt to open existing segment file for reading
 	fd, err := os.OpenFile(s.path, os.O_RDONLY, 0666)
 	if err != nil {
@@ -370,7 +374,7 @@ func (sf *SegmentedFile) LoadSegment(index int64) (*segment, error) {
 	}
 	s = sf.segments[sf.findSegmentIndex(index)]
 	if len(s.entries) == 0 {
-		_, err := loadEntryIndex(s)
+		_, err := s.loadEntryIndex()
 		if err != nil {
 			return nil, err
 		}
@@ -678,9 +682,76 @@ func (sf *SegmentedFile) TruncateBack(index int64) error {
 	return nil
 }
 
+type sEntry struct {
+	key    string
+	offset int64
+}
+
+type sortedEntries []sEntry
+
+func (x sortedEntries) Len() int           { return len(x) }
+func (x sortedEntries) Less(i, j int) bool { return x[i].key < x[j].key }
+func (x sortedEntries) Swap(i, j int)      { x[i].key, x[j].key = x[j].key, x[i].key }
+
 // Sort (stable) sorts entries (and re-writes them) in forward or reverse Lexicographic order
 func (sf *SegmentedFile) Sort() error {
-	// TODO: implement
+	// lock
+	sf.lock.Lock()
+	defer sf.lock.Unlock()
+	// init for any errors
+	var err error
+	// range the segment index
+	for _, sidx := range sf.segments {
+		// make sure we are reading the right data
+		sf.r, err = sf.r.ReadFrom(sidx.path)
+		if err != nil {
+			return err
+		}
+		// create tmp placeholder for entry data
+		var sent sortedEntries
+		// range the segment entries index
+		for _, eidx := range sidx.entries {
+			// read entry
+			e, err := sf.r.ReadEntryAt(eidx.offset)
+			if err != nil {
+				if err == io.EOF || err == io.ErrUnexpectedEOF {
+					break
+				}
+				return err
+			}
+			sent = append(sent, sEntry{string(e.Key), eidx.offset})
+		}
+		// outside entry loop
+		sort.Stable(sent)
+		// re-write (sorted) entries to a new file
+		tmp, err := os.Create(filepath.Join(sf.base, sidx.path+".tmp"))
+		if err != nil {
+			return err
+		}
+		defer tmp.Close()
+		// range the sorted keys, and re-write
+		for i := range sent {
+			// read entry
+			e, err := sf.r.ReadEntryAt(sent[i].offset)
+			if err != nil {
+				if err == io.EOF || err == io.ErrUnexpectedEOF {
+					break
+				}
+				return err
+			}
+			_, err = binary.EncodeEntry(tmp, e)
+			if err != nil {
+				return err
+			}
+		}
+		// outside entry loop
+		fname := filepath.Join(sf.base, sidx.path)
+		err = os.Rename(fname+".tmp", fname)
+		if err != nil {
+			return err
+		}
+	}
+	// outside segment loop
 	return nil
 }
 
