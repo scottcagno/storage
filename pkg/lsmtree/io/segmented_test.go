@@ -24,7 +24,7 @@ func TestSegmentedFile(t *testing.T) {
 	for i := 0; i < 500; i++ {
 		key := fmt.Sprintf("key-%04d", i+1)
 		val := []byte(fmt.Sprintf("my-value-%06d", i+1))
-		_, err := wal.Write(key, val)
+		_, err := wal.Write2(key, val)
 		if err != nil {
 			t.Fatalf("error writing: %v\n", err)
 		}
