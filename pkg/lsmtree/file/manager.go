@@ -155,6 +155,39 @@ func (sf *SegmentManager) getLastSegment() *Segment {
 }
 
 // cycleSegment adds a new Segment to replace the current (active) Segment
+func (sf *SegmentManager) cycleSegment2(err error) error {
+	// check to see if we need to cycle
+	if err == nil && err != ErrSegmentFull {
+		return nil
+	}
+	// sync and close current file Segment
+	err = sf.w.Close()
+	if err != nil {
+		return err
+	}
+	// create a new Segment file
+	s, err := CreateSegment(sf.base, sf.lastIndex)
+	if err != nil {
+		return err
+	}
+	// add Segment to Segment index list
+	sf.segments = append(sf.segments, s)
+	// update the active Segment pointer
+	sf.active = sf.getLastSegment()
+	// open file writer associated with active Segment
+	sf.w, err = binary.OpenWriter(sf.active.path)
+	if err != nil {
+		return err
+	}
+	// update file reader associated with the active Segment
+	sf.r, err = binary.OpenReader(sf.active.path)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// cycleSegment adds a new Segment to replace the current (active) Segment
 func (sf *SegmentManager) cycleSegment(remaining int64) error {
 	// check to see if we need to cycle
 	if remaining > 0 {
@@ -212,6 +245,28 @@ func (sf *SegmentManager) Read(index int64) (string, []byte, error) {
 	offset := s.entries[s.findEntryIndex(index)].offset
 	// read entry at offset
 	e, err := sf.r.ReadEntryAt(offset)
+	if err != nil {
+		return "", nil, err
+	}
+	return string(e.Key), e.Value, nil
+}
+
+// ReadDataEntryUsingSegment reads an entry from the segmented file at the specified index
+func (sf *SegmentManager) ReadDataEntryUsingSegment(index int64) (string, []byte, error) {
+	// read lock
+	sf.lock.RLock()
+	defer sf.lock.RUnlock()
+	// error checking
+	if index < sf.firstIndex || index > sf.lastIndex {
+		return "", nil, ErrOutOfBounds
+	}
+	var err error
+	// find the Segment containing the provided index
+	s, err := sf.LoadSegment(index)
+	if err != nil {
+		return "", nil, err
+	}
+	e, err := s.ReadDataEntry(index)
 	if err != nil {
 		return "", nil, err
 	}
@@ -289,6 +344,28 @@ func (sf *SegmentManager) Write(key string, value []byte) (int64, error) {
 	if err != nil {
 		return -1, err
 	}
+	return sf.lastIndex - 1, nil
+}
+
+func (sf *SegmentManager) WriteDataEntryUsingSegment(key string, value []byte) (int64, error) {
+	// lock
+	sf.lock.Lock()
+	defer sf.lock.Unlock()
+	e := &binary.DataEntry{
+		Id:    sf.lastIndex,
+		Key:   []byte(key),
+		Value: value,
+	}
+	// write entry
+	offset, err := sf.active.WriteDataEntry(e)
+	if err != nil {
+		return -1, err
+	}
+	// check cycle segment
+	err = sf.cycleSegment(maxFileSize - offset + 64)
+	// update lastIndex
+	sf.lastIndex++
+	// return index, and nil
 	return sf.lastIndex - 1, nil
 }
 

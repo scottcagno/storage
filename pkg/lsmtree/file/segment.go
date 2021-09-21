@@ -163,6 +163,63 @@ func OpenSegment(path string) (*Segment, error) {
 	return s, nil
 }
 
+func (s *Segment) WriteDataEntry(de *binary.DataEntry) (int64, error) {
+	// check to see if the entries are loaded
+	if !s.hasEntriesLoaded() {
+		// load the entry index
+		_, err := s.loadEntryIndex()
+		if err != nil {
+			return -1, err
+		}
+	}
+	// open writer
+	w, err := binary.OpenWriter(s.path)
+	if err != nil {
+		return -1, err
+	}
+	defer w.Close()
+	// write entry
+	offset, err := w.WriteEntry(de)
+	if err != nil {
+		return -1, err
+	}
+	// get "last index" TODO: might be a potential bug here
+	//lastIndex := s.entries[len(s.entries)-1].index
+	// add new entry to the entry index
+	s.entries = append(s.entries, entry{
+		index:  de.Id, // DataEntry.Id should == last index
+		offset: offset,
+	})
+	// return offset, and nil
+	return offset, nil
+}
+
+func (s *Segment) ReadDataEntry(index int64) (*binary.DataEntry, error) {
+	// check to see if the entries are loaded
+	if !s.hasEntriesLoaded() {
+		// load the entry index
+		_, err := s.loadEntryIndex()
+		if err != nil {
+			return nil, err
+		}
+	}
+	// open reader
+	r, err := binary.OpenReader(s.path)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	// find correct entry offset to read from
+	offset := s.entries[s.findEntryIndex(index)].offset
+	// attempt to read entry at offset
+	de, err := r.ReadEntryAt(offset)
+	if err != nil {
+		return nil, err
+	}
+	// return entry
+	return de, nil
+}
+
 func (s *Segment) hasEntriesLoaded() bool {
 	return len(s.entries) > 0
 }
