@@ -1,4 +1,4 @@
-package io
+package file
 
 import (
 	"errors"
@@ -22,17 +22,17 @@ const (
 var (
 	maxFileSize       = defaultMaxFileSize
 	ErrOutOfBounds    = errors.New("error: out of bounds")
-	ErrSegmentFull    = errors.New("error: segment is full")
+	ErrSegmentFull    = errors.New("error: Segment is full")
 	ErrFileClosed     = errors.New("error: file closed")
 	ErrBadArgument    = errors.New("error: bad argument")
 	ErrNoPathProvided = errors.New("error: no path provided")
 	ErrOptionsMissing = errors.New("error: options missing")
 )
 
-// entry contains the metadata for a single entry within the file segment
+// entry contains the metadata for a single entry within the file Segment
 type entry struct {
 	index  int64 // index is the "id" of this entry
-	offset int64 // offset is the actual offset of this entry in the segment file
+	offset int64 // offset is the actual offset of this entry in the Segment file
 }
 
 // String is the stringer method for an entry
@@ -40,18 +40,18 @@ func (e entry) String() string {
 	return fmt.Sprintf("entry.index=%d, entry.offset=%d", e.index, e.offset)
 }
 
-// segment contains the metadata for the file segment
-type segment struct {
-	path        string  // path is the full path to this segment file
-	index       int64   // starting index of the segment
-	entries     []entry // entries is an index of the entries in the segment
+// Segment contains the metadata for the file Segment
+type Segment struct {
+	path        string  // path is the full path to this Segment file
+	index       int64   // starting index of the Segment
+	entries     []entry // entries is an index of the entries in the Segment
 	firstOffset int64
 	lastOffset  int64
 	remaining   int64 // remaining is the bytes left after max file size minus entry data
 }
 
-// String is the stringer method for a segment
-func (s *segment) String() string {
+// String is the stringer method for a Segment
+func (s *Segment) String() string {
 	var ss string
 	ss += fmt.Sprintf("path: %q\n", filepath.Base(s.path))
 	ss += fmt.Sprintf("index: %d\n", s.index)
@@ -61,12 +61,12 @@ func (s *segment) String() string {
 }
 
 // getFirstIndex returns the first index in the entries list
-func (s *segment) getFirstIndex() int64 {
+func (s *Segment) getFirstIndex() int64 {
 	return s.index
 }
 
 // getLastIndex returns the last index in the entries list
-func (s *segment) getLastIndex() int64 {
+func (s *Segment) getLastIndex() int64 {
 	if len(s.entries) > 0 {
 		return s.entries[len(s.entries)-1].index
 	}
@@ -74,7 +74,7 @@ func (s *segment) getLastIndex() int64 {
 }
 
 // findEntryIndex performs binary search to find the entry containing provided index
-func (s *segment) findEntryIndex(index int64) int {
+func (s *Segment) findEntryIndex(index int64) int {
 	// declare for later
 	i, j := 0, len(s.entries)
 	// otherwise, perform binary search
@@ -89,20 +89,20 @@ func (s *segment) findEntryIndex(index int64) int {
 	return i - 1
 }
 
-// SegmentedFile is a segmented file structure
-type SegmentedFile struct {
+// SegmentIndex is a segmented file structure
+type SegmentIndex struct {
 	lock       sync.RWMutex   // lock is a mutual exclusion lock
 	base       string         // base is the base filepath
 	r          *binary.Reader // r is a binary reader
 	w          *binary.Writer // w is a binary writer
 	firstIndex int64          // firstIndex is the index of the first entry
 	lastIndex  int64          // lastIndex is the index of the last entry
-	segments   []*segment     // segments is an index of the current file segments
-	active     *segment       // active is the current active segment
+	segments   []*Segment     // segments is an index of the current file segments
+	active     *Segment       // active is the current active Segment
 }
 
 // Open opens and returns a new segmented file structure
-func Open(path string) (*SegmentedFile, error) {
+func Open(path string) (*SegmentIndex, error) {
 	// make sure we are working with absolute paths
 	base, err := filepath.Abs(path)
 	if err != nil {
@@ -116,11 +116,11 @@ func Open(path string) (*SegmentedFile, error) {
 		return nil, err
 	}
 	// create a new segmented file instance
-	sf := &SegmentedFile{
+	sf := &SegmentIndex{
 		base:       base,
 		firstIndex: 0,
 		lastIndex:  1,
-		segments:   make([]*segment, 0),
+		segments:   make([]*Segment, 0),
 	}
 	// attempt to load segments
 	err = sf.loadSegmentIndex()
@@ -131,11 +131,11 @@ func Open(path string) (*SegmentedFile, error) {
 	return sf, nil
 }
 
-// loadIndex initializes the segment index. It looks for segment
-// files in the base directory and attempts to index the segment as
-// well as any of the entries within the segment. If this is a new
-// instance, it will create a new segment that is ready for writing.
-func (sf *SegmentedFile) loadSegmentIndex() error {
+// loadIndex initializes the Segment index. It looks for Segment
+// files in the base directory and attempts to index the Segment as
+// well as any of the entries within the Segment. If this is a new
+// instance, it will create a new Segment that is ready for writing.
+func (sf *SegmentIndex) loadSegmentIndex() error {
 	// lock
 	sf.lock.Lock()
 	defer sf.lock.Unlock()
@@ -152,38 +152,38 @@ func (sf *SegmentedFile) loadSegmentIndex() error {
 			!strings.HasSuffix(file.Name(), FileSuffix) {
 			continue // skip this, continue on to the next file
 		}
-		// attempt to load segment (and index entries in segment)
+		// attempt to load Segment (and index entries in Segment)
 		s, err := OpenSegment2(filepath.Join(sf.base, file.Name()))
 		if err != nil {
 			return err
 		}
-		// segment has been loaded successfully, append to the segments list
+		// Segment has been loaded successfully, append to the segments list
 		sf.segments = append(sf.segments, s)
 	}
 	// check to see if any segments were found. If not, initialize a new one
 	if len(sf.segments) == 0 {
-		// create a new segment file
+		// create a new Segment file
 		s, err := CreateSegment(sf.base, sf.lastIndex)
 		if err != nil {
 			return err
 		}
-		// segment has been created successfully, append to the segments list
+		// Segment has been created successfully, append to the segments list
 		sf.segments = append(sf.segments, s)
 	}
 	// segments have either been loaded or created, so now we
-	// should go about updating the active segment pointer to
-	// point to the "tail" (the last segment in the segment list)
+	// should go about updating the active Segment pointer to
+	// point to the "tail" (the last Segment in the Segment list)
 	sf.active = sf.getLastSegment()
-	// load active segment entry index
-	loadEntryIndex(sf.active)
+	// load active Segment entry index
+	sf.active.loadEntryIndex()
 	// we should be good to go, lets attempt to open a file
-	// reader to work with the active segment
+	// reader to work with the active Segment
 	sf.r, err = binary.OpenReader(sf.active.path)
 	if err != nil {
 		return err
 	}
 	// and then attempt to open a file writer to also work
-	// with the active segment, so we can begin appending data
+	// with the active Segment, so we can begin appending data
 	sf.w, err = binary.OpenWriter(sf.active.path)
 	if err != nil {
 		return err
@@ -195,18 +195,18 @@ func (sf *SegmentedFile) loadSegmentIndex() error {
 	return nil
 }
 
-// OpenSegment attempts to open the segment file at the path provided
-// and index the entries within the segment. It will return an os.PathError
+// OpenSegment attempts to open the Segment file at the path provided
+// and index the entries within the Segment. It will return an os.PathError
 // if the file does not exist, an io.ErrUnexpectedEOF if the file exists
 // but is empty and has no data to read, and ErrSegmentFull if the file
-// has met the maxFileSize. It will return the segment and nil error on success.
-func OpenSegment(path string) (*segment, error) {
+// has met the maxFileSize. It will return the Segment and nil error on success.
+func OpenSegment(path string) (*Segment, error) {
 	// check to make sure path exists before continuing
 	_, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
-	// attempt to open existing segment file for reading
+	// attempt to open existing Segment file for reading
 	fd, err := os.OpenFile(path, os.O_RDONLY, 0666)
 	if err != nil {
 		return nil, err
@@ -215,18 +215,18 @@ func OpenSegment(path string) (*segment, error) {
 	defer func(fd *os.File) {
 		_ = fd.Close()
 	}(fd)
-	// get segment index
+	// get Segment index
 	index, err := readSegmentIndex(filepath.Base(path))
 	if err != nil {
 		return nil, err
 	}
-	// create a new segment to append indexed entries to
-	s := &segment{
+	// create a new Segment to append indexed entries to
+	s := &Segment{
 		path:    path,
 		index:   index,
 		entries: make([]entry, 0),
 	}
-	// read segment file and index entries
+	// read Segment file and index entries
 	for {
 		// get the current offset of the
 		// reader for the entry later
@@ -243,38 +243,38 @@ func OpenSegment(path string) (*segment, error) {
 			return nil, err
 		}
 		// get current offset
-		// add entry index to segment entries list
+		// add entry index to Segment entries list
 		s.entries = append(s.entries, entry{
 			index:  e.Id,
 			offset: offset,
 		})
 		// continue to process the next entry
 	}
-	// make sure to fill out the segment index from the first entry index
+	// make sure to fill out the Segment index from the first entry index
 	//s.index = s.entries[0].index
 	// get the offset of the reader to calculate bytes remaining
 	offset, err := binary.Offset(fd)
 	if err != nil {
 		return nil, err
 	}
-	// update the segment remaining bytes
+	// update the Segment remaining bytes
 	s.remaining = maxFileSize - offset
 	return s, nil
 }
 
-func OpenSegment2(path string) (*segment, error) {
+func OpenSegment2(path string) (*Segment, error) {
 	// check to make sure path exists before continuing
 	_, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
-	// get segment index
+	// get Segment index
 	index, err := readSegmentIndex(filepath.Base(path))
 	if err != nil {
 		return nil, err
 	}
-	// create a new segment to append indexed entries to
-	s := &segment{
+	// create a new Segment to append indexed entries to
+	s := &Segment{
 		path:    path,
 		index:   index,
 		entries: make([]entry, 0),
@@ -283,13 +283,13 @@ func OpenSegment2(path string) (*segment, error) {
 	//if err != nil {
 	//	return nil, err
 	//}
-	// update the segment remaining bytes
+	// update the Segment remaining bytes
 	//s.remaining = maxFileSize - uint64(offset)
 	return s, nil
 }
 
-func loadEntryIndex(s *segment) (int64, error) {
-	// attempt to open existing segment file for reading
+func (s *Segment) loadEntryIndex() (int64, error) {
+	// attempt to open existing Segment file for reading
 	fd, err := os.OpenFile(s.path, os.O_RDONLY, 0666)
 	if err != nil {
 		return -1, err
@@ -298,7 +298,7 @@ func loadEntryIndex(s *segment) (int64, error) {
 	defer func(fd *os.File) {
 		_ = fd.Close()
 	}(fd)
-	// read segment file and index entries
+	// read Segment file and index entries
 	for {
 		// get the current offset of the
 		// reader for the entry later
@@ -314,7 +314,7 @@ func loadEntryIndex(s *segment) (int64, error) {
 			}
 			return -1, err
 		}
-		// add entry index to segment entries list
+		// add entry index to Segment entries list
 		s.entries = append(s.entries, entry{
 			index:  e.Id,
 			offset: offset,
@@ -339,9 +339,9 @@ func readSegmentIndex(name string) (int64, error) {
 	return strconv.ParseInt(hexa, 16, 32)
 }
 
-// CreateSegment attempts to make a new segment automatically using the timestamp
-// as the segment name. On success, it will simply return a new segment and a nil error
-func CreateSegment(base string, lastIndex int64) (*segment, error) {
+// CreateSegment attempts to make a new Segment automatically using the timestamp
+// as the Segment name. On success, it will simply return a new Segment and a nil error
+func CreateSegment(base string, lastIndex int64) (*Segment, error) {
 	// create a new file
 	path := filepath.Join(base, makeSegmentName(lastIndex))
 	fd, err := os.Create(path)
@@ -353,8 +353,8 @@ func CreateSegment(base string, lastIndex int64) (*segment, error) {
 	if err != nil {
 		return nil, err
 	}
-	// create and return new segment
-	s := &segment{
+	// create and return new Segment
+	s := &Segment{
 		path:      path,
 		index:     lastIndex,
 		entries:   make([]entry, 0),
@@ -363,14 +363,14 @@ func CreateSegment(base string, lastIndex int64) (*segment, error) {
 	return s, nil
 }
 
-func (sf *SegmentedFile) LoadSegment(index int64) (*segment, error) {
+func (sf *SegmentIndex) LoadSegment(index int64) (*Segment, error) {
 	s := sf.active
 	if index >= s.index {
 		return s, nil
 	}
 	s = sf.segments[sf.findSegmentIndex(index)]
 	if len(s.entries) == 0 {
-		_, err := loadEntryIndex(s)
+		_, err := s.loadEntryIndex()
 		if err != nil {
 			return nil, err
 		}
@@ -379,8 +379,8 @@ func (sf *SegmentedFile) LoadSegment(index int64) (*segment, error) {
 	return s, nil
 }
 
-// findSegmentIndex performs binary search to find the segment containing provided index
-func (sf *SegmentedFile) findSegmentIndex(index int64) int {
+// findSegmentIndex performs binary search to find the Segment containing provided index
+func (sf *SegmentIndex) findSegmentIndex(index int64) int {
 	// declare for later
 	i, j := 0, len(sf.segments)
 	// otherwise, perform binary search
@@ -395,37 +395,37 @@ func (sf *SegmentedFile) findSegmentIndex(index int64) int {
 	return i - 1
 }
 
-// getLastSegment returns the tail segment in the segments index list
-func (sf *SegmentedFile) getLastSegment() *segment {
+// getLastSegment returns the tail Segment in the segments index list
+func (sf *SegmentIndex) getLastSegment() *Segment {
 	return sf.segments[len(sf.segments)-1]
 }
 
-// cycleSegment adds a new segment to replace the current (active) segment
-func (sf *SegmentedFile) cycleSegment(remaining int64) error {
+// cycleSegment adds a new Segment to replace the current (active) Segment
+func (sf *SegmentIndex) cycleSegment(remaining int64) error {
 	// check to see if we need to cycle
 	if remaining > 0 {
 		return nil
 	}
-	// sync and close current file segment
+	// sync and close current file Segment
 	err := sf.w.Close()
 	if err != nil {
 		return err
 	}
-	// create a new segment file
+	// create a new Segment file
 	s, err := CreateSegment(sf.base, sf.lastIndex)
 	if err != nil {
 		return err
 	}
-	// add segment to segment index list
+	// add Segment to Segment index list
 	sf.segments = append(sf.segments, s)
-	// update the active segment pointer
+	// update the active Segment pointer
 	sf.active = sf.getLastSegment()
-	// open file writer associated with active segment
+	// open file writer associated with active Segment
 	sf.w, err = binary.OpenWriter(sf.active.path)
 	if err != nil {
 		return err
 	}
-	// update file reader associated with the active segment
+	// update file reader associated with the active Segment
 	sf.r, err = binary.OpenReader(sf.active.path)
 	if err != nil {
 		return err
@@ -434,7 +434,7 @@ func (sf *SegmentedFile) cycleSegment(remaining int64) error {
 }
 
 // Read reads an entry from the segmented file at the specified index
-func (sf *SegmentedFile) Read(index int64) (string, []byte, error) {
+func (sf *SegmentIndex) Read(index int64) (string, []byte, error) {
 	// read lock
 	sf.lock.RLock()
 	defer sf.lock.RUnlock()
@@ -443,7 +443,7 @@ func (sf *SegmentedFile) Read(index int64) (string, []byte, error) {
 		return "", nil, ErrOutOfBounds
 	}
 	var err error
-	// find the segment containing the provided index
+	// find the Segment containing the provided index
 	//s := sf.segments[sf.findSegmentIndex(index)]
 	s, err := sf.LoadSegment(index)
 	if err != nil {
@@ -465,7 +465,7 @@ func (sf *SegmentedFile) Read(index int64) (string, []byte, error) {
 }
 
 // WriteEntry writes an entry to the segmented file in an append-only fashion
-func (sf *SegmentedFile) Write(key string, value []byte) (int64, error) {
+func (sf *SegmentIndex) Write(key string, value []byte) (int64, error) {
 	// lock
 	sf.lock.Lock()
 	defer sf.lock.Unlock()
@@ -478,7 +478,7 @@ func (sf *SegmentedFile) Write(key string, value []byte) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// add new entry to the segment index
+	// add new entry to the Segment index
 	sf.active.entries = append(sf.active.entries, entry{
 		index:  sf.lastIndex,
 		offset: offset,
@@ -490,9 +490,9 @@ func (sf *SegmentedFile) Write(key string, value []byte) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// update segment remaining
+	// update Segment remaining
 	sf.active.remaining -= offset2 - offset
-	// check to see if the active segment needs to be cycled
+	// check to see if the active Segment needs to be cycled
 	if sf.active.remaining < 64 {
 		err = sf.cycleSegment(int64(sf.active.remaining - 64))
 		if err != nil {
@@ -503,7 +503,7 @@ func (sf *SegmentedFile) Write(key string, value []byte) (int64, error) {
 }
 
 // Write2 writes an entry to the segmented file in an append-only fashion
-func (sf *SegmentedFile) Write2(key string, value []byte) (int64, error) {
+func (sf *SegmentIndex) Write2(key string, value []byte) (int64, error) {
 	// lock
 	sf.lock.Lock()
 	defer sf.lock.Unlock()
@@ -516,7 +516,7 @@ func (sf *SegmentedFile) Write2(key string, value []byte) (int64, error) {
 	if err != nil {
 		return -1, err
 	}
-	// add new entry to the segment index
+	// add new entry to the Segment index
 	sf.active.entries = append(sf.active.entries, entry{
 		index:  sf.lastIndex,
 		offset: offset,
@@ -528,7 +528,7 @@ func (sf *SegmentedFile) Write2(key string, value []byte) (int64, error) {
 	if err != nil {
 		return -1, err
 	}
-	// check to see if the active segment needs to be cycled
+	// check to see if the active Segment needs to be cycled
 	err = sf.cycleSegment(int64(maxFileSize) - offset)
 	if err != nil {
 		return -1, err
@@ -537,21 +537,21 @@ func (sf *SegmentedFile) Write2(key string, value []byte) (int64, error) {
 }
 
 // Scan provides an iterator method for the segmented file
-func (sf *SegmentedFile) Scan(iter func(index int64, key string, value []byte) bool) error {
+func (sf *SegmentIndex) Scan(iter func(index int64, key string, value []byte) bool) error {
 	// lock
 	sf.lock.Lock()
 	defer sf.lock.Unlock()
 	// init for any errors
 	var err error
-	// range the segment index
+	// range the Segment index
 	for _, sidx := range sf.segments {
-		fmt.Printf("segment: %s\n", sidx)
+		fmt.Printf("Segment: %s\n", sidx)
 		// make sure we are reading the right data
 		sf.r, err = sf.r.ReadFrom(sidx.path)
 		if err != nil {
 			return err
 		}
-		// range the segment entries index
+		// range the Segment entries index
 		for _, eidx := range sidx.entries {
 			// read entry
 			e, err := sf.r.ReadEntryAt(eidx.offset)
@@ -569,12 +569,12 @@ func (sf *SegmentedFile) Scan(iter func(index int64, key string, value []byte) b
 		}
 		// outside entry loop
 	}
-	// outside segment loop
+	// outside Segment loop
 	return nil
 }
 
 // TruncateFront removes all segments and entries before specified index
-func (sf *SegmentedFile) TruncateFront(index int64) error {
+func (sf *SegmentIndex) TruncateFront(index int64) error {
 	// lock
 	sf.lock.Lock()
 	defer sf.lock.Unlock()
@@ -587,17 +587,17 @@ func (sf *SegmentedFile) TruncateFront(index int64) error {
 	if index == sf.firstIndex {
 		return nil // nothing to truncate
 	}
-	// locate segment in segment index list containing specified index
+	// locate Segment in Segment index list containing specified index
 	sidx := sf.findSegmentIndex(index)
 	// isolate whole segments that can be removed
 	for i := 0; i < sidx; i++ {
-		// remove segment file
+		// remove Segment file
 		err := os.Remove(sf.segments[i].path)
 		if err != nil {
 			return err
 		}
 	}
-	// remove segments from segment index (cut, i-j)
+	// remove segments from Segment index (cut, i-j)
 	i, j := 0, sidx
 	copy(sf.segments[i:], sf.segments[j:])
 	for k, n := len(sf.segments)-j+i, len(sf.segments); k < n; k++ {
@@ -606,14 +606,14 @@ func (sf *SegmentedFile) TruncateFront(index int64) error {
 	sf.segments = sf.segments[:len(sf.segments)-j+i]
 	// update firstIndex
 	sf.firstIndex = sf.segments[0].index
-	// prepare to re-write partial segment
+	// prepare to re-write partial Segment
 	var err error
 	var entries []entry
 	tmpfd, err := os.Create(filepath.Join(sf.base, "tmp-partiasf.seg"))
 	if err != nil {
 		return err
 	}
-	// after the segment index cut, segment 0 will
+	// after the Segment index cut, Segment 0 will
 	// contain the partials that we must re-write
 	if sf.segments[0].index < index {
 		// make sure we are reading from the correct path
@@ -621,7 +621,7 @@ func (sf *SegmentedFile) TruncateFront(index int64) error {
 		if err != nil {
 			return err
 		}
-		// range the entries within this segment to find
+		// range the entries within this Segment to find
 		// the ones that are greater than the index and
 		// write those to a temporary buffer....
 		for _, ent := range sf.segments[0].entries {
@@ -646,7 +646,7 @@ func (sf *SegmentedFile) TruncateFront(index int64) error {
 			// append to a new entries list
 			entries = append(entries, ent)
 		}
-		// move reader back to active segment file
+		// move reader back to active Segment file
 		sf.r, err = sf.r.ReadFrom(sf.active.path)
 		if err != nil {
 			return err
@@ -656,7 +656,7 @@ func (sf *SegmentedFile) TruncateFront(index int64) error {
 		if err != nil {
 			return err
 		}
-		// remove partial segment file
+		// remove partial Segment file
 		err = os.Remove(sf.segments[0].path)
 		if err != nil {
 			return err
@@ -666,33 +666,33 @@ func (sf *SegmentedFile) TruncateFront(index int64) error {
 		if err != nil {
 			return err
 		}
-		// update segment
+		// update Segment
 		sf.segments[0].entries = entries
 		sf.segments[0].index = entries[0].index
 	}
 	return nil
 }
 
-func (sf *SegmentedFile) TruncateBack(index int64) error {
+func (sf *SegmentIndex) TruncateBack(index int64) error {
 	// TODO: implement
 	return nil
 }
 
 // Sort (stable) sorts entries (and re-writes them) in forward or reverse Lexicographic order
-func (sf *SegmentedFile) Sort() error {
+func (sf *SegmentIndex) Sort() error {
 	// TODO: implement
 	return nil
 }
 
 // CompactAndMerge removes any blank sections or duplicate entries and then merges (re-writes)
-// the data into a different segment size using the maxSegSize provided
-func (sf *SegmentedFile) CompactAndMerge(maxSegSize int64) error {
+// the data into a different Segment size using the maxSegSize provided
+func (sf *SegmentIndex) CompactAndMerge(maxSegSize int64) error {
 	// TODO: implement
 	return nil
 }
 
 // Count returns the number of entries currently in the segmented file
-func (sf *SegmentedFile) Count() int {
+func (sf *SegmentIndex) Count() int {
 	// lock
 	sf.lock.Lock()
 	defer sf.lock.Unlock()
@@ -706,7 +706,7 @@ func (sf *SegmentedFile) Count() int {
 }
 
 // FirstIndex returns the segmented files first index
-func (sf *SegmentedFile) FirstIndex() int64 {
+func (sf *SegmentIndex) FirstIndex() int64 {
 	// lock
 	sf.lock.Lock()
 	defer sf.lock.Unlock()
@@ -714,7 +714,7 @@ func (sf *SegmentedFile) FirstIndex() int64 {
 }
 
 // LastIndex returns the segmented files first index
-func (sf *SegmentedFile) LastIndex() int64 {
+func (sf *SegmentIndex) LastIndex() int64 {
 	// lock
 	sf.lock.Lock()
 	defer sf.lock.Unlock()
@@ -722,7 +722,7 @@ func (sf *SegmentedFile) LastIndex() int64 {
 }
 
 // Close syncs and closes the segmented file
-func (sf *SegmentedFile) Close() error {
+func (sf *SegmentIndex) Close() error {
 	// lock
 	sf.lock.Lock()
 	defer sf.lock.Unlock()
@@ -749,12 +749,12 @@ func (sf *SegmentedFile) Close() error {
 	return nil
 }
 
-func (sf *SegmentedFile) Path() string {
+func (sf *SegmentIndex) Path() string {
 	return sf.base
 }
 
 // String is the stringer method for the segmented file
-func (sf *SegmentedFile) String() string {
+func (sf *SegmentIndex) String() string {
 	var ss string
 	ss += fmt.Sprintf("\n\n[segmented file]\n")
 	ss += fmt.Sprintf("base: %q\n", sf.base)
@@ -766,7 +766,7 @@ func (sf *SegmentedFile) String() string {
 	}
 	if len(sf.segments) > 0 {
 		for i, s := range sf.segments {
-			ss += fmt.Sprintf("segment[%d]:\n", i)
+			ss += fmt.Sprintf("Segment[%d]:\n", i)
 			ss += fmt.Sprintf("\tpath: %q\n", filepath.Base(s.path))
 			ss += fmt.Sprintf("\tindex: %d\n", s.index)
 			ss += fmt.Sprintf("\tentries: %d\n", len(s.entries))
