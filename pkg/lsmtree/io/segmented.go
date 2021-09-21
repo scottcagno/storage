@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	FilePrefix                = "dat-"
-	FileSuffix                = ".seg"
-	defaultMaxFileSize uint64 = 4 << 20 // 4 MB
+	FilePrefix               = "dat-"
+	FileSuffix               = ".seg"
+	defaultMaxFileSize int64 = 4 << 20 // 4 MB
 )
 
 var (
@@ -42,10 +42,12 @@ func (e entry) String() string {
 
 // segment contains the metadata for the file segment
 type segment struct {
-	path      string  // path is the full path to this segment file
-	index     int64   // starting index of the segment
-	entries   []entry // entries is an index of the entries in the segment
-	remaining uint64  // remaining is the bytes left after max file size minus entry data
+	path        string  // path is the full path to this segment file
+	index       int64   // starting index of the segment
+	entries     []entry // entries is an index of the entries in the segment
+	firstOffset int64
+	lastOffset  int64
+	remaining   int64 // remaining is the bytes left after max file size minus entry data
 }
 
 // String is the stringer method for a segment
@@ -256,7 +258,7 @@ func OpenSegment(path string) (*segment, error) {
 		return nil, err
 	}
 	// update the segment remaining bytes
-	s.remaining = maxFileSize - uint64(offset)
+	s.remaining = maxFileSize - offset
 	return s, nil
 }
 
@@ -489,7 +491,7 @@ func (sf *SegmentedFile) Write(key string, value []byte) (int64, error) {
 		return 0, err
 	}
 	// update segment remaining
-	sf.active.remaining -= uint64(offset2 - offset)
+	sf.active.remaining -= offset2 - offset
 	// check to see if the active segment needs to be cycled
 	if sf.active.remaining < 64 {
 		err = sf.cycleSegment(int64(sf.active.remaining - 64))
