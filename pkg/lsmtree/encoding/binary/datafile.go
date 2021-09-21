@@ -45,16 +45,25 @@ func OpenDataFile(path string) (*DataFile, error) {
 }
 
 // WriteEntry writes an entry in an append-only fashion
-func (d *DataFile) WriteEntry(e *Entry) (int64, error) {
+func (d *DataFile) WriteEntry(de *DataEntry) (int64, error) {
 	// lock
 	d.Lock()
 	defer d.Unlock()
 	// write entry (sequentially, append-only)
-	return d.w.WriteEntry(e)
+	return d.w.WriteEntry(de)
+}
+
+// WriteEntryIndex writes an entry in an append-only fashion
+func (d *DataFile) WriteEntryIndex(ei *EntryIndex) (int64, error) {
+	// lock
+	d.Lock()
+	defer d.Unlock()
+	// write entry (sequentially, append-only)
+	return d.w.WriteEntryIndex(ei)
 }
 
 // ReadEntry attempts to read and return the next entry sequentially
-func (d *DataFile) ReadEntry() (*Entry, error) {
+func (d *DataFile) ReadEntry() (*DataEntry, error) {
 	// read lock
 	d.RLock()
 	defer d.RUnlock()
@@ -62,8 +71,17 @@ func (d *DataFile) ReadEntry() (*Entry, error) {
 	return d.r.ReadEntry()
 }
 
+// ReadEntryIndex attempts to read and return the next entry sequentially
+func (d *DataFile) ReadEntryIndex() (*EntryIndex, error) {
+	// read lock
+	d.RLock()
+	defer d.RUnlock()
+	// read next entry sequentially
+	return d.r.ReadEntryIndex()
+}
+
 // ReadEntryAt attempts to read and return an entry at the specified offset
-func (d *DataFile) ReadEntryAt(offset int64) (*Entry, error) {
+func (d *DataFile) ReadEntryAt(offset int64) (*DataEntry, error) {
 	// lock
 	d.RLock()
 	defer d.RUnlock()
@@ -71,8 +89,17 @@ func (d *DataFile) ReadEntryAt(offset int64) (*Entry, error) {
 	return d.r.ReadEntryAt(offset)
 }
 
+// ReadEntryIndexAt attempts to read and return an entry at the specified offset
+func (d *DataFile) ReadEntryIndexAt(offset int64) (*EntryIndex, error) {
+	// lock
+	d.RLock()
+	defer d.RUnlock()
+	// read entry at specified offset
+	return d.r.ReadEntryIndexAt(offset)
+}
+
 // Range iterates the entries as long as the provided boolean function is true
-func (d *DataFile) Range(iter func(e *Entry) bool) error {
+func (d *DataFile) Range(iter func(de *DataEntry) bool) error {
 	// lock
 	d.Lock()
 	defer d.Unlock()
@@ -89,7 +116,7 @@ func (d *DataFile) Range(iter func(e *Entry) bool) error {
 	// start loop
 	for {
 		// read entry, and check for EOF
-		e, err := d.r.ReadEntry()
+		de, err := d.r.ReadEntry()
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				break
@@ -97,7 +124,7 @@ func (d *DataFile) Range(iter func(e *Entry) bool) error {
 			return err
 		}
 		// entry is good, lets pass it to our boolean function
-		if !iter(e) {
+		if !iter(de) {
 			continue // if iter(e) returns false, continue to next entry
 		}
 	}

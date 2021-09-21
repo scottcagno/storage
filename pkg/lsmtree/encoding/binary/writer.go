@@ -34,7 +34,7 @@ func OpenWriter(path string) (*Writer, error) {
 }
 
 // EncodeEntry writes the provided entry to disk
-func EncodeEntry(w io.WriteSeeker, e *Entry) (int64, error) {
+func EncodeEntry(w io.WriteSeeker, e *DataEntry) (int64, error) {
 	// error check
 	if e == nil {
 		return -1, ErrBadEntry
@@ -93,7 +93,7 @@ func (w *Writer) WriteEntryIndex(e *EntryIndex) (int64, error) {
 }
 
 // WriteEntry writes the provided entry to disk
-func (w *Writer) WriteEntry(e *Entry) (int64, error) {
+func (w *Writer) WriteEntry(e *DataEntry) (int64, error) {
 	// call encode entry
 	offset, err := EncodeEntry(w.fd, e)
 	if err != nil {

@@ -57,7 +57,7 @@ func (r *Reader) ReadFrom(path string) (*Reader, error) {
 	return r, nil
 }
 
-func DecodeEntry(r io.Reader) (*Entry, error) {
+func DecodeEntry(r io.Reader) (*DataEntry, error) {
 	// make buffer
 	buf := make([]byte, 26)
 	// read entry id
@@ -82,7 +82,7 @@ func DecodeEntry(r io.Reader) (*Entry, error) {
 	// decode value length
 	vlen := binary.LittleEndian.Uint64(buf[18:26])
 	// make entry to read data into
-	e := &Entry{
+	e := &DataEntry{
 		Id:    id,
 		Key:   make([]byte, klen),
 		Value: make([]byte, vlen),
@@ -101,7 +101,7 @@ func DecodeEntry(r io.Reader) (*Entry, error) {
 	return e, nil
 }
 
-func DecodeEntryAt(r io.ReaderAt, offset int64) (*Entry, error) {
+func DecodeEntryAt(r io.ReaderAt, offset int64) (*DataEntry, error) {
 	// make buffer
 	buf := make([]byte, 26)
 	// read entry id
@@ -132,7 +132,7 @@ func DecodeEntryAt(r io.ReaderAt, offset int64) (*Entry, error) {
 	// decode value length
 	vlen := binary.LittleEndian.Uint64(buf[18:26])
 	// make entry to read data into
-	e := &Entry{
+	e := &DataEntry{
 		Id:    id,
 		Key:   make([]byte, klen),
 		Value: make([]byte, vlen),
@@ -176,7 +176,7 @@ func (r *Reader) ReadEntryIndexAt(offset int64) (*EntryIndex, error) {
 }
 
 // ReadEntry reads the next encoded entry, sequentially
-func (r *Reader) ReadEntry() (*Entry, error) {
+func (r *Reader) ReadEntry() (*DataEntry, error) {
 	// check to make sure file is open
 	if !r.open {
 		return nil, ErrFileClosed
@@ -186,7 +186,7 @@ func (r *Reader) ReadEntry() (*Entry, error) {
 }
 
 // ReadEntryAt reads the encoded entry at the offset provided
-func (r *Reader) ReadEntryAt(offset int64) (*Entry, error) {
+func (r *Reader) ReadEntryAt(offset int64) (*DataEntry, error) {
 	// check to make sure file is open
 	if !r.open {
 		return nil, ErrFileClosed
