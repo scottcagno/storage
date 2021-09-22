@@ -12,32 +12,34 @@ import (
 )
 
 const (
-	filePrefix = "sst-"
-	fileSuffix = ".db"
+	filePrefix      = "sst-"
+	dataFileSuffix  = ".dat"
+	indexFileSuffix = ".idx"
 )
 
 var (
 	ErrFileClosed = errors.New("error: file is closed")
 	ErrNotFound   = errors.New("error: not found")
+	ErrEmpty      = errors.New("error: empty")
 )
 
 func DataFileNameFromIndex(index int64) string {
 	hexa := strconv.FormatInt(index, 16)
-	return fmt.Sprintf("%s%010s-data%s", filePrefix, hexa, fileSuffix)
+	return fmt.Sprintf("%s%010s%s", filePrefix, hexa, dataFileSuffix)
 }
 
 func IndexFileNameFromIndex(index int64) string {
 	hexa := strconv.FormatInt(index, 16)
-	return fmt.Sprintf("%s%010s-index%s", filePrefix, hexa, fileSuffix)
+	return fmt.Sprintf("%s%010s%s", filePrefix, hexa, indexFileSuffix)
 }
 
 func IndexFromDataFileName(name string) (int64, error) {
-	hexa := name[len(filePrefix) : len(name)-len(fileSuffix)-5]
+	hexa := name[len(filePrefix) : len(name)-len(dataFileSuffix)]
 	return strconv.ParseInt(hexa, 16, 32)
 }
 
 func IndexFromIndexFileName(name string) (int64, error) {
-	hexa := name[len(filePrefix) : len(name)-len(fileSuffix)-6]
+	hexa := name[len(filePrefix) : len(name)-len(indexFileSuffix)]
 	return strconv.ParseInt(hexa, 16, 32)
 }
 
@@ -57,6 +59,20 @@ type sstEntry struct {
 
 func (e *sstEntry) String() string {
 	return fmt.Sprintf("sstEntry.key=%q, sstEntry.value=%s", e.key, e.value)
+}
+
+type Batch struct {
+	data []*sstEntry
+}
+
+func NewBatch() *Batch {
+	return &Batch{
+		data: make([]*sstEntry, 0),
+	}
+}
+
+func (b *Batch) Write(key string, value []byte) {
+	b.data = append(b.data, &sstEntry{key: key, value: value})
 }
 
 type SSTable struct {
@@ -140,7 +156,7 @@ func (sst *SSTable) GetEntryOffset(key string) (int64, error) {
 	}
 	// if data index is not loaded, then load it
 	if len(sst.data) == 0 {
-		err := sst.LoadSSTableDataIndex()
+		err := sst.LoadSSTableIndexData()
 		if err != nil {
 			return -1, err
 		}
@@ -175,6 +191,38 @@ func (sst *SSTable) WriteEntry(e *sstEntry) error {
 	return nil
 }
 
+func (sst *SSTable) WriteBatch(b *Batch) error {
+	// make sure file is not closed
+	if sst.dataFile == nil || sst.indexFile == nil {
+		return ErrFileClosed
+	}
+	// error check batch
+	if b == nil {
+		return ErrEmpty
+	}
+	// TODO: do a check here before the range to see
+	// TODO: if the batch is sorted, and if not, sort
+	//
+	// range batch and write
+	for i := range b.data {
+		// entry
+		e := b.data[i]
+		// write entry to data file
+		offset, err := EncodeDataEntry(sst.dataFile, e)
+		if err != nil {
+			return err
+		}
+		// create new index
+		i := &sstIndex{key: e.key, offset: offset}
+		// write entry info to index file
+		_, err = EncodeIndexEntry(sst.indexFile, i)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func OpenSSTable(base string, index int64) (*SSTable, error) {
 	// make sure we are working with absolute paths
 	base, err := filepath.Abs(base)
@@ -197,6 +245,11 @@ func OpenSSTable(base string, index int64) (*SSTable, error) {
 	if os.IsNotExist(err) {
 		return nil, err
 	}
+	// open data file
+	fdD, err := os.OpenFile(dataPath, os.O_RDONLY, 0666)
+	if err != nil {
+		return nil, err
+	}
 	// open index file
 	fdI, err := os.OpenFile(indexPath, os.O_RDONLY, 0666)
 	if err != nil {
@@ -204,21 +257,87 @@ func OpenSSTable(base string, index int64) (*SSTable, error) {
 	}
 	// init and return SSTable
 	sst := &SSTable{
-		dataFile:  nil,
+		dataFile:  fdD,
 		indexFile: fdI,
 		dataPath:  dataPath,
 		indexPath: indexPath,
 		readOnly:  true,
 	}
 	// load sst data index info
-	err = sst.LoadSSTableDataIndex()
+	err = sst.LoadSSTableIndexData()
 	if err != nil {
 		return nil, err
 	}
 	return sst, nil
 }
 
-func (sst *SSTable) LoadSSTableDataIndex() error {
+func (sst *SSTable) BuildSSTableIndexData(rebuild bool) error {
+	// make sure file is not closed
+	if sst.dataFile == nil || sst.indexFile == nil {
+		return ErrFileClosed
+	}
+	// make sure we are using correct path
+	path := sst.indexPath
+	// check to see if an index file exists
+	_, err := os.Stat(path)
+	if os.IsExist(err) {
+		if !rebuild {
+			return err
+		}
+	}
+	// otherwise, we told it to rebuild, so...
+	// lets close the index file descriptor
+	err = sst.indexFile.Close()
+	if err != nil {
+		return err
+	}
+	// remove index file
+	err = os.Remove(path)
+	if err != nil {
+		return err
+	}
+	// create a new index file
+	sst.indexFile, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		return err
+	}
+	// read and decode entries
+	for {
+		// decode next data entry
+		de, err := DecodeDataEntry(sst.dataFile)
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+			return err
+		}
+		// get offset of data file reader for index
+		offset, err := sst.dataFile.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return err
+		}
+		// create new index entry
+		ie := &sstIndex{
+			key:    de.key,
+			offset: offset,
+		}
+		// write index entry to file
+		_, err = EncodeIndexEntry(sst.indexFile, ie)
+		if err != nil {
+			return err
+		}
+		// add index entry to sst index
+		sst.data = append(sst.data, ie)
+	}
+	// update sst first and last and then return
+	if len(sst.data) > 0 {
+		sst.first = sst.data[0].key
+		sst.last = sst.data[len(sst.data)-1].key
+	}
+	return nil
+}
+
+func (sst *SSTable) LoadSSTableIndexData() error {
 	// make sure we are using correct path
 	path := sst.indexPath
 	// check to make sure file exists
@@ -343,25 +462,19 @@ func EncodeDataEntry(w io.WriteSeeker, ent *sstEntry) (int64, error) {
 	return offset, nil
 }
 
-func DecodeDataEntry(r io.Reader, ent *sstEntry) (int64, error) {
-	// keep local offset
-	var offset int64
+func DecodeDataEntry(r io.Reader) (*sstEntry, error) {
 	// make buffer for decoding
 	buf := make([]byte, 16)
 	// read key length
-	n, err := r.Read(buf[0:8])
+	_, err := r.Read(buf[0:8])
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
-	// update offset
-	offset += int64(n)
 	// read val length
-	n, err = r.Read(buf[8:16])
+	_, err = r.Read(buf[8:16])
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
-	// update offset
-	offset += int64(n)
 	// decode key length
 	klen := binary.LittleEndian.Uint64(buf[0:8])
 	// decode val length
@@ -369,17 +482,17 @@ func DecodeDataEntry(r io.Reader, ent *sstEntry) (int64, error) {
 	// make buffer to load the key and value into
 	data := make([]byte, klen+vlen)
 	// read key and value
-	n, err = r.Read(data)
+	_, err = r.Read(data)
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
-	// update offset
-	offset += int64(n)
 	// fill out sstEntry
-	ent.key = string(data[0:klen])
-	ent.value = data[klen : klen+vlen]
+	ent := &sstEntry{
+		key:   string(data[0:klen]),
+		value: data[klen : klen+vlen],
+	}
 	// return
-	return offset, nil
+	return ent, nil
 }
 
 func (sst *SSTable) GetIndex() []*sstIndex {
