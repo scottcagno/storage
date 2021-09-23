@@ -29,6 +29,28 @@ func (i *sstIndexEntry) String() string {
 	return fmt.Sprintf("sstIndexEntry.key=%q, sstIndexEntry.offset=%d", i.key, i.offset)
 }
 
+type indexEntryMeta struct {
+	path string         // filepath
+	data *sstIndexEntry // index entry
+}
+
+type indexEntryMetaSet []*indexEntryMeta
+
+// Len [implementing sort interface]
+func (ie indexEntryMetaSet) Len() int {
+	return len(ie)
+}
+
+// Less [implementing sort interface]
+func (ie indexEntryMetaSet) Less(i, j int) bool {
+	return ie[i].data.key < ie[j].data.key
+}
+
+// Swap [implementing sort interface]
+func (ie indexEntryMetaSet) Swap(i, j int) {
+	ie[i], ie[j] = ie[j], ie[i]
+}
+
 type SSIndex struct {
 	lock  sync.RWMutex
 	path  string           // base is the base path of the index file
@@ -176,6 +198,10 @@ func (ssi *SSIndex) GetEntryOffset(key string) (int64, error) {
 
 func (ssi *SSIndex) lastKey() string {
 	return ssi.data[len(ssi.data)-1].key
+}
+
+func (ssi *SSIndex) Len() int {
+	return len(ssi.data)
 }
 
 func (ssi *SSIndex) Close() error {

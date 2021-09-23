@@ -38,8 +38,8 @@ func TestMergeSSTable(t *testing.T) {
 	// create and test batch
 	batch = NewBatch()
 	batch.Write("key-02", []byte("value-02"))
-	batch.Write("key-05", []byte("new-value-05"))
 	batch.Write("key-04", []byte("value-04"))
+	batch.Write("key-05", []byte("new-value-05"))
 	batch.Write("key-06", []byte("value-06"))
 	err = sst.WriteBatch(batch)
 	if err != nil {

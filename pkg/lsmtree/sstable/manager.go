@@ -1,28 +1,89 @@
 package sstable
 
 import (
-	"log"
+	"fmt"
+	"os"
 	"path/filepath"
 )
 
-type SSManager struct {
-	base string // base is the base path of the db
-}
+// https: //play.golang.org/p/jRpPRa4Q4Nh
 
-func MergeSSTables(base string, ssi1, ssi2 int64) error {
-	// make sure we are working with absolute paths
-	base, err := filepath.Abs(base)
+func MergeSSTables(base string, i1, i2 int64) error {
+	// load indexes
+	ssi1, err := OpenSSIndex(base, i1)
+	if err != nil {
+		return err
+	}
+	ssi2, err := OpenSSIndex(base, i2)
 	if err != nil {
 		return err
 	}
 	// sanitize any path separators
 	base = filepath.ToSlash(base)
-	// get full file path for ssi1
-	path1 := filepath.Join(base, IndexFileNameFromIndex(ssi1))
-	// get full file path for ssi2
-	path2 := filepath.Join(base, IndexFileNameFromIndex(ssi2))
-	// start merging...
-	log.SetPrefix("[INFO] ")
-	log.Printf("Loading: %q, and %q to prepare for merge.\n", filepath.Base(path1), filepath.Base(path2))
+	// create new index file path
+	path := filepath.Join(base, DataFileNameFromIndex(i2+1))
+	// create new file
+	fd, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		return err
+	}
+	// defer tmp file close
+	defer fd.Close()
+	// pass tables to the merge writer
+	err = mergeWriter(fd, ssi1, ssi2)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func mergeWriter(fd *os.File, ssi1 *SSIndex, ssi2 *SSIndex) error {
+
+	i, j := 0, 0
+	n1, n2 := ssi1.Len(), ssi2.Len()
+
+	for i < n1 && j < n2 {
+		if ssi1.data[i].key < ssi2.data[j].key {
+			// if not common print smaller
+			_, err := fmt.Fprintf(fd, "%q,", ssi1.data[i].key)
+			if err != nil {
+				return err
+			}
+			i++
+			continue
+		}
+		if ssi2.data[j].key <= ssi1.data[i].key {
+			// if not common print smaller
+			_, err := fmt.Fprintf(fd, "%q,", ssi2.data[j].key)
+			if err != nil {
+				return err
+			}
+			if ssi2.data[j].key == ssi1.data[i].key {
+				i++
+			}
+			j++
+			continue
+		}
+	}
+
+	// print remaining
+	for i < n1 {
+		_, err := fmt.Fprintf(fd, "%q,", ssi1.data[i].key)
+		if err != nil {
+			return err
+		}
+		i++
+	}
+
+	// print remaining
+	for j < n2 {
+		_, err := fmt.Fprintf(fd, "%q,", ssi2.data[j].key)
+		if err != nil {
+			return err
+		}
+		j++
+	}
+
+	// return error free
 	return nil
 }
