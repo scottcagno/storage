@@ -3,6 +3,7 @@ package sstable
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -48,11 +49,6 @@ func OpenSSIndex(base string, index int64) (*SSIndex, error) {
 	base = filepath.ToSlash(base)
 	// create new index file path
 	path := filepath.Join(base, IndexFileNameFromIndex(index))
-	// check to make sure file exists
-	_, err = os.Stat(path)
-	if os.IsNotExist(err) {
-		return nil, err
-	}
 	// open (or create) index file
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
@@ -65,21 +61,21 @@ func OpenSSIndex(base string, index int64) (*SSIndex, error) {
 		open: true,
 	}
 	// load sst data index info
-	err = LoadSSTableIndexData(ssi)
+	err = ssi.LoadSSIndexData()
 	if err != nil {
 		return nil, err
 	}
 	return ssi, nil
 }
 
-func LoadSSTableIndexData(idx *SSIndex) error {
+func (ssi *SSIndex) LoadSSIndexData() error {
 	// check to make sure file exists
-	_, err := os.Stat(idx.path)
+	_, err := os.Stat(ssi.path)
 	if os.IsNotExist(err) {
 		return err
 	}
 	// open file to read header
-	fd, err := os.OpenFile(idx.path, os.O_RDONLY, 0666)
+	fd, err := os.OpenFile(ssi.path, os.O_RDONLY, 0666)
 	if err != nil {
 		return err
 	}
@@ -96,12 +92,12 @@ func LoadSSTableIndexData(idx *SSIndex) error {
 			return err
 		}
 		// add index entry to sst index
-		idx.data = append(idx.data, ei)
+		ssi.data = append(ssi.data, ei)
 	}
 	// update sst first and last and then return
-	if len(idx.data) > 0 {
-		idx.first = idx.data[0].key
-		idx.last = idx.data[len(idx.data)-1].key
+	if len(ssi.data) > 0 {
+		ssi.first = ssi.data[0].key
+		ssi.last = ssi.data[len(ssi.data)-1].key
 	}
 	return nil
 }
@@ -113,7 +109,7 @@ func (ssi *SSIndex) errorCheckFileAndIndex() error {
 	}
 	// make sure index is loaded
 	if ssi.data == nil {
-		err := LoadSSTableIndexData(ssi)
+		err := ssi.LoadSSIndexData()
 		if err != nil {
 			return err
 		}
@@ -160,14 +156,16 @@ func (ssi *SSIndex) searchDataIndex(key string) int {
 
 func (ssi *SSIndex) GetEntryOffset(key string) (int64, error) {
 	// if data index is not loaded, then load it
-	if len(ssi.data) == 0 {
-		err := LoadSSTableIndexData(ssi)
+	if ssi.data == nil || len(ssi.data) == 0 {
+		err := ssi.LoadSSIndexData()
 		if err != nil {
 			return -1, err
 		}
 	}
 	// try binary search
-	ki := ssi.data[ssi.searchDataIndex(key)]
+	in := ssi.searchDataIndex(key)
+	log.Printf("ssi.searchDataIndex(key)=%d, len(ssi.data)=%d\n", in, len(ssi.data))
+	ki := ssi.data[in]
 	// double check we have a match
 	if ki.key == key {
 		return ki.offset, nil
@@ -192,5 +190,6 @@ func (ssi *SSIndex) Close() error {
 	if err != nil {
 		return err
 	}
+	ssi.open = false
 	return nil
 }

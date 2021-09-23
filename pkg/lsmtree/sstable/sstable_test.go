@@ -52,7 +52,7 @@ func TestMergeSSTable(t *testing.T) {
 		t.Fatalf("closing sst: %v\n", err)
 	}
 
-	err = MergeSSTables(1, 2)
+	err = MergeSSTables("data", 1, 2)
 	if err != nil {
 		t.Fatalf("closing sst: %v\n", err)
 	}
@@ -115,25 +115,25 @@ func TestOpenSSTable(t *testing.T) {
 	}
 
 	fmt.Printf("printing sst index...\n")
-	for _, idx := range sst.GetIndex() {
+	for _, idx := range sst.index.data {
 		fmt.Printf("%s\n", idx)
 	}
 
 	key := "def"
-	off, err := sst.GetEntryOffset(key)
+	off, err := sst.index.GetEntryOffset(key)
 	if err != nil {
 		t.Fatalf("finding entry: %v\n", err)
 	}
 	fmt.Printf("got entry offset for %q, offset=%d\n", key, off)
 
-	fmt.Printf("size of entry index: %d\n", len(sst.GetIndex()))
-	sst.data = nil
-	fmt.Printf("size of entry index: %d\n", len(sst.GetIndex()))
-	err = sst.BuildSSTableIndexData(false)
+	fmt.Printf("size of entry index: %d\n", len(sst.index.data))
+	sst.index.data = nil
+	fmt.Printf("size of entry index: %d\n", len(sst.index.data))
+	err = RebuildSSTableIndex("data", 1)
 	if err != nil {
 		t.Fatalf("re-building index: %v\n", err)
 	}
-	fmt.Printf("size of entry index: %d\n", len(sst.GetIndex()))
+	fmt.Printf("size of entry index: %d\n", len(sst.index.data))
 
 	// close sstable
 	err = sst.Close()

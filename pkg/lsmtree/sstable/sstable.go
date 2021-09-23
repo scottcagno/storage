@@ -18,10 +18,12 @@ const (
 )
 
 var (
-	ErrFileClosed   = errors.New("error: file is closed")
-	ErrNotFound     = errors.New("error: not found")
-	ErrEmpty        = errors.New("error: empty")
-	ErrNoTableIndex = errors.New("error: no table index")
+	ErrFileClosed      = errors.New("error: file is closed")
+	ErrNotFound        = errors.New("error: not found")
+	ErrEmpty           = errors.New("error: empty")
+	ErrSSIndexNotFound = errors.New("error: ssindex not found")
+	ErrFileIsEmpty     = errors.New("error: file is empty")
+	ErrSSTableNotFound = errors.New("error: sstable not found")
 )
 
 func DataFileNameFromIndex(index int64) string {
@@ -122,6 +124,42 @@ func CreateSSTable(base string, index int64) (*SSTable, error) {
 	return sst, nil
 }
 
+func OpenSSTable(base string, index int64) (*SSTable, error) {
+	// make sure we are working with absolute paths
+	base, err := filepath.Abs(base)
+	if err != nil {
+		return nil, err
+	}
+	// sanitize any path separators
+	base = filepath.ToSlash(base)
+	// create new data file path
+	path := filepath.Join(base, DataFileNameFromIndex(index))
+	// check to make sure file exists
+	_, err = os.Stat(path)
+	if os.IsNotExist(err) {
+		return nil, err
+	}
+	// open data file
+	file, err := os.OpenFile(path, os.O_RDWR, 0666)
+	if err != nil {
+		return nil, err
+	}
+	// init sstable index
+	ssi, err := OpenSSIndex(base, index)
+	if err != nil {
+		return nil, err
+	}
+	// init and return SSTable
+	sst := &SSTable{
+		path:     path, // path is the filepath for the data
+		file:     file, // file is the file descriptor for the data
+		open:     true, // open reports the status of the file
+		index:    ssi,  // SSIndex is an SSTableIndex file
+		readOnly: true,
+	}
+	return sst, nil
+}
+
 func (sst *SSTable) errorCheckFileAndIndex() error {
 	// make sure file is not closed
 	if !sst.open {
@@ -129,7 +167,7 @@ func (sst *SSTable) errorCheckFileAndIndex() error {
 	}
 	// make sure index is open
 	if sst.index == nil {
-		return ErrNoTableIndex
+		return ErrSSIndexNotFound
 	}
 	return nil
 }
@@ -186,77 +224,25 @@ func (sst *SSTable) WriteBatch(b *Batch) error {
 	return nil
 }
 
-func OpenSSTable(base string, index int64) (*SSTable, error) {
-	// make sure we are working with absolute paths
-	base, err := filepath.Abs(base)
-	if err != nil {
-		return nil, err
-	}
-	// sanitize any path separators
-	base = filepath.ToSlash(base)
-	// create new data file path
-	path := filepath.Join(base, DataFileNameFromIndex(index))
-	// check to make sure file exists
-	_, err = os.Stat(path)
-	if os.IsNotExist(err) {
-		return nil, err
-	}
-	// open data file
-	file, err := os.OpenFile(path, os.O_RDWR, 0666)
-	if err != nil {
-		return nil, err
-	}
-	// init sstable index
-	ssi, err := OpenSSIndex(base, index)
-	if err != nil {
-		return nil, err
-	}
-	// init and return SSTable
-	sst := &SSTable{
-		path:     path, // path is the filepath for the data
-		file:     file, // file is the file descriptor for the data
-		open:     true, // open reports the status of the file
-		index:    ssi,  // SSIndex is an SSTableIndex file
-		readOnly: true,
-	}
-	return sst, nil
-}
-
-func (sst *SSTable) BuildSSTableIndexData(rebuild bool) error {
-	// error check
-	err := sst.errorCheckFileAndIndex()
+func rebuildSSIndexFromSSTable(sst *SSTable) error {
+	// local ssi var dec
+	ssi := sst.index
+	// close any open files
+	err := ssi.Close()
 	if err != nil {
 		return err
 	}
-	// make sure we are using correct path
-	path := sst.index.path
-	// check to see if an index file exists
-	_, err = os.Stat(path)
-	if os.IsExist(err) {
-		if !rebuild {
-			return err
-		}
-	}
-	// otherwise, we told it to rebuild, so...
-	// lets close the index file descriptor
-	err = sst.index.Close()
+	// truncate file (instead of removing)
+	err = os.Truncate(ssi.path, 0)
 	if err != nil {
 		return err
 	}
-	// remove index file
-	err = os.Remove(path)
+	// re-open file
+	ssi.file, err = os.OpenFile(ssi.path, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		return err
 	}
-	// create a new index file
-	index, err := IndexFromDataFileName(path)
-	if err != nil {
-		return err
-	}
-	sst.index, err = OpenSSIndex(filepath.Base(path), index)
-	if err != nil {
-		return err
-	}
+	ssi.open = true
 	// read and decode entries
 	for {
 		// decode next data entry
@@ -273,10 +259,48 @@ func (sst *SSTable) BuildSSTableIndexData(rebuild bool) error {
 			return err
 		}
 		// write index entry to file
-		err = sst.index.WriteEntry(de.key, offset)
+		err = ssi.WriteEntry(de.key, offset)
 		if err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func RebuildSSTableIndex(base string, index int64) error {
+	// make sure we are working with absolute paths
+	base, err := filepath.Abs(base)
+	if err != nil {
+		return err
+	}
+	// sanitize any path separators
+	base = filepath.ToSlash(base)
+	// create new data file path
+	path := filepath.Join(base, DataFileNameFromIndex(index))
+	// check to make sure file exists
+	_, err = os.Stat(path)
+	if os.IsNotExist(err) {
+		return ErrSSTableNotFound
+	}
+	// open sstable if it exists
+	sst, err := OpenSSTable(base, index)
+	if err != nil {
+		return err
+	}
+	// close local index
+	err = sst.index.Close()
+	if err != nil {
+		return err
+	}
+	// re-generate index from data table
+	err = rebuildSSIndexFromSSTable(sst)
+	if err != nil {
+		return err
+	}
+	// close sstable
+	err = sst.Close()
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -298,5 +322,6 @@ func (sst *SSTable) Close() error {
 			return err
 		}
 	}
+	sst.open = false
 	return nil
 }
