@@ -18,12 +18,12 @@ const (
 )
 
 var (
-	ErrFileClosed      = errors.New("error: file is closed")
-	ErrNotFound        = errors.New("error: not found")
-	ErrEmpty           = errors.New("error: empty")
-	ErrSSIndexNotFound = errors.New("error: ssindex not found")
-	ErrFileIsEmpty     = errors.New("error: file is empty")
-	ErrSSTableNotFound = errors.New("error: sstable not found")
+	ErrFileClosed         = errors.New("error: file is closed")
+	ErrIndexEntryNotFound = errors.New("error: index entry not found")
+	ErrEmpty              = errors.New("error: empty")
+	ErrSSIndexNotFound    = errors.New("error: ssindex not found")
+	ErrFileIsEmpty        = errors.New("error: file is empty")
+	ErrSSTableNotFound    = errors.New("error: sstable not found")
 )
 
 func DataFileNameFromIndex(index int64) string {
@@ -57,6 +57,10 @@ func NewBatch() *Batch {
 
 func (b *Batch) Write(key string, value []byte) {
 	b.data = append(b.data, &sstDataEntry{key: key, value: value})
+}
+
+func (b *Batch) WriteDataEntry(de *sstDataEntry) {
+	b.data = append(b.data, de)
 }
 
 // Len [implementing sort interface]
@@ -172,6 +176,45 @@ func (sst *SSTable) errorCheckFileAndIndex() error {
 	return nil
 }
 
+func (sst *SSTable) ReadEntry(key string) (*sstDataEntry, error) {
+	// error check
+	err := sst.errorCheckFileAndIndex()
+	if err != nil {
+		return nil, err
+	}
+	// check index for entry offset
+	//offset, err := sst.index.GetEntryOffset(key)
+	//if err != nil {
+	//	return nil, err
+	//}
+	// use index to find and return data entry, passing sst's underlying file descriptor
+	de, err := sst.index.ReadDataEntry(sst.file, key)
+	if err != nil {
+		return nil, err
+	}
+	// read and decode data entry at provided offset
+	//de, err := DecodeDataEntryAt(sst.file, offset)
+	//if err != nil {
+	//	return nil, err
+	//}
+	// return data entry
+	return de, nil
+}
+
+func (sst *SSTable) ReadEntryAt(offset int64) (*sstDataEntry, error) {
+	// error check
+	err := sst.errorCheckFileAndIndex()
+	if err != nil {
+		return nil, err
+	}
+	de, err := sst.index.ReadDataEntryAt(sst.file, offset)
+	if err != nil {
+		return nil, err
+	}
+	// return data entry
+	return de, nil
+}
+
 func (sst *SSTable) WriteEntry(de *sstDataEntry) error {
 	// error check
 	err := sst.errorCheckFileAndIndex()
@@ -184,7 +227,7 @@ func (sst *SSTable) WriteEntry(de *sstDataEntry) error {
 		return err
 	}
 	// write entry to index
-	err = sst.index.WriteEntry(de.key, offset)
+	err = sst.index.WriteIndexEntry(de.key, offset)
 	if err != nil {
 		return err
 	}
@@ -216,7 +259,7 @@ func (sst *SSTable) WriteBatch(b *Batch) error {
 			return err
 		}
 		// write entry info to index file
-		err = sst.index.WriteEntry(de.key, offset)
+		err = sst.index.WriteIndexEntry(de.key, offset)
 		if err != nil {
 			return err
 		}
@@ -259,7 +302,7 @@ func rebuildSSIndexFromSSTable(sst *SSTable) error {
 			return err
 		}
 		// write index entry to file
-		err = ssi.WriteEntry(de.key, offset)
+		err = ssi.WriteIndexEntry(de.key, offset)
 		if err != nil {
 			return err
 		}

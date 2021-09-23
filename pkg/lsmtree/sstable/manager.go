@@ -1,64 +1,93 @@
 package sstable
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
+	"io"
+	"log"
 )
 
 // https: //play.golang.org/p/jRpPRa4Q4Nh
 
 func MergeSSTables(base string, i1, i2 int64) error {
 	// load indexes
-	ssi1, err := OpenSSIndex(base, i1)
+	sst1, err := OpenSSTable(base, i1)
 	if err != nil {
 		return err
 	}
-	ssi2, err := OpenSSIndex(base, i2)
+	sst2, err := OpenSSTable(base, i2)
 	if err != nil {
 		return err
 	}
-	// sanitize any path separators
-	base = filepath.ToSlash(base)
-	// create new index file path
-	path := filepath.Join(base, DataFileNameFromIndex(i2+1))
-	// create new file
-	fd, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
-	if err != nil {
-		return err
-	}
-	// defer tmp file close
-	defer fd.Close()
+	log.Printf(">>> DEBUG 1")
+	// make batch to write data to
+	batch := NewBatch()
 	// pass tables to the merge writer
-	err = mergeWriter(fd, ssi1, ssi2)
+	err = mergeWriter(sst1, sst2, batch)
 	if err != nil {
 		return err
 	}
+	log.Printf(">>> DEBUG 2")
+	// close table 1
+	err = sst1.Close()
+	if err != nil {
+		return err
+	}
+	// close table 2
+	err = sst2.Close()
+	if err != nil {
+		return err
+	}
+	log.Printf(">>> DEBUG 3")
+	// open new sstable to write to
+	sst3, err := CreateSSTable(base, i2+1)
+	//fd, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		return err
+	}
+	log.Printf(">>> DEBUG 4")
+	// write batch to table
+	err = sst3.WriteBatch(batch)
+	log.Printf(">>> DEBUG 5")
+	// flush and close sstable
+	err = sst3.Close()
+	if err != nil {
+		return err
+	}
+	log.Printf(">>> DEBUG 6")
 	return nil
 }
 
-func mergeWriter(fd *os.File, ssi1 *SSIndex, ssi2 *SSIndex) error {
+func mergeWriter(sst1, sst2 *SSTable, batch *Batch) error {
 
 	i, j := 0, 0
-	n1, n2 := ssi1.Len(), ssi2.Len()
+	n1, n2 := sst1.index.Len(), sst2.index.Len()
 
+	log.Printf(">>> DEBUG 1.1")
+
+	var err error
+	var de *sstDataEntry
 	for i < n1 && j < n2 {
-		if ssi1.data[i].key < ssi2.data[j].key {
-			// if not common print smaller
-			_, err := fmt.Fprintf(fd, "%q,", ssi1.data[i].key)
+		if sst1.index.data[i].key < sst2.index.data[j].key {
+			// read entry from sst1
+			de, err = sst1.ReadEntryAt(sst1.index.data[i].offset)
 			if err != nil {
 				return err
 			}
+			// write entry to sst3 batch
+			batch.WriteDataEntry(de)
+			log.Printf(">>> DEBUG 1.2")
 			i++
 			continue
 		}
-		if ssi2.data[j].key <= ssi1.data[i].key {
-			// if not common print smaller
-			_, err := fmt.Fprintf(fd, "%q,", ssi2.data[j].key)
+		if sst2.index.data[j].key <= sst1.index.data[i].key {
+			// read entry from sst2
+			de, err = sst1.ReadEntryAt(sst2.index.data[j].offset)
 			if err != nil {
 				return err
 			}
-			if ssi2.data[j].key == ssi1.data[i].key {
+			// write entry to sst3 batch
+			batch.WriteDataEntry(de)
+			log.Printf(">>> DEBUG 1.3")
+			if sst2.index.data[j].key == sst1.index.data[i].key {
 				i++
 			}
 			j++
@@ -66,21 +95,33 @@ func mergeWriter(fd *os.File, ssi1 *SSIndex, ssi2 *SSIndex) error {
 		}
 	}
 
+	if err == io.EOF {
+		return nil
+	}
+
 	// print remaining
 	for i < n1 {
-		_, err := fmt.Fprintf(fd, "%q,", ssi1.data[i].key)
+		// read entry from sst1
+		de, err = sst1.ReadEntryAt(sst1.index.data[i].offset)
 		if err != nil {
 			return err
 		}
+		// write entry to sst3 batch
+		batch.WriteDataEntry(de)
+		log.Printf(">>> DEBUG 1.4")
 		i++
 	}
 
 	// print remaining
 	for j < n2 {
-		_, err := fmt.Fprintf(fd, "%q,", ssi2.data[j].key)
+		// read entry from sst2
+		de, err = sst1.ReadEntryAt(sst2.index.data[j].offset)
 		if err != nil {
 			return err
 		}
+		// write entry to sst3 batch
+		batch.WriteDataEntry(de)
+		log.Printf(">>> DEBUG 1.5")
 		j++
 	}
 

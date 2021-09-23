@@ -363,7 +363,7 @@ func (l *WAL) Read(index int64) (string, []byte, error) {
 	return string(e.Key), e.Value, nil
 }
 
-// WriteEntry writes an segEntry to the write-ahead log in an append-only fashion
+// WriteIndexEntry writes an segEntry to the write-ahead log in an append-only fashion
 func (l *WAL) Write(key string, value []byte) (int64, error) {
 	// lock
 	l.lock.Lock()

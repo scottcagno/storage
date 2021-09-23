@@ -38,6 +38,43 @@ func DecodeDataEntry(r io.Reader) (*sstDataEntry, error) {
 	return ent, nil
 }
 
+func DecodeDataEntryAt(r io.ReaderAt, offset int64) (*sstDataEntry, error) {
+	// make buffer for decoding
+	buf := make([]byte, 16)
+	// read key length
+	n, err := r.ReadAt(buf[0:8], offset)
+	if err != nil {
+		return nil, err
+	}
+	// update offset for next read
+	offset += int64(n)
+	// read val length
+	n, err = r.ReadAt(buf[8:16], offset)
+	if err != nil {
+		return nil, err
+	}
+	// update offset for next read
+	offset += int64(n)
+	// decode key length
+	klen := binary.LittleEndian.Uint64(buf[0:8])
+	// decode val length
+	vlen := binary.LittleEndian.Uint64(buf[8:16])
+	// make buffer to load the key and value into
+	data := make([]byte, klen+vlen)
+	// read key and value
+	_, err = r.ReadAt(data, offset)
+	if err != nil {
+		return nil, err
+	}
+	// fill out sstDataEntry
+	ent := &sstDataEntry{
+		key:   string(data[0:klen]),
+		value: data[klen : klen+vlen],
+	}
+	// return
+	return ent, nil
+}
+
 func DecodeIndexEntry(r io.Reader) (*sstIndexEntry, error) {
 	// make buffer for decoding
 	buf := make([]byte, 16)

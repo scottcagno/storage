@@ -139,7 +139,7 @@ func (ssi *SSIndex) errorCheckFileAndIndex() error {
 	return nil
 }
 
-func (ssi *SSIndex) WriteEntry(key string, offset int64) error {
+func (ssi *SSIndex) WriteIndexEntry(key string, offset int64) error {
 	// error check
 	err := ssi.errorCheckFileAndIndex()
 	if err != nil {
@@ -159,6 +159,41 @@ func (ssi *SSIndex) WriteEntry(key string, offset int64) error {
 		ssi.last = ssi.lastKey()
 	}
 	return nil
+}
+
+func (ssi *SSIndex) ReadDataEntry(r io.ReaderAt, key string) (*sstDataEntry, error) {
+	// error check
+	err := ssi.errorCheckFileAndIndex()
+	if err != nil {
+		return nil, err
+	}
+	// check index for entry offset
+	offset, err := ssi.GetEntryOffset(key)
+	if err != nil {
+		return nil, err
+	}
+	// attempt to read and decode data entry using provided reader
+	de, err := DecodeDataEntryAt(r, offset)
+	if err != nil {
+		return nil, err
+	}
+	// return data entry
+	return de, nil
+}
+
+func (ssi *SSIndex) ReadDataEntryAt(r io.ReaderAt, offset int64) (*sstDataEntry, error) {
+	// error check
+	err := ssi.errorCheckFileAndIndex()
+	if err != nil {
+		return nil, err
+	}
+	// attempt to read and decode data entry using provided reader at provided offset
+	de, err := DecodeDataEntryAt(r, offset)
+	if err != nil {
+		return nil, err
+	}
+	// return data entry
+	return de, nil
 }
 
 func (ssi *SSIndex) searchDataIndex(key string) int {
@@ -184,16 +219,17 @@ func (ssi *SSIndex) GetEntryOffset(key string) (int64, error) {
 			return -1, err
 		}
 	}
+
 	// try binary search
 	in := ssi.searchDataIndex(key)
-	log.Printf("ssi.searchDataIndex(key)=%d, len(ssi.data)=%d\n", in, len(ssi.data))
 	ki := ssi.data[in]
+	log.Printf("get offset for key=%q, offset=%d\n", key, ki.offset)
 	// double check we have a match
 	if ki.key == key {
 		return ki.offset, nil
 	}
 	// otherwise, we return not found
-	return -1, ErrNotFound
+	return -1, ErrIndexEntryNotFound
 }
 
 func (ssi *SSIndex) lastKey() string {

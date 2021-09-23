@@ -363,7 +363,7 @@ func (l *WriteAheadLog) Read(index int64) (string, []byte, error) {
 	return string(e.Key), e.Value, nil
 }
 
-// WriteEntry writes an entry to the write-ahead log in an append-only fashion
+// WriteIndexEntry writes an entry to the write-ahead log in an append-only fashion
 func (l *WriteAheadLog) Write(key string, value []byte) (int64, error) {
 	// lock
 	l.lock.Lock()

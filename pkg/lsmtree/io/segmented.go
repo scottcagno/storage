@@ -468,7 +468,7 @@ func (sf *SegmentedFile) Read(index int64) (string, []byte, error) {
 	return string(e.Key), e.Value, nil
 }
 
-// WriteEntry writes an entry to the segmented file in an append-only fashion
+// WriteIndexEntry writes an entry to the segmented file in an append-only fashion
 func (sf *SegmentedFile) Write(key string, value []byte) (int64, error) {
 	// lock
 	sf.lock.Lock()

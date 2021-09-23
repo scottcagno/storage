@@ -273,7 +273,7 @@ func (sf *SegmentManager) ReadDataEntryUsingSegment(index int64) (string, []byte
 	return string(e.Key), e.Value, nil
 }
 
-// WriteEntry writes an entry to the segmented file in an append-only fashion
+// WriteIndexEntry writes an entry to the segmented file in an append-only fashion
 func (sf *SegmentManager) _Write(key string, value []byte) (int64, error) {
 	// lock
 	sf.lock.Lock()
