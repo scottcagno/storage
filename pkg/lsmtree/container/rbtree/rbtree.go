@@ -227,6 +227,10 @@ func (t *rbTree) Max() (string, []byte, bool) {
 
 type Iterator func(key string, value []byte) bool
 
+func (t *rbTree) Scan(iter func(key string, value []byte) bool) {
+	t.ascend(t.root, t.min(t.root).entry, iter)
+}
+
 func (t *rbTree) ScanFront(iter Iterator) {
 	t.ascend(t.root, t.min(t.root).entry, iter)
 }

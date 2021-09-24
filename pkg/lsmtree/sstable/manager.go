@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -26,6 +27,39 @@ func OpenSSManager(base string) (*SSManager, error) {
 		base: base,
 	}
 	return ssm, nil
+}
+
+func (ssm *SSManager) Get(key string) ([]byte, error) {
+	ssts, err := ssm.ListSSTables()
+	if err != nil {
+		return nil, err
+	}
+	var indexes []int
+	for _, name := range ssts {
+		index, err := IndexFromDataFileName(name)
+		if err != nil {
+			return nil, err
+		}
+		indexes = append(indexes, int(index))
+	}
+	sort.Ints(indexes)
+	var de *sstDataEntry
+	// TODO: find better way to do this
+	for i := len(indexes) - 1; i > 0; i-- {
+		sst, err := OpenSSTable(ssm.base, int64(indexes[i]))
+		if err != nil {
+			return nil, err
+		}
+		de, err = sst.ReadEntry(key)
+		if de != nil {
+			break
+		}
+		err = sst.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return de.value, nil
 }
 
 func (ssm *SSManager) CompactSSTables(index int64) error {

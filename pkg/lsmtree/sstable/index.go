@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"sync"
 )
 
 func IndexFileNameFromIndex(index int64) string {
@@ -52,7 +51,7 @@ func (ie indexEntryMetaSet) Swap(i, j int) {
 }
 
 type SSIndex struct {
-	lock  sync.RWMutex
+	//lock  sync.RWMutex
 	path  string           // base is the base path of the index file
 	file  *os.File         // file is the index file, file descriptor
 	open  bool             // reports if the file is open or closed
@@ -169,7 +168,7 @@ func (ssi *SSIndex) ReadDataEntry(r io.ReaderAt, key string) (*sstDataEntry, err
 	}
 	// check index for entry offset
 	offset, err := ssi.GetEntryOffset(key)
-	if err != nil {
+	if err != nil || offset == -1 {
 		return nil, err
 	}
 	// attempt to read and decode data entry using provided reader

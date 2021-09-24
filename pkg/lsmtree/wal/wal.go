@@ -17,7 +17,7 @@ const (
 	LogPrefix = "wal-"
 	LogSuffix = ".seg"
 
-	defaultMaxFileSize uint64 = 4 << 20 // 4 MB
+	defaultMaxFileSize uint64 = 16 << 10 // 16 KB
 )
 
 var (
@@ -110,9 +110,9 @@ type WAL struct {
 }
 
 // Open opens and returns a new write-ahead log structure
-func Open(path string) (*WAL, error) {
+func Open(base string) (*WAL, error) {
 	// make sure we are working with absolute paths
-	base, err := filepath.Abs(path)
+	base, err := filepath.Abs(base)
 	if err != nil {
 		return nil, err
 	}

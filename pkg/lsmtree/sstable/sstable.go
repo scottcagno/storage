@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"sync"
 )
 
 const (
@@ -89,7 +88,7 @@ func (b *Batch) Swap(i, j int) {
 }
 
 type SSTable struct {
-	lock  sync.RWMutex
+	//lock  sync.RWMutex
 	path  string   // path is the filepath for the data
 	file  *os.File // file is the file descriptor for the data
 	open  bool     // open reports the status of the file
