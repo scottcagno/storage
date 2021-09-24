@@ -13,6 +13,7 @@ import (
 
 type SSManager struct {
 	base string
+	gidx int64
 }
 
 func OpenSSManager(base string) (*SSManager, error) {
@@ -25,8 +26,26 @@ func OpenSSManager(base string) (*SSManager, error) {
 	base = filepath.ToSlash(base)
 	ssm := &SSManager{
 		base: base,
+		gidx: -1,
 	}
+	ssm.gidx = ssm.GetLatestIndex()
 	return ssm, nil
+}
+
+func (ssm *SSManager) GetLatestIndex() int64 {
+	ssts, err := ssm.ListSSTables()
+	if err != nil {
+		return 0
+	}
+	if len(ssts) == 0 {
+		return 0
+	}
+	sort.Strings(ssts)
+	index, err := IndexFromDataFileName(ssts[len(ssts)-1])
+	if err != nil {
+		return 0
+	}
+	return index
 }
 
 func (ssm *SSManager) Get(key string) ([]byte, error) {
