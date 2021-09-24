@@ -9,3 +9,7 @@ func Open(base string) (*Memtable, error) {
 		base: base,
 	}, nil
 }
+
+func (m *Memtable) Close() error {
+	return nil
+}

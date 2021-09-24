@@ -3,7 +3,7 @@ package wal
 import (
 	"errors"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/binary"
+	"github.com/scottcagno/storage/pkg/_binary"
 	"io"
 	"os"
 	"path/filepath"

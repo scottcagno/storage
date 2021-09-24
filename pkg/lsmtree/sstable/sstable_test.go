@@ -7,7 +7,11 @@ import (
 )
 
 func TestCompactSSTables(t *testing.T) {
-	err := CompactSSTables("data", 3)
+	ssm, err := OpenSSManager("data")
+	if err != nil {
+		t.Fatalf("compacting: %v\n", err)
+	}
+	err = ssm.CompactSSTables(3)
 	if err != nil {
 		t.Fatalf("compacting: %v\n", err)
 	}
@@ -70,8 +74,13 @@ func TestMergeSSTable(t *testing.T) {
 		t.Fatalf("closing sst: %v\n", err)
 	}
 
+	ssm, err := OpenSSManager("data")
+	if err != nil {
+		t.Fatalf("ssm: %v\n", err)
+	}
+
 	ts1 := time.Now()
-	err = MergeSSTables("data", 1, 2)
+	err = ssm.MergeSSTables(1, 2)
 	if err != nil {
 		t.Fatalf("closing sst: %v\n", err)
 	}

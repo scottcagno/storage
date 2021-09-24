@@ -3,14 +3,34 @@ package sstable
 import (
 	"bytes"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 // https: //play.golang.org/p/jRpPRa4Q4Nh
 // https://play.golang.org/p/hTuTKen_ovK
 
-func CompactSSTables(base string, index int64) error {
+type SSManager struct {
+	base string
+}
+
+func OpenSSManager(base string) (*SSManager, error) {
+	// make sure we are working with absolute paths
+	base, err := filepath.Abs(base)
+	if err != nil {
+		return nil, err
+	}
+	// sanitize any path separators
+	base = filepath.ToSlash(base)
+	ssm := &SSManager{
+		base: base,
+	}
+	return ssm, nil
+}
+
+func (ssm *SSManager) CompactSSTables(index int64) error {
 	// load sstable
-	sst, err := OpenSSTable(base, index)
+	sst, err := OpenSSTable(ssm.base, index)
 	if err != nil {
 		return err
 	}
@@ -45,7 +65,7 @@ func CompactSSTables(base string, index int64) error {
 		return err
 	}
 	// open new sstable to write to
-	sst, err = CreateSSTable(base, index)
+	sst, err = CreateSSTable(ssm.base, index)
 	if err != nil {
 		return err
 	}
@@ -59,14 +79,14 @@ func CompactSSTables(base string, index int64) error {
 	return nil
 }
 
-func MergeSSTables(base string, iA, iB int64) error {
+func (ssm *SSManager) MergeSSTables(iA, iB int64) error {
 	// load sstable A
-	sstA, err := OpenSSTable(base, iA)
+	sstA, err := OpenSSTable(ssm.base, iA)
 	if err != nil {
 		return err
 	}
 	// and sstable B
-	sstB, err := OpenSSTable(base, iB)
+	sstB, err := OpenSSTable(ssm.base, iB)
 	if err != nil {
 		return err
 	}
@@ -88,7 +108,7 @@ func MergeSSTables(base string, iA, iB int64) error {
 		return err
 	}
 	// open new sstable to write to
-	sstC, err := CreateSSTable(base, iB+1)
+	sstC, err := CreateSSTable(ssm.base, iB+1)
 	if err != nil {
 		return err
 	}
@@ -171,5 +191,43 @@ func mergeWriter(sstA, sstB *SSTable, batch *Batch) error {
 	}
 
 	// return error free
+	return nil
+}
+
+func (ssm *SSManager) ListSSTables() ([]string, error) {
+	files, err := os.ReadDir(ssm.base)
+	if err != nil {
+		return nil, err
+	}
+	var ss []string
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(file.Name(), dataFileSuffix) {
+			ss = append(ss, filepath.Join(ssm.base, file.Name()))
+		}
+	}
+	return ss, nil
+}
+
+func (ssm *SSManager) ListSSIndexes() ([]string, error) {
+	files, err := os.ReadDir(ssm.base)
+	if err != nil {
+		return nil, err
+	}
+	var ss []string
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(file.Name(), indexFileSuffix) {
+			ss = append(ss, filepath.Join(ssm.base, file.Name()))
+		}
+	}
+	return ss, nil
+}
+
+func (ssm *SSManager) Close() error {
 	return nil
 }
