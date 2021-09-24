@@ -3,7 +3,15 @@ package sstable
 import (
 	"fmt"
 	"testing"
+	"time"
 )
+
+func TestCompactSSTables(t *testing.T) {
+	err := CompactSSTables("data", 3)
+	if err != nil {
+		t.Fatalf("compacting: %v\n", err)
+	}
+}
 
 func TestMergeSSTable(t *testing.T) {
 
@@ -15,9 +23,13 @@ func TestMergeSSTable(t *testing.T) {
 
 	// create and test batch
 	batch := NewBatch()
-	batch.Write("key-01", []byte("value-01"))
-	batch.Write("key-03", []byte("value-03"))
-	batch.Write("key-05", []byte("value-05"))
+	for i := 0; i < 5000; i++ {
+		if i%2 == 1 {
+			// odd numbers
+			k, v := fmt.Sprintf("key-%04d", i), fmt.Sprintf("value-%06d", i)
+			batch.Write(k, []byte(v))
+		}
+	}
 	err = sst.WriteBatch(batch)
 	if err != nil {
 		t.Fatalf("writing (batch) to sst: %v\n", err)
@@ -37,10 +49,16 @@ func TestMergeSSTable(t *testing.T) {
 
 	// create and test batch
 	batch = NewBatch()
-	batch.Write("key-02", []byte("value-02"))
-	batch.Write("key-04", []byte("value-04"))
-	batch.Write("key-05", []byte("new-value-05"))
-	batch.Write("key-06", []byte("value-06"))
+	for i := 0; i < 5000; i++ {
+		if i%2 == 0 {
+			// even numbers
+			k, v := fmt.Sprintf("key-%04d", i), fmt.Sprintf("value-%06d", i)
+			batch.Write(k, []byte(v))
+		} else {
+			// odd numbers on 2nd table, write tombstones
+			batch.Write(fmt.Sprintf("key-%04d", i), TombstoneEntry)
+		}
+	}
 	err = sst.WriteBatch(batch)
 	if err != nil {
 		t.Fatalf("writing (batch) to sst: %v\n", err)
@@ -52,10 +70,13 @@ func TestMergeSSTable(t *testing.T) {
 		t.Fatalf("closing sst: %v\n", err)
 	}
 
+	ts1 := time.Now()
 	err = MergeSSTables("data", 1, 2)
 	if err != nil {
 		t.Fatalf("closing sst: %v\n", err)
 	}
+	ts2 := time.Since(ts1)
+	fmt.Printf("MERGE TOO: %v microseconds\n", ts2.Microseconds())
 }
 
 func TestCreateSSTable(t *testing.T) {

@@ -17,6 +17,8 @@ const (
 	indexFileSuffix = ".idx"
 )
 
+var TombstoneEntry = []byte(nil)
+
 var (
 	ErrFileClosed         = errors.New("error: file is closed")
 	ErrIndexEntryNotFound = errors.New("error: index entry not found")
@@ -47,6 +49,14 @@ func (e *sstDataEntry) String() string {
 
 type Batch struct {
 	data []*sstDataEntry
+}
+
+func (b *Batch) String() string {
+	var ss string
+	for i := range b.data {
+		ss += fmt.Sprintf("b.data[%d].key=%q, value=%q\n", i, b.data[i].key, b.data[i].value)
+	}
+	return ss
 }
 
 func NewBatch() *Batch {
@@ -86,6 +96,14 @@ type SSTable struct {
 	index *SSIndex // SSIndex is an SSTableIndex file
 
 	readOnly bool
+}
+
+func (sst *SSTable) SSTablePath() string {
+	return sst.path
+}
+
+func (sst *SSTable) SSIndexPath() string {
+	return sst.index.path
 }
 
 func CreateSSTable(base string, index int64) (*SSTable, error) {
@@ -199,6 +217,28 @@ func (sst *SSTable) ReadEntry(key string) (*sstDataEntry, error) {
 	//}
 	// return data entry
 	return de, nil
+}
+
+func (sst *SSTable) Scan(iter func(de *sstDataEntry) bool) error {
+	// error check
+	err := sst.errorCheckFileAndIndex()
+	if err != nil {
+		return err
+	}
+	for {
+		// decode next data entry
+		de, err := DecodeDataEntry(sst.file)
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+			return err
+		}
+		if !iter(de) {
+			break
+		}
+	}
+	return nil
 }
 
 func (sst *SSTable) ReadEntryAt(offset int64) (*sstDataEntry, error) {

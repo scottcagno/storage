@@ -1,127 +1,172 @@
 package sstable
 
 import (
-	"io"
-	"log"
+	"bytes"
+	"os"
 )
 
 // https: //play.golang.org/p/jRpPRa4Q4Nh
+// https://play.golang.org/p/hTuTKen_ovK
 
-func MergeSSTables(base string, i1, i2 int64) error {
-	// load indexes
-	sst1, err := OpenSSTable(base, i1)
+func CompactSSTables(base string, index int64) error {
+	// load sstable
+	sst, err := OpenSSTable(base, index)
 	if err != nil {
 		return err
 	}
-	sst2, err := OpenSSTable(base, i2)
-	if err != nil {
-		return err
-	}
-	log.Printf(">>> DEBUG 1")
-	// make batch to write data to
+	// make batch
 	batch := NewBatch()
-	// pass tables to the merge writer
-	err = mergeWriter(sst1, sst2, batch)
+	// iterate
+	err = sst.Scan(func(de *sstDataEntry) bool {
+		// add any data entries that are not tombstones to batch
+		if de.value != nil && !bytes.Equal(de.value, TombstoneEntry) {
+			batch.WriteDataEntry(de)
+		}
+		return true
+	})
 	if err != nil {
 		return err
 	}
-	log.Printf(">>> DEBUG 2")
-	// close table 1
-	err = sst1.Close()
+	// get path
+	tpath, ipath := sst.SSTablePath(), sst.SSIndexPath()
+	// close sstable
+	err = sst.Close()
 	if err != nil {
 		return err
 	}
-	// close table 2
-	err = sst2.Close()
+	// remove old table
+	err = os.Remove(tpath)
 	if err != nil {
 		return err
 	}
-	log.Printf(">>> DEBUG 3")
+	// remove old index
+	err = os.Remove(ipath)
+	if err != nil {
+		return err
+	}
 	// open new sstable to write to
-	sst3, err := CreateSSTable(base, i2+1)
-	//fd, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
+	sst, err = CreateSSTable(base, index)
 	if err != nil {
 		return err
 	}
-	log.Printf(">>> DEBUG 4")
 	// write batch to table
-	err = sst3.WriteBatch(batch)
-	log.Printf(">>> DEBUG 5")
+	err = sst.WriteBatch(batch)
 	// flush and close sstable
-	err = sst3.Close()
+	err = sst.Close()
 	if err != nil {
 		return err
 	}
-	log.Printf(">>> DEBUG 6")
 	return nil
 }
 
-func mergeWriter(sst1, sst2 *SSTable, batch *Batch) error {
+func MergeSSTables(base string, iA, iB int64) error {
+	// load sstable A
+	sstA, err := OpenSSTable(base, iA)
+	if err != nil {
+		return err
+	}
+	// and sstable B
+	sstB, err := OpenSSTable(base, iB)
+	if err != nil {
+		return err
+	}
+	// make batch to write data to
+	batch := NewBatch()
+	// pass tables to the merge writer
+	err = mergeWriter(sstA, sstB, batch)
+	if err != nil {
+		return err
+	}
+	// close table A
+	err = sstA.Close()
+	if err != nil {
+		return err
+	}
+	// close table B
+	err = sstB.Close()
+	if err != nil {
+		return err
+	}
+	// open new sstable to write to
+	sstC, err := CreateSSTable(base, iB+1)
+	if err != nil {
+		return err
+	}
+	// write batch to table
+	err = sstC.WriteBatch(batch)
+	// flush and close sstable
+	err = sstC.Close()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func mergeWriter(sstA, sstB *SSTable, batch *Batch) error {
 
 	i, j := 0, 0
-	n1, n2 := sst1.index.Len(), sst2.index.Len()
-
-	log.Printf(">>> DEBUG 1.1")
+	n1, n2 := sstA.index.Len(), sstB.index.Len()
 
 	var err error
 	var de *sstDataEntry
 	for i < n1 && j < n2 {
-		if sst1.index.data[i].key < sst2.index.data[j].key {
-			// read entry from sst1
-			de, err = sst1.ReadEntryAt(sst1.index.data[i].offset)
+		if sstA.index.data[i].key == sstB.index.data[j].key {
+			// read entry from sstB
+			de, err = sstB.ReadEntryAt(sstB.index.data[j].offset)
 			if err != nil {
 				return err
 			}
-			// write entry to sst3 batch
+			// write entry to batch
 			batch.WriteDataEntry(de)
-			log.Printf(">>> DEBUG 1.2")
+			i++
+			j++
+			continue
+		}
+		if sstA.index.data[i].key < sstB.index.data[j].key {
+			// read entry from sstA
+			de, err = sstA.ReadEntryAt(sstA.index.data[i].offset)
+			if err != nil {
+				return err
+			}
+			// write entry to batch
+			batch.WriteDataEntry(de)
 			i++
 			continue
 		}
-		if sst2.index.data[j].key <= sst1.index.data[i].key {
-			// read entry from sst2
-			de, err = sst1.ReadEntryAt(sst2.index.data[j].offset)
+		if sstB.index.data[j].key < sstA.index.data[i].key {
+			// read entry from sstB
+			de, err = sstB.ReadEntryAt(sstB.index.data[j].offset)
 			if err != nil {
 				return err
 			}
-			// write entry to sst3 batch
+			// write entry to batch
 			batch.WriteDataEntry(de)
-			log.Printf(">>> DEBUG 1.3")
-			if sst2.index.data[j].key == sst1.index.data[i].key {
-				i++
-			}
 			j++
 			continue
 		}
 	}
 
-	if err == io.EOF {
-		return nil
-	}
-
 	// print remaining
 	for i < n1 {
-		// read entry from sst1
-		de, err = sst1.ReadEntryAt(sst1.index.data[i].offset)
+		// read entry from sstA
+		de, err = sstA.ReadEntryAt(sstA.index.data[i].offset)
 		if err != nil {
 			return err
 		}
-		// write entry to sst3 batch
+		// write entry to batch
 		batch.WriteDataEntry(de)
-		log.Printf(">>> DEBUG 1.4")
 		i++
 	}
 
 	// print remaining
 	for j < n2 {
-		// read entry from sst2
-		de, err = sst1.ReadEntryAt(sst2.index.data[j].offset)
+		// read entry from sstB
+		de, err = sstB.ReadEntryAt(sstB.index.data[j].offset)
 		if err != nil {
 			return err
 		}
-		// write entry to sst3 batch
+		// write entry to batch
 		batch.WriteDataEntry(de)
-		log.Printf(">>> DEBUG 1.5")
 		j++
 	}
 
