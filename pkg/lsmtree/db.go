@@ -3,56 +3,39 @@ package lsmtree
 import (
 	"github.com/scottcagno/storage/pkg/lsmtree/memtable"
 	"github.com/scottcagno/storage/pkg/lsmtree/sstable"
+	"github.com/scottcagno/storage/pkg/ui/auto"
+	"path/filepath"
 	"sync"
 )
 
 const (
-	MaxMemtableSize = 2 << 20 // 2MB
+	MaxMemtableSize      = 2 << 20 // 2MB
+	defaultCommitLogPath = "wal"
+	defaultSSTablePath   = "data"
 )
-
-var ai autoInc // global instance
-
-type autoInc struct {
-	sync.Mutex // ensures autoInc is goroutine-safe
-	index      int64
-}
-
-func (a *autoInc) Index() (index int64) {
-	a.Lock()
-	defer a.Unlock()
-	index = a.index
-	a.index++
-	return
-}
 
 type DB struct {
 	lock  sync.RWMutex
 	base  string // base is the base path of the db
-	mem   []*memtable.Memtable
-	am    int // active memtable
+	mem   *memtable.Memtable
 	ssm   *sstable.SSManager
-	index int64
+	index auto.IncrID // auto increment ID
 }
 
 func Open(base string) (*DB, error) {
-	m1, err := memtable.Open(base)
+	mem, err := memtable.Open(filepath.Join(base, defaultCommitLogPath))
 	if err != nil {
 		return nil, err
 	}
-	m2, err := memtable.Open(base)
-	if err != nil {
-		return nil, err
-	}
-	ssm, err := sstable.OpenSSManager(base)
+	ssm, err := sstable.OpenSSManager(filepath.Join(base, defaultSSTablePath))
 	if err != nil {
 		return nil, err
 	}
 	db := &DB{
 		base:  base,
-		mem:   []*memtable.Memtable{m1, m2},
-		am:    0,
+		mem:   mem,
 		ssm:   ssm,
-		index: ai.Index(),
+		index: auto.IncrID.Next(),
 	}
 	return db, nil
 }
