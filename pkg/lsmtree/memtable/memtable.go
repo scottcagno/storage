@@ -4,6 +4,8 @@ import (
 	"errors"
 	"github.com/scottcagno/storage/pkg/lsmtree/container/rbtree"
 	"github.com/scottcagno/storage/pkg/lsmtree/wal"
+	"os"
+	"runtime"
 )
 
 var ErrNotFound = errors.New("error: value not found")
@@ -69,11 +71,30 @@ func (m *Memtable) Scan(iter func(key string, value []byte) bool) {
 	m.rbt.Scan(iter)
 }
 
+func (m *Memtable) Reset() error {
+	walPath := m.wal.Path()
+	err := m.wal.Close()
+	if err != nil {
+		return err
+	}
+	err = os.RemoveAll(walPath)
+	if err != nil {
+		return err
+	}
+	m.wal, err = wal.Open(m.base)
+	if err != nil {
+		return err
+	}
+	m.rbt.Close()
+	runtime.GC()
+	m.rbt = rbtree.NewRBTree()
+	return nil
+}
+
 func (m *Memtable) Close() error {
 	err := m.wal.Close()
 	if err != nil {
 		return err
 	}
-	m.rbt.Close()
 	return nil
 }

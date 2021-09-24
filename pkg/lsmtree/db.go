@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	MaxMemtableSize      = 2 << 20 // 2MB
+	MaxMemtableSize      = 255 << 10 // 256 KB
 	defaultCommitLogPath = "wal"
 	defaultSSTablePath   = "data"
 )
@@ -47,6 +47,22 @@ func (db *DB) Put(key string, value []byte) error {
 	return db.upsert(key, value)
 }
 
+func (db *DB) writeMemtableToBatch() (*sstable.Batch, error) {
+	// create new sstable batch to dump to
+	data := sstable.NewBatch()
+	// scan "inactive" memtable, add entries to batch
+	db.mem.Scan(func(key string, value []byte) bool {
+		data.Write(key, value)
+		return true
+	})
+	// clear memtable
+	err := db.mem.Reset()
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
 func (db *DB) upsert(key string, value []byte) error {
 	// insert into the memtable
 	size, err := db.mem.Put(key, value)
@@ -55,20 +71,17 @@ func (db *DB) upsert(key string, value []byte) error {
 	}
 	// check size
 	if size >= MaxMemtableSize {
-		// create new sstable batch to dump to
-		data := sstable.NewBatch()
-		// scan "inactive" memtable, add entries to batch
-		db.mem.Scan(func(key string, value []byte) bool {
-			data.Write(key, value)
-			return true
-		})
+		batch, err := db.writeMemtableToBatch()
+		if err != nil {
+			return err
+		}
 		// create new sstable
-		sst, err := sstable.CreateSSTable(db.base, db.ssm.GetLatestIndex()+1)
+		sst, err := sstable.CreateSSTable(filepath.Join(db.base, defaultSSTablePath), db.ssm.GetLatestIndex()+1)
 		if err != nil {
 			return err
 		}
 		// write batch to sstable
-		err = sst.WriteBatch(data)
+		err = sst.WriteBatch(batch)
 		if err != nil {
 			return err
 		}
@@ -77,7 +90,6 @@ func (db *DB) upsert(key string, value []byte) error {
 		if err != nil {
 			return err
 		}
-		// increment new gidx
 	}
 	return nil
 }

@@ -18,10 +18,10 @@ type SSManager struct {
 
 func OpenSSManager(base string) (*SSManager, error) {
 	// make sure we are working with absolute paths
-	base, err := filepath.Abs(base)
-	if err != nil {
-		return nil, err
-	}
+	//base, err := filepath.Abs(base)
+	//if err != nil {
+	//	return nil, err
+	//}
 	// sanitize any path separators
 	base = filepath.ToSlash(base)
 	ssm := &SSManager{

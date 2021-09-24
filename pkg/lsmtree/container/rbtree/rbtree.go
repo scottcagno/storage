@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"encoding/binary"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -281,6 +282,23 @@ func (t *rbTree) Close() {
 	t.root = nil
 	t.count = 0
 	return
+}
+
+func (t *rbTree) Reset() {
+	t.NIL = nil
+	t.root = nil
+	t.count = 0
+	runtime.GC()
+	n := &rbNode{
+		left:   nil,
+		right:  nil,
+		parent: nil,
+		color:  BLACK,
+		entry:  empty,
+	}
+	t.NIL = n
+	t.root = n
+	t.count = 0
 }
 
 func (t *rbTree) insert(z *rbNode) (*rbNode, bool) {

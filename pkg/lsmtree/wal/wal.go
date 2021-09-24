@@ -3,7 +3,7 @@ package wal
 import (
 	"errors"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/_binary"
+	"github.com/scottcagno/storage/pkg/lsmtree/encoding/binary"
 	"io"
 	"os"
 	"path/filepath"
@@ -369,7 +369,7 @@ func (l *WAL) Write(key string, value []byte) (int64, error) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	// write segEntry
-	offset, err := l.w.WriteEntry(&binary.Entry{
+	offset, err := l.w.WriteEntry(&binary.DataEntry{
 		Id:    l.lastIndex,
 		Key:   []byte(key),
 		Value: value,
