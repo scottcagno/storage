@@ -2,6 +2,7 @@ package sstable
 
 import (
 	"bytes"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,8 +13,9 @@ import (
 // https://play.golang.org/p/hTuTKen_ovK
 
 type SSManager struct {
-	base string
-	gidx int64
+	base   string
+	sparse []*SparseIndex
+	gidx   int64
 }
 
 func OpenSSManager(base string) (*SSManager, error) {
@@ -25,11 +27,45 @@ func OpenSSManager(base string) (*SSManager, error) {
 	// sanitize any path separators
 	base = filepath.ToSlash(base)
 	ssm := &SSManager{
-		base: base,
-		gidx: -1,
+		base:   base,
+		sparse: make([]*SparseIndex, 0),
+		gidx:   -1,
 	}
 	ssm.gidx = ssm.GetLatestIndex()
+	// load sparse index
+	idxs, err := ssm.AllIndexes()
+	if err != nil {
+		return nil, err
+	}
+	log.Println("DEBUG1")
+	for i := range idxs {
+		spi, err := OpenSparseIndex(ssm.base, idxs[i])
+		if err != nil {
+			return nil, err
+		}
+		ssm.sparse = append(ssm.sparse, spi)
+	}
 	return ssm, nil
+}
+
+func (ssm *SSManager) AllIndexes() ([]int64, error) {
+	ssts, err := ssm.ListSSTables()
+	if err != nil {
+		return nil, ErrSSTableNotFound
+	}
+	if len(ssts) == 0 {
+		return nil, ErrSSTableNotFound
+	}
+	sort.Strings(ssts)
+	var nn []int64
+	for i := range ssts {
+		index, err := IndexFromDataFileName(filepath.Base(ssts[i]))
+		if err != nil {
+			return nil, err
+		}
+		nn = append(nn, index)
+	}
+	return nn, nil
 }
 
 func (ssm *SSManager) GetLatestIndex() int64 {
@@ -41,11 +77,27 @@ func (ssm *SSManager) GetLatestIndex() int64 {
 		return 0
 	}
 	sort.Strings(ssts)
-	index, err := IndexFromDataFileName(ssts[len(ssts)-1])
+	index, err := IndexFromDataFileName(filepath.Base(ssts[len(ssts)-1]))
 	if err != nil {
 		return 0
 	}
 	return index
+}
+
+func (ssm *SSManager) SearchSparseIndex(key string) (string, int64) {
+	var path string
+	var offset int64
+	for i := range ssm.sparse {
+		if !ssm.sparse[i].HasKey(key) {
+			continue
+		}
+		path, offset = ssm.sparse[i].GetClose(key)
+		break
+	}
+	if offset == -1 {
+
+	}
+	return path, offset
 }
 
 func (ssm *SSManager) Get(key string) ([]byte, error) {

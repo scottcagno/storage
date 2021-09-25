@@ -234,6 +234,28 @@ func (t *rbTree) GetApproxPrevNext(key string) ([]byte, []byte, []byte, bool) {
 		ret.entry.key == key
 }
 
+// GetApproxKeyPrevNext performs an approximate search for the specified key
+// and returns the searched key, the predecessor, and the successor and a
+// boolean reporting true if an exact match was found for the key, and false
+// if it is unknown or and exact match was not found
+func (t *rbTree) GetApproxKeyPrevNext(key string) (string, string, string, bool) {
+	e := rbNodeEntry{key: key}
+	if isempty(e) {
+		return "", "", "", false
+	}
+	ret := t.searchApprox(&rbNode{
+		left:   t.NIL,
+		right:  t.NIL,
+		parent: t.NIL,
+		color:  RED,
+		entry:  e,
+	})
+	return ret.entry.key,
+		t.predecessor(ret).entry.key,
+		t.successor(ret).entry.key,
+		ret.entry.key == key
+}
+
 func (t *rbTree) GetInt(key int64) (int64, bool) {
 	val, ok := t.get(IntToKey(key))
 	return ValToInt(val), ok

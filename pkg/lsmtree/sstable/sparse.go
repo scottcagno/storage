@@ -3,10 +3,13 @@ package sstable
 import (
 	"github.com/scottcagno/storage/pkg/lsmtree/container/rbtree"
 	"math"
+	"path/filepath"
 )
 
 type SparseIndex struct {
-	rbt *rbtree.RBTree
+	base  string
+	index int64
+	rbt   *rbtree.RBTree
 }
 
 func log2(n int64) int64 {
@@ -20,7 +23,7 @@ func log2(n int64) int64 {
 }
 
 func OpenSparseIndex(base string, index int64) (*SparseIndex, error) {
-	sdi := &SparseIndex{
+	spi := &SparseIndex{
 		rbt: rbtree.NewRBTree(),
 	}
 	ssi, err := OpenSSIndex(base, index)
@@ -31,10 +34,36 @@ func OpenSparseIndex(base string, index int64) (*SparseIndex, error) {
 	n, i := log2(count), int64(0)
 	ssi.Scan(func(k string, off int64) bool {
 		if i%(count/n) == 0 {
-			sdi.rbt.Put(k, rbtree.IntToVal(off))
+			spi.rbt.Put(k, rbtree.IntToVal(off))
 		}
 		i++
 		return true
 	})
-	return sdi, nil
+	return spi, nil
+}
+
+func (spi *SparseIndex) GetClose(k string) (string, int64) {
+	v, _ := spi.rbt.GetNearMin(k)
+	return filepath.Join(spi.base, DataFileNameFromIndex(spi.index)), rbtree.ValToInt(v)
+}
+
+func (spi *SparseIndex) First() string {
+	k, _, _ := spi.rbt.Min()
+	return k
+}
+
+func (spi *SparseIndex) Last() string {
+	k, _, _ := spi.rbt.Max()
+	return k
+}
+
+func (spi *SparseIndex) HasKey(k string) bool {
+	_, prev, next, ok := spi.rbt.GetApproxKeyPrevNext(k)
+	if ok {
+		return true
+	}
+	if prev < k && k < next {
+		return true
+	}
+	return false
 }

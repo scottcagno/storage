@@ -2,9 +2,67 @@ package sstable
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestSparseIndex(t *testing.T) {
+	// create new sstable
+	sst, err := CreateSSTable("data", 1)
+	if err != nil {
+		t.Fatalf("creating sst: %v\n", err)
+	}
+
+	// create and test batch
+	batch := NewBatch()
+	for i := 0; i < 5000; i++ {
+		// odd numbers
+		k, v := fmt.Sprintf("key-%04d", i), fmt.Sprintf("value-%06d", i)
+		batch.Write(k, []byte(v))
+	}
+	err = sst.WriteBatch(batch)
+	if err != nil {
+		t.Fatalf("writing (batch) to sst: %v\n", err)
+	}
+
+	// close sst
+	err = sst.Close()
+	if err != nil {
+		t.Fatalf("closing sst: %v\n", err)
+	}
+
+	// opening sparse index
+	ssm, err := OpenSSManager("data")
+	if err != nil {
+		t.Fatalf("opening ssm: %v\n", err)
+	}
+
+	key := "key-0037"
+	p, o := ssm.SearchSparseIndex(key)
+	fmt.Printf("searching(%q): path=%q, offset=%d\n", key, filepath.Base(p), o)
+
+	key = "key-0002"
+	p, o = ssm.SearchSparseIndex(key)
+	fmt.Printf("searching(%q): path=%q, offset=%d\n", key, filepath.Base(p), o)
+
+	key = "key-0321"
+	p, o = ssm.SearchSparseIndex(key)
+	fmt.Printf("searching(%q): path=%q, offset=%d\n", key, filepath.Base(p), o)
+
+	key = "key-0905"
+	p, o = ssm.SearchSparseIndex(key)
+	fmt.Printf("searching(%q): path=%q, offset=%d\n", key, filepath.Base(p), o)
+
+	key = "key-3754"
+	p, o = ssm.SearchSparseIndex(key)
+	fmt.Printf("searching(%q): path=%q, offset=%d\n", key, filepath.Base(p), o)
+
+	err = ssm.Close()
+	if err != nil {
+		t.Fatalf("closing ssm: %v\n", err)
+	}
+}
 
 func TestCompactSSTables(t *testing.T) {
 	ssm, err := OpenSSManager("data")
