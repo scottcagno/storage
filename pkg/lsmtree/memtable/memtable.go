@@ -3,7 +3,8 @@ package memtable
 import (
 	"errors"
 	"github.com/scottcagno/storage/pkg/lsmtree/container/rbtree"
-	"github.com/scottcagno/storage/pkg/lsmtree/wal"
+	"github.com/scottcagno/storage/pkg/lsmtree/sstable"
+	"github.com/scottcagno/storage/pkg/x/file"
 	"os"
 	"runtime"
 )
@@ -13,18 +14,19 @@ var ErrNotFound = errors.New("error: value not found")
 type Memtable struct {
 	base string // base is the base path of the db
 	rbt  *rbtree.RBTree
-	wal  *wal.WAL
+	//wal  *wal.WAL
+	wal *file.SegmentManager
 }
 
 func Open(base string) (*Memtable, error) {
-	l, err := wal.Open(base)
+	wall, err := file.Open(base)
 	if err != nil {
 		return nil, err
 	}
 	mem := &Memtable{
 		base: base,
 		rbt:  rbtree.NewRBTree(),
-		wal:  l,
+		wal:  wall,
 	}
 	return mem, nil
 }
@@ -67,6 +69,13 @@ func (m *Memtable) Del(key string) (int64, error) {
 	return m.rbt.Size(), nil
 }
 
+func (m *Memtable) FlushToSSTableBatch(batch *sstable.Batch) {
+	m.rbt.Scan(func(key string, value []byte) bool {
+		batch.Write(key, value)
+		return true
+	})
+}
+
 func (m *Memtable) Scan(iter func(key string, value []byte) bool) {
 	m.rbt.Scan(iter)
 }
@@ -81,7 +90,7 @@ func (m *Memtable) Reset() error {
 	if err != nil {
 		return err
 	}
-	m.wal, err = wal.Open(m.base)
+	m.wal, err = file.Open(m.base)
 	if err != nil {
 		return err
 	}

@@ -55,7 +55,7 @@ func (ssm *SSManager) Get(key string) ([]byte, error) {
 	}
 	var indexes []int
 	for _, name := range ssts {
-		index, err := IndexFromDataFileName(name)
+		index, err := IndexFromDataFileName(filepath.Base(name))
 		if err != nil {
 			return nil, err
 		}

@@ -3,22 +3,26 @@ package lsmtree
 import (
 	"github.com/scottcagno/storage/pkg/lsmtree/memtable"
 	"github.com/scottcagno/storage/pkg/lsmtree/sstable"
+	"log"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 const (
-	MaxMemtableSize      = 255 << 10 // 256 KB
+	MaxMemtableSize      = 64 << 10 // 64 KB
 	defaultCommitLogPath = "wal"
 	defaultSSTablePath   = "data"
+
+	VERBOSE = true
 )
 
 type DB struct {
-	lock  sync.RWMutex
-	base  string // base is the base path of the db
-	mem   *memtable.Memtable
-	ssm   *sstable.SSManager
-	index int64 // auto increment ID
+	lock     sync.RWMutex
+	base     string // base is the base path of the db
+	mem      *memtable.Memtable
+	ssm      *sstable.SSManager
+	sstindex int64 // sst index
 }
 
 func Open(base string) (*DB, error) {
@@ -31,10 +35,10 @@ func Open(base string) (*DB, error) {
 		return nil, err
 	}
 	db := &DB{
-		base:  base,
-		mem:   mem,
-		ssm:   ssm,
-		index: ssm.GetLatestIndex(),
+		base:     base,
+		mem:      mem,
+		ssm:      ssm,
+		sstindex: ssm.GetLatestIndex(),
 	}
 	return db, nil
 }
@@ -51,10 +55,7 @@ func (db *DB) writeMemtableToBatch() (*sstable.Batch, error) {
 	// create new sstable batch to dump to
 	data := sstable.NewBatch()
 	// scan "inactive" memtable, add entries to batch
-	db.mem.Scan(func(key string, value []byte) bool {
-		data.Write(key, value)
-		return true
-	})
+	db.mem.FlushToSSTableBatch(data)
 	// clear memtable
 	err := db.mem.Reset()
 	if err != nil {
@@ -71,12 +72,17 @@ func (db *DB) upsert(key string, value []byte) error {
 	}
 	// check size
 	if size >= MaxMemtableSize {
+
+		log.Printf("Max Memtable size has been reached (%d KB)\nFlushing to SSTable... ", MaxMemtableSize>>10)
+		ts := time.Now()
+
+		// create new sstable batch
 		batch, err := db.writeMemtableToBatch()
 		if err != nil {
 			return err
 		}
 		// create new sstable
-		sst, err := sstable.CreateSSTable(filepath.Join(db.base, defaultSSTablePath), db.ssm.GetLatestIndex()+1)
+		sst, err := sstable.CreateSSTable(filepath.Join(db.base, defaultSSTablePath), db.sstindex+1)
 		if err != nil {
 			return err
 		}
@@ -90,6 +96,10 @@ func (db *DB) upsert(key string, value []byte) error {
 		if err != nil {
 			return err
 		}
+		// increment db sst index
+		db.sstindex++
+
+		log.Printf("[took %dms]\n", time.Since(ts).Milliseconds())
 	}
 	return nil
 }
@@ -100,16 +110,23 @@ func (db *DB) Get(key string) ([]byte, error) {
 	defer db.lock.Unlock()
 	// search memtable
 	value, err := db.mem.Get(key)
+	log.Println(">>>1", err)
 	if err == nil {
+		log.Printf(">>> DEBUG-1\n")
 		// we found it!
+		log.Printf("Found value for (%s) in Memtable...\n", key)
 		return value, nil
 	}
 	// search sstable(s)
 	value, err = db.ssm.Get(key)
+	log.Println(">>>2", err)
 	if err == nil {
+		log.Printf(">>> DEBUG-2\n")
 		// we found it
+		log.Printf("Found value for (%s) in SSTable...\n", key)
 		return value, nil
 	}
+	log.Printf(">>> DEBUG-3\n")
 	// not fount
 	return nil, memtable.ErrNotFound
 }
