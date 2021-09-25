@@ -53,6 +53,22 @@ type rbNode struct {
 	entry  rbNodeEntry
 }
 
+func (n *rbNode) String() string {
+	left, right, parent := "", "", ""
+	if n.left != nil {
+		left = n.left.entry.key
+	}
+	if n.right != nil {
+		right = n.right.entry.key
+	}
+	if n.parent != nil {
+		parent = n.parent.entry.key
+	}
+	return fmt.Sprintf("node.key=%q, node.left=%q, node.right=%q, node.parent=%q",
+		n.entry.key, left, right, parent)
+
+}
+
 type RBTree = rbTree
 
 // rbTree is a struct representing a rbTree
@@ -154,6 +170,68 @@ func (t *rbTree) put(key string, value []byte) ([]byte, bool) {
 
 func (t *rbTree) Get(key string) ([]byte, bool) {
 	return t.get(key)
+}
+
+// GetNearMin performs an approximate search for the specified key
+// and returns the closest key that is less than (the predecessor)
+// to the searched key as well as a boolean reporting true if an
+// exact match was found for the key, and false if it is unknown
+// or and exact match was not found
+func (t *rbTree) GetNearMin(key string) ([]byte, bool) {
+	e := rbNodeEntry{key: key}
+	if isempty(e) {
+		return nil, false
+	}
+	ret := t.searchApprox(&rbNode{
+		left:   t.NIL,
+		right:  t.NIL,
+		parent: t.NIL,
+		color:  RED,
+		entry:  e,
+	})
+	return t.predecessor(ret).entry.value, ret.entry.key == key
+}
+
+// GetNearMax performs an approximate search for the specified key
+// and returns the closest key that is greater than (the successor)
+// to the searched key as well as a boolean reporting true if an
+// exact match was found for the key, and false if it is unknown or
+// and exact match was not found
+func (t *rbTree) GetNearMax(key string) ([]byte, bool) {
+	e := rbNodeEntry{key: key}
+	if isempty(e) {
+		return nil, false
+	}
+	ret := t.searchApprox(&rbNode{
+		left:   t.NIL,
+		right:  t.NIL,
+		parent: t.NIL,
+		color:  RED,
+		entry:  e,
+	})
+	return t.successor(ret).entry.value, ret.entry.key == key
+}
+
+// GetApproxPrevNext performs an approximate search for the specified key
+// and returns the searched key, the predecessor, and the successor and a
+// boolean reporting true if an exact match was found for the key, and false
+// if it is unknown or and exact match was not found
+func (t *rbTree) GetApproxPrevNext(key string) ([]byte, []byte, []byte, bool) {
+	e := rbNodeEntry{key: key}
+	if isempty(e) {
+		return nil, nil, nil, false
+	}
+	ret := t.searchApprox(&rbNode{
+		left:   t.NIL,
+		right:  t.NIL,
+		parent: t.NIL,
+		color:  RED,
+		entry:  e,
+	})
+	return ret.entry.value,
+		t.predecessor(ret).entry.value,
+		t.successor(ret).entry.value,
+		ret.entry.key == key
 }
 
 func (t *rbTree) GetInt(key int64) (int64, bool) {
@@ -424,6 +502,29 @@ func (t *rbTree) insertFixup(z *rbNode) {
 	t.root.color = BLACK
 }
 
+// trying out a slightly different search method
+// that (hopefully) will not return nil values and
+// instead will return approximate node matches
+func (t *rbTree) searchApprox(x *rbNode) *rbNode {
+	p := t.root
+	for p != t.NIL {
+		if compare(p.entry, x.entry) == -1 {
+			if p.right == t.NIL {
+				break
+			}
+			p = p.right
+		} else if compare(x.entry, p.entry) == -1 {
+			if p.left == t.NIL {
+				break
+			}
+			p = p.left
+		} else {
+			break
+		}
+	}
+	return p
+}
+
 func (t *rbTree) search(x *rbNode) *rbNode {
 	p := t.root
 	for p != t.NIL {
@@ -458,6 +559,21 @@ func (t *rbTree) max(x *rbNode) *rbNode {
 		x = x.right
 	}
 	return x
+}
+
+func (t *rbTree) predecessor(x *rbNode) *rbNode {
+	if x == t.NIL {
+		return t.NIL
+	}
+	if x.left != t.NIL {
+		return t.max(x.left)
+	}
+	y := x.parent
+	for y != t.NIL && x == y.left {
+		x = y
+		y = y.parent
+	}
+	return y
 }
 
 func (t *rbTree) successor(x *rbNode) *rbNode {

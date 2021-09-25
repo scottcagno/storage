@@ -12,6 +12,39 @@ const (
 	n        = 1
 )
 
+func TestFindNearest(t *testing.T) {
+	tree := NewRBTree()
+	// insert A, E, J, O, T, Z
+	tree.Put("e", []byte("e"))
+	tree.Put("a", []byte("a"))
+	tree.Put("t", []byte("t"))
+	tree.Put("z", []byte("z"))
+	tree.Put("j", []byte("j"))
+	tree.Put("o", []byte("o"))
+
+	// print tree
+	tree.Scan(func(k string, v []byte) bool {
+		fmt.Printf("key: %q, value: %q\n", k, v)
+		return true
+	})
+
+	// find O
+	key := "o"
+	a, b, c := tree.GetPrevNext(key)
+	fmt.Printf("find(%q): a=%q, b=%q, c=%q\n", key, a, b, c)
+
+	// find K
+	key = "k"
+	a, b, c = tree.GetPrevNext(key)
+	fmt.Printf("find(%q): a=%q, b=%q, c=%q\n", key, a, b, c)
+
+	key = "f"
+	a, b, c = tree.GetPrevNext(key)
+	fmt.Printf("find(%q): a=%q, b=%q, c=%q\n", key, a, b, c)
+
+	tree.Close()
+}
+
 func TestNewRBTree(t *testing.T) {
 	var tree *RBTree
 	tree = NewRBTree()

@@ -231,6 +231,15 @@ func (ssi *SSIndex) GetEntryOffset(key string) (int64, error) {
 	return -1, ErrIndexEntryNotFound
 }
 
+func (ssi *SSIndex) Scan(iter func(key string, offset int64) bool) {
+	for i := range ssi.data {
+		ie := ssi.data[i]
+		if !iter(ie.key, ie.offset) {
+			continue
+		}
+	}
+}
+
 func (ssi *SSIndex) lastKey() string {
 	return ssi.data[len(ssi.data)-1].key
 }
