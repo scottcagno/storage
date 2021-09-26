@@ -189,7 +189,11 @@ func (t *rbTree) GetNearMin(key string) ([]byte, bool) {
 		color:  RED,
 		entry:  e,
 	})
-	return t.predecessor(ret).entry.value, ret.entry.key == key
+	prev := t.predecessor(ret).entry.value
+	if prev == nil {
+		_, prev, _ = t.Min()
+	}
+	return prev, ret.entry.key == key
 }
 
 // GetNearMax performs an approximate search for the specified key

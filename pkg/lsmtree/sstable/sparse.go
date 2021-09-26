@@ -1,7 +1,9 @@
 package sstable
 
 import (
+	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmtree/container/rbtree"
+	"log"
 	"math"
 	"path/filepath"
 )
@@ -10,6 +12,16 @@ type SparseIndex struct {
 	base  string
 	index int64
 	rbt   *rbtree.RBTree
+}
+
+func (spi *SparseIndex) String() string {
+	ss := fmt.Sprintf("sparseIndex.base=%q, sparseIndex.index=%d, sparseIndex.rbt=[\n", spi.base, spi.index)
+	spi.rbt.Scan(func(k string, v []byte) bool {
+		ss += fmt.Sprintf("\t%q:%d\n", k, rbtree.ValToInt(v))
+		return true
+	})
+	ss += "]\n"
+	return ss
 }
 
 func log2(n int64) int64 {
@@ -24,7 +36,9 @@ func log2(n int64) int64 {
 
 func OpenSparseIndex(base string, index int64) (*SparseIndex, error) {
 	spi := &SparseIndex{
-		rbt: rbtree.NewRBTree(),
+		base:  base,
+		index: index,
+		rbt:   rbtree.NewRBTree(),
 	}
 	ssi, err := OpenSSIndex(base, index)
 	if err != nil {
@@ -34,6 +48,7 @@ func OpenSparseIndex(base string, index int64) (*SparseIndex, error) {
 	n, i := log2(count), int64(0)
 	ssi.Scan(func(k string, off int64) bool {
 		if i%(count/n) == 0 {
+			log.Printf("adding to sparse index: k=%q, v=%d\n", k, off)
 			spi.rbt.Put(k, rbtree.IntToVal(off))
 		}
 		i++
@@ -44,7 +59,9 @@ func OpenSparseIndex(base string, index int64) (*SparseIndex, error) {
 
 func (spi *SparseIndex) GetClose(k string) (string, int64) {
 	v, _ := spi.rbt.GetNearMin(k)
-	return filepath.Join(spi.base, DataFileNameFromIndex(spi.index)), rbtree.ValToInt(v)
+	path := filepath.Join(spi.base, DataFileNameFromIndex(spi.index))
+	offset := rbtree.ValToInt(v)
+	return path, offset
 }
 
 func (spi *SparseIndex) First() string {

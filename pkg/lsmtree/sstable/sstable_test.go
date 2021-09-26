@@ -16,7 +16,7 @@ func TestSparseIndex(t *testing.T) {
 
 	// create and test batch
 	batch := NewBatch()
-	for i := 0; i < 5000; i++ {
+	for i := 0; i < 500; i++ {
 		// odd numbers
 		k, v := fmt.Sprintf("key-%04d", i), fmt.Sprintf("value-%06d", i)
 		batch.Write(k, []byte(v))
@@ -36,6 +36,10 @@ func TestSparseIndex(t *testing.T) {
 	ssm, err := OpenSSManager("data")
 	if err != nil {
 		t.Fatalf("opening ssm: %v\n", err)
+	}
+
+	for i := range ssm.sparse {
+		fmt.Printf("%s\n", ssm.sparse[i])
 	}
 
 	key := "key-0037"

@@ -2,7 +2,6 @@ package sstable
 
 import (
 	"bytes"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -37,7 +36,6 @@ func OpenSSManager(base string) (*SSManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Println("DEBUG1")
 	for i := range idxs {
 		spi, err := OpenSparseIndex(ssm.base, idxs[i])
 		if err != nil {
@@ -93,9 +91,6 @@ func (ssm *SSManager) SearchSparseIndex(key string) (string, int64) {
 		}
 		path, offset = ssm.sparse[i].GetClose(key)
 		break
-	}
-	if offset == -1 {
-
 	}
 	return path, offset
 }
