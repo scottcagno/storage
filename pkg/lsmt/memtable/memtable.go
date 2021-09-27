@@ -17,7 +17,7 @@ type Memtable struct {
 func Open(walg *wal.WAL) (*Memtable, error) {
 	// error check
 	if walg == nil {
-		return nil, lsmt.ErrFileClosed
+		return nil, binary.ErrFileClosed
 	}
 	// create new memtable
 	memt := &Memtable{
@@ -41,15 +41,15 @@ func (mt *Memtable) loadEntries(walg *wal.WAL) error {
 	})
 }
 
-func (mt *Memtable) Put(k string, e *binary.Entry) error {
-	mt.data.Put(string(e.Key), e.Value)
+func (mt *Memtable) Put(k string, v []byte) error {
+	mt.data.Put(k, v)
 	if mt.data.Size() > lsmt.FlushThreshold {
-		return lsmt.ErrFlushThreshold
+		return ErrFlushThreshold
 	}
 	return nil
 }
 
-func (mt *Memtable) Get(k string) (*binary.Entry, error) {
+func (mt *Memtable) Get(k string) ([]byte, error) {
 	v, ok := mt.data.Get(k)
 	if !ok {
 		return nil, lsmt.ErrKeyNotFound
@@ -57,5 +57,5 @@ func (mt *Memtable) Get(k string) (*binary.Entry, error) {
 	if v == nil || bytes.Equal(v, lsmt.Tombstone) {
 		return nil, lsmt.ErrFoundTombstone
 	}
-	return &binary.Entry{[]byte(k), v}, nil
+	return v, nil
 }

@@ -1,7 +1,6 @@
 package lsmt
 
 import (
-	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/lsmt/wal"
@@ -76,19 +75,19 @@ func Open(base string) (*LSMTree, error) {
 }
 
 func (lsm *LSMTree) Put(k string, v []byte) error {
-	// create a new entry
-	e := binary.Entry{Key: k, Value: v}
 	// write entry to write-ahead commit log
-	_, err := lsm.walg.WriteEntry(e)
+	_, err := lsm.walg.Write(k, v)
 	if err != nil {
 		return err
 	}
 	// write entry to mem-table
-	_, err = lsm.memt.Put(e)
+	err = lsm.memt.Put(k, v)
 	if err != nil {
-		if err == ErrMaxSizeReached
+		if err == memtable.ErrFlushThreshold {
+			// flush to sstable
+		}
 	}
-	return nil, nil
+	return nil
 }
 
 func (lsm *LSMTree) Get(k string) ([]byte, error) {
