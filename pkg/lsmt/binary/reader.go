@@ -1,7 +1,6 @@
 package binary
 
 import (
-	"github.com/scottcagno/storage/pkg/lsmt"
 	"io"
 	"os"
 )
@@ -61,7 +60,7 @@ func (r *Reader) ReadFrom(path string) (*Reader, error) {
 func (r *Reader) ReadIndex() (*Index, error) {
 	// check to make sure file is open
 	if !r.open {
-		return nil, lsmt.ErrFileClosed
+		return nil, ErrFileClosed
 	}
 	// call decode entry
 	return DecodeIndex(r.fd)
@@ -71,7 +70,7 @@ func (r *Reader) ReadIndex() (*Index, error) {
 func (r *Reader) ReadIndexAt(offset int64) (*Index, error) {
 	// check to make sure file is open
 	if !r.open {
-		return nil, lsmt.ErrFileClosed
+		return nil, ErrFileClosed
 	}
 	// call decode entry at
 	return DecodeIndexAt(r.fd, offset)
@@ -81,7 +80,7 @@ func (r *Reader) ReadIndexAt(offset int64) (*Index, error) {
 func (r *Reader) ReadEntry() (*Entry, error) {
 	// check to make sure file is open
 	if !r.open {
-		return nil, lsmt.ErrFileClosed
+		return nil, ErrFileClosed
 	}
 	// call decode entry
 	return DecodeEntry(r.fd)
@@ -91,7 +90,7 @@ func (r *Reader) ReadEntry() (*Entry, error) {
 func (r *Reader) ReadEntryAt(offset int64) (*Entry, error) {
 	// check to make sure file is open
 	if !r.open {
-		return nil, lsmt.ErrFileClosed
+		return nil, ErrFileClosed
 	}
 	// call decode entry at
 	return DecodeEntryAt(r.fd, offset)
@@ -101,7 +100,7 @@ func (r *Reader) ReadEntryAt(offset int64) (*Entry, error) {
 func (r *Reader) Offset() (int64, error) {
 	// check to make sure file is open
 	if !r.open {
-		return -1, lsmt.ErrFileClosed
+		return -1, ErrFileClosed
 	}
 	// return current offset
 	return r.fd.Seek(0, io.SeekCurrent)
@@ -111,7 +110,7 @@ func (r *Reader) Offset() (int64, error) {
 func (r *Reader) Seek(offset int64, whence int) (int64, error) {
 	// check to make sure file is open
 	if !r.open {
-		return -1, lsmt.ErrFileClosed
+		return -1, ErrFileClosed
 	}
 	// seek to offset according to whence
 	return r.fd.Seek(offset, whence)
@@ -121,7 +120,7 @@ func (r *Reader) Seek(offset int64, whence int) (int64, error) {
 func (r *Reader) Close() error {
 	// check to make sure file is not already closed
 	if !r.open {
-		return lsmt.ErrFileClosed
+		return ErrFileClosed
 	}
 	// close the reader
 	err := r.fd.Close()

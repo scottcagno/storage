@@ -3,8 +3,8 @@ package lsmt
 import (
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
-	"github.com/scottcagno/storage/pkg/lsmt/sfile"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
+	"github.com/scottcagno/storage/pkg/lsmt/wal"
 	"os"
 	"path/filepath"
 	"sync"
@@ -16,15 +16,16 @@ const (
 	FlushThreshold = 256 << 10 // 256KB
 )
 
+var Tombstone = []byte(nil)
+
 type LSMTree struct {
 	base        string // base is the base filepath for the database
 	fullWALPath string
 	fullSSTPath string
 	lock        sync.RWMutex // lock is a mutex that synchronizes access to the data
-	// note: should wal implementation go here, or in the memtable??
-	walg *sfile.SegmentedFile
-	memt *memtable.Memtable
-	sstm *sstable.SSTManager
+	walg        *wal.WAL
+	memt        *memtable.Memtable
+	sstm        *sstable.SSTManager
 }
 
 func Open(base string) (*LSMTree, error) {
@@ -48,7 +49,7 @@ func Open(base string) (*LSMTree, error) {
 		return nil, err
 	}
 	// open write-ahead logger
-	walg, err := sfile.Open(fullWALPath)
+	walg, err := wal.Open(fullWALPath)
 	if err != nil {
 		return nil, err
 	}

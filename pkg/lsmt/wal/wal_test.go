@@ -2,6 +2,7 @@ package wal
 
 import (
 	"fmt"
+	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"os"
 	"testing"
 )
@@ -31,8 +32,8 @@ func TestWAL(t *testing.T) {
 	}
 	//
 	// do some reading
-	wal.Scan(func(i int64, k string, v []byte) bool {
-		fmt.Printf("index=%d, key=%q, value=%q\n", i, k, v)
+	wal.Scan(func(e *binary.Entry) bool {
+		fmt.Printf("%s\n", e)
 		return true
 	})
 	//

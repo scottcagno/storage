@@ -3,7 +3,7 @@ package wal
 import (
 	"errors"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/lsmtree/encoding/binary"
+	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"io"
 	"os"
 	"path/filepath"
@@ -229,6 +229,10 @@ func (l *WAL) loadSegmentFile(path string) (*segment, error) {
 		entries: make([]segEntry, 0),
 	}
 	// read segment file and index entries
+	index, err := GetIndexFromFileName(filepath.Base(fd.Name()))
+	if err != nil {
+		return nil, err
+	}
 	for {
 		// get the current offset of the
 		// reader for the segEntry later
@@ -237,7 +241,7 @@ func (l *WAL) loadSegmentFile(path string) (*segment, error) {
 			return nil, err
 		}
 		// read and decode segEntry
-		e, err := binary.DecodeEntry(fd)
+		_, err = binary.DecodeEntry(fd)
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				break
@@ -247,10 +251,11 @@ func (l *WAL) loadSegmentFile(path string) (*segment, error) {
 		// get current offset
 		// add segEntry index to segment entries list
 		s.entries = append(s.entries, segEntry{
-			index:  e.Id,
+			index:  index,
 			offset: offset,
 		})
 		// continue to process the next segEntry
+		index++
 	}
 	// make sure to fill out the segment index from the first segEntry index
 	s.index = s.entries[0].index
@@ -371,8 +376,8 @@ func (l *WAL) Write(key string, value []byte) (int64, error) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	// write segEntry
-	offset, err := l.w.WriteEntry(&binary.DataEntry{
-		Id:    l.lastIndex,
+	offset, err := l.w.WriteEntry(&binary.Entry{
+		//Id:    l.lastIndex,
 		Key:   []byte(key),
 		Value: value,
 	})
@@ -404,7 +409,7 @@ func (l *WAL) Write(key string, value []byte) (int64, error) {
 }
 
 // Scan provides an iterator method for the write-ahead log
-func (l *WAL) Scan(iter func(index int64, key string, value []byte) bool) error {
+func (l *WAL) Scan(iter func(e *binary.Entry) bool) error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -412,7 +417,7 @@ func (l *WAL) Scan(iter func(index int64, key string, value []byte) bool) error 
 	var err error
 	// range the segment index
 	for _, sidx := range l.segments {
-		fmt.Printf("segment: %s\n", sidx)
+		//fmt.Printf("segment: %s\n", sidx)
 		// make sure we are reading the right data
 		l.r, err = l.r.ReadFrom(sidx.path)
 		if err != nil {
@@ -429,7 +434,7 @@ func (l *WAL) Scan(iter func(index int64, key string, value []byte) bool) error 
 				return err
 			}
 			// check segEntry against iterator boolean function
-			if !iter(e.Id, string(e.Key), e.Value) {
+			if !iter(e) {
 				// if it returns false, then process next segEntry
 				continue
 			}

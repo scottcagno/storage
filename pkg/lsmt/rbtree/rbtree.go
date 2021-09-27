@@ -2,8 +2,8 @@ package rbtree
 
 import (
 	"container/list"
+	"encoding/binary"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"runtime"
 	"strconv"
 	"strings"

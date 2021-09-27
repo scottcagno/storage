@@ -1,7 +1,6 @@
 package binary
 
 import (
-	"github.com/scottcagno/storage/pkg/lsmt"
 	"io"
 	"os"
 )
@@ -67,17 +66,24 @@ func (w *Writer) WriteEntry(e *Entry) (int64, error) {
 func (w *Writer) Offset() (int64, error) {
 	// check to make sure file is not closed
 	if !w.open {
-		return -1, lsmt.ErrFileClosed
+		return -1, ErrFileClosed
 	}
 	// return current offset using seek
 	return w.fd.Seek(0, io.SeekCurrent)
+}
+
+// Offset returns the *ReadWriteSeeker's current file pointer offset
+func Offset(rw io.ReadWriteSeeker) (int64, error) {
+	// check to make sure file is not closed
+	// return current offset using seek
+	return rw.Seek(0, io.SeekCurrent)
 }
 
 // Close syncs and closes the *writer
 func (w *Writer) Close() error {
 	// ensure file is not closed
 	if !w.open {
-		return lsmt.ErrFileClosed
+		return ErrFileClosed
 	}
 	// flush any cached or buffered data to the drive
 	err := w.fd.Sync()

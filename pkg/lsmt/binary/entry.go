@@ -3,7 +3,6 @@ package binary
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/lsmt"
 	"io"
 )
 
@@ -22,7 +21,7 @@ func (de *Entry) String() string {
 func EncodeEntry(w io.WriteSeeker, e *Entry) (int64, error) {
 	// error check
 	if e == nil {
-		return -1, lsmt.ErrBadEntry
+		return -1, ErrBadEntry
 	}
 	// get the file pointer offset for the entry
 	offset, err := w.Seek(0, io.SeekCurrent)

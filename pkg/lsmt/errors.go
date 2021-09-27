@@ -3,8 +3,8 @@ package lsmt
 import "errors"
 
 var (
-	ErrKeyNotFound    = errors.New("lsmt: key not found")
-	ErrFileClosed     = errors.New("binary: file closed")
-	ErrBadEntry       = errors.New("binary: bad entry")
+	ErrKeyNotFound = errors.New("lsmt: key not found")
+
 	ErrFlushThreshold = errors.New("memtable: flush threshold has been reached")
+	ErrFoundTombstone = errors.New("lsmt: found tombstone or empty value")
 )
