@@ -164,6 +164,15 @@ func (ssi *SSTIndex) Find(key string) (*binary.Index, error) {
 	return i, nil
 }
 
+func (ssi *SSTIndex) Scan(iter func(k string, off int64) bool) {
+	for n := range ssi.data {
+		i := ssi.data[n]
+		if !iter(string(i.Key), i.Offset) {
+			continue
+		}
+	}
+}
+
 func (ssi *SSTIndex) Len() int {
 	return len(ssi.data)
 }

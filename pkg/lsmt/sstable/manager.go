@@ -5,6 +5,7 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"os"
+	"strings"
 )
 
 const (
@@ -14,18 +15,43 @@ const (
 )
 
 type SSTManager struct {
-	base string
+	base   string
+	sparse []*SparseIndex
 }
 
 func Open(base string) (*SSTManager, error) {
 	sstm := &SSTManager{
-		base: base,
+		base:   base,
+		sparse: make([]*SparseIndex, 0),
+	}
+	files, err := os.ReadDir(base)
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), dataFileSuffix) {
+			continue
+		}
+		index, err := IndexFromDataFileName(file.Name())
+		if err != nil {
+			return nil, err
+		}
+		spi, err := OpenSparseIndex(sstm.base, index)
+		if err != nil {
+			return nil, err
+		}
+		sstm.sparse = append(sstm.sparse, spi)
 	}
 	return sstm, nil
 }
 
-func (sstm *SSTManager) Get(k string) ([]byte, error) {
-	return nil, nil
+func (sstm *SSTManager) Get(k string) (string, int64) {
+	for _, index := range sstm.sparse {
+		if index.HasKey(k) {
+			return index.Search(k)
+		}
+	}
+	return "", -1
 }
 
 func (sstm *SSTManager) Close() error {
@@ -33,9 +59,9 @@ func (sstm *SSTManager) Close() error {
 	return nil
 }
 
-func (ssm *SSTManager) CompactSSTables(index int64) error {
+func (sstm *SSTManager) CompactSSTables(index int64) error {
 	// load sstable
-	sst, err := OpenSSTable(ssm.base, index)
+	sst, err := OpenSSTable(sstm.base, index)
 	if err != nil {
 		return err
 	}
@@ -71,7 +97,7 @@ func (ssm *SSTManager) CompactSSTables(index int64) error {
 		return err
 	}
 	// open new sstable to write to
-	sst, err = OpenSSTable(ssm.base, index)
+	sst, err = OpenSSTable(sstm.base, index)
 	if err != nil {
 		return err
 	}
@@ -85,14 +111,14 @@ func (ssm *SSTManager) CompactSSTables(index int64) error {
 	return nil
 }
 
-func (ssm *SSTManager) MergeSSTables(iA, iB int64) error {
+func (sstm *SSTManager) MergeSSTables(iA, iB int64) error {
 	// load sstable A
-	sstA, err := OpenSSTable(ssm.base, iA)
+	sstA, err := OpenSSTable(sstm.base, iA)
 	if err != nil {
 		return err
 	}
 	// and sstable B
-	sstB, err := OpenSSTable(ssm.base, iB)
+	sstB, err := OpenSSTable(sstm.base, iB)
 	if err != nil {
 		return err
 	}
@@ -114,7 +140,7 @@ func (ssm *SSTManager) MergeSSTables(iA, iB int64) error {
 		return err
 	}
 	// open new sstable to write to
-	sstC, err := OpenSSTable(ssm.base, iB+1)
+	sstC, err := OpenSSTable(sstm.base, iB+1)
 	if err != nil {
 		return err
 	}
