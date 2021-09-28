@@ -2,6 +2,7 @@ package lsmt
 
 import (
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
+	"github.com/scottcagno/storage/pkg/lsmt/rbtree"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/lsmt/wal"
 	"os"
@@ -18,13 +19,15 @@ const (
 var Tombstone = []byte(nil)
 
 type LSMTree struct {
-	base    string // base is the base filepath for the database
-	walbase string
-	sstbase string
-	lock    sync.RWMutex // lock is a mutex that synchronizes access to the data
-	walg    *wal.WAL
+	base    string         // base is the base filepath for the database
+	walbase string         // walbase is the write-ahead commit log base filepath
+	sstbase string         // sstbase is the sstable and index base filepath where data resides
+	lock    sync.RWMutex   // lock is a mutex that synchronizes access to the data
+	walg    *wal.WAL       // walg is a write-ahead commit log
+	mutMem  *rbtree.RBTree // mutMem is a mutable "mem-table"
+	imuMem  *rbtree.RBTree // imuMem is an immutable "mem-table"
 	memt    *memtable.Memtable
-	sstm    *sstable.SSTManager
+	sstm    *sstable.SSTManager // sstm is the sorted-strings table manager
 }
 
 func Open(base string) (*LSMTree, error) {
