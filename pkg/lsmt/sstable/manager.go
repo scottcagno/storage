@@ -1,5 +1,11 @@
 package sstable
 
+const (
+	filePrefix      = "sst-"
+	dataFileSuffix  = ".dat"
+	indexFileSuffix = ".idx"
+)
+
 type SSTManager struct {
 	base string
 }

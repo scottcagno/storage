@@ -14,7 +14,7 @@ type Index struct {
 
 // String is the stringer method for a *Index
 func (di *Index) String() string {
-	return fmt.Sprintf("index.key=%q, index.offset=%q", di.Key, di.Offset)
+	return fmt.Sprintf("index.key=%q, index.offset=%d", di.Key, di.Offset)
 }
 
 // EncodeIndex encodes and writes the provided entry index to w
