@@ -1,4 +1,4 @@
-package rbtree
+package augmented
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ type rbStringInt64 struct {
 	Value int64
 }
 
-func (r rbStringInt64) Compare(that rbEntry) int {
+func (r rbStringInt64) Compare(that RBEntry) int {
 	return strings.Compare(r.Key, that.(rbStringInt64).Key)
 }
 
@@ -29,7 +29,7 @@ type rbStringBytes struct {
 	Value []byte
 }
 
-func (r rbStringBytes) Compare(that rbEntry) int {
+func (r rbStringBytes) Compare(that RBEntry) int {
 	return strings.Compare(r.Key, that.(rbStringBytes).Key)
 }
 
@@ -46,7 +46,7 @@ type rbInt64 struct {
 	Key int64
 }
 
-func (r rbInt64) Compare(that rbEntry) int {
+func (r rbInt64) Compare(that RBEntry) int {
 	if r.Key < that.(rbInt64).Key {
 		return -1
 	}

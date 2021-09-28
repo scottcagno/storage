@@ -5,6 +5,7 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -45,17 +46,51 @@ func Open(base string) (*SSTManager, error) {
 	return sstm, nil
 }
 
-func (sstm *SSTManager) Get(k string) (string, int64) {
+func (sstm *SSTManager) NewBatch() *Batch {
+	return new(Batch)
+}
+
+func (sstm *SSTManager) WriteBatch(batch *Batch) error {
+	// TODO: implement...
+	return nil
+}
+
+func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
+	var path string
+	var offset int64
 	for _, index := range sstm.sparse {
 		if index.HasKey(k) {
-			return index.Search(k)
+			path, offset = index.Search(k)
+			break
 		}
 	}
-	return "", -1
+	// get base and index from path
+	base := filepath.Base(path)
+	index, err := IndexFromDataFileName(base)
+	if err != nil {
+		return nil, err
+	}
+	// open sstable
+	sst, err := OpenSSTable(base, index)
+	if err != nil {
+		return nil, err
+	}
+	// read entry
+	e, err := sst.ReadAt(offset)
+	if err != nil {
+		return nil, err
+	}
+	// close sstable
+	err = sst.Close()
+	if err != nil {
+		return nil, err
+	}
+	// return entry
+	return e, nil
 }
 
 func (sstm *SSTManager) Close() error {
-	// TODO: implement
+	// TODO: implement...
 	return nil
 }
 

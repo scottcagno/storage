@@ -1,4 +1,4 @@
-package rbtree
+package augmented
 
 import (
 	"fmt"
@@ -32,7 +32,7 @@ func TestFindNearest(t *testing.T) {
 	tree.Put(NewEntry("o", "o"))
 
 	// print tree
-	tree.Scan(func(e rbEntry) bool {
+	tree.Scan(func(e RBEntry) bool {
 		fmt.Printf("%s\n", e)
 		return true
 	})
@@ -199,7 +199,7 @@ func TestRbTree_ScanFront(t *testing.T) {
 	printInfo := true
 
 	// do scan front
-	tree.Scan(func(e rbEntry) bool {
+	tree.Scan(func(e RBEntry) bool {
 		if e.(rbStringInt64).Key == "" {
 			t.Errorf("scan front, issue with key: %s", e)
 			return false
@@ -224,7 +224,7 @@ func TestRbTree_ScanRange(t *testing.T) {
 	printInfo := true
 
 	start, stop := makeKey(300), makeKey(700)
-	tree.ScanRange(start, stop, func(e rbEntry) bool {
+	tree.ScanRange(start, stop, func(e RBEntry) bool {
 		if e.(rbStringInt64).Key == "" && e.(rbStringInt64).Compare(start) == -1 && e.(rbStringInt64).Compare(stop) == 1 {
 			t.Errorf("scan range, issue with key: %s", e)
 			return false

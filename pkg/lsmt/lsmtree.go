@@ -1,8 +1,8 @@
 package lsmt
 
 import (
+	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
-	"github.com/scottcagno/storage/pkg/lsmt/rbtree"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/lsmt/wal"
 	"os"
@@ -19,13 +19,11 @@ const (
 var Tombstone = []byte(nil)
 
 type LSMTree struct {
-	base    string         // base is the base filepath for the database
-	walbase string         // walbase is the write-ahead commit log base filepath
-	sstbase string         // sstbase is the sstable and index base filepath where data resides
-	lock    sync.RWMutex   // lock is a mutex that synchronizes access to the data
-	walg    *wal.WAL       // walg is a write-ahead commit log
-	mutMem  *rbtree.RBTree // mutMem is a mutable "mem-table"
-	imuMem  *rbtree.RBTree // imuMem is an immutable "mem-table"
+	base    string       // base is the base filepath for the database
+	walbase string       // walbase is the write-ahead commit log base filepath
+	sstbase string       // sstbase is the sstable and index base filepath where data resides
+	lock    sync.RWMutex // lock is a mutex that synchronizes access to the data
+	walg    *wal.WAL     // walg is a write-ahead commit log
 	memt    *memtable.Memtable
 	sstm    *sstable.SSTManager // sstm is the sorted-strings table manager
 }
@@ -55,7 +53,7 @@ func Open(base string) (*LSMTree, error) {
 	if err != nil {
 		return nil, err
 	}
-	// open mem-table
+	//// open mem-table
 	memt, err := memtable.Open(walg)
 	if err != nil {
 		return nil, err
@@ -78,13 +76,15 @@ func Open(base string) (*LSMTree, error) {
 }
 
 func (lsm *LSMTree) Put(k string, v []byte) error {
+	// create binary entry
+	e := &binary.Entry{Key: []byte(k), Value: v}
 	// write entry to write-ahead commit log
-	_, err := lsm.walg.Write(k, v)
+	_, err := lsm.walg.Write(e)
 	if err != nil {
 		return err
 	}
 	// write entry to mem-table
-	err = lsm.memt.Put(k, v)
+	err = lsm.memt.Put(e)
 	if err != nil && err != memtable.ErrFlushThreshold {
 		return err
 	}
@@ -101,31 +101,31 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 
 func (lsm *LSMTree) Get(k string) ([]byte, error) {
 	// search memtable
-	v, err := lsm.memt.Get(k)
+	e, err := lsm.memt.Get(k)
 	if err == nil {
 		// found it
-		return v, nil
+		return e.Value, nil
 	}
-	// check sparse index, and sstables young to old
-	path, offset := lsm.sstm.Get(k)
-	if offset > -1 {
+	// check sparse index, and ss-tables, young to old
+	e, err = lsm.sstm.Get(k)
+	if err == nil {
 		// found it
-		return v, nil
+		return e.Value, nil
 	}
-	// TODO: complete...
-	_ = path
 	// could not find it
 	return nil, ErrKeyNotFound
 }
 
 func (lsm *LSMTree) Del(k string) error {
+	// create binary entry
+	e := &binary.Entry{Key: []byte(k), Value: Tombstone}
 	// write entry to write-ahead commit log
-	_, err := lsm.walg.Write(k, Tombstone)
+	_, err := lsm.walg.Write(e)
 	if err != nil {
 		return err
 	}
 	// write entry to mem-table
-	err = lsm.memt.Put(k, Tombstone)
+	err = lsm.memt.Put(e)
 	if err != nil && err != memtable.ErrFlushThreshold {
 		return err
 	}
