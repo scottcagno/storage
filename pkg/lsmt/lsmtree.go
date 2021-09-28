@@ -82,9 +82,15 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 	}
 	// write entry to mem-table
 	err = lsm.memt.Put(k, v)
-	if err != nil {
-		if err == memtable.ErrFlushThreshold {
-			// flush to sstable
+	if err != nil && err != memtable.ErrFlushThreshold {
+		return err
+	}
+	// otherwise, maybe it's time to flush?
+	if err == memtable.ErrFlushThreshold {
+		// flush to sstable
+		err = lsm.memt.FlushToSSTable(lsm.sstm)
+		if err != nil {
+			return err
 		}
 	}
 	return nil

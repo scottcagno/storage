@@ -5,6 +5,7 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/rbtree"
+	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/lsmt/wal"
 )
 
@@ -41,6 +42,14 @@ func (mt *Memtable) loadEntries(walg *wal.WAL) error {
 	})
 }
 
+func (mt *Memtable) FlushToSSTable(sstm *sstable.SSTManager) error {
+	// error check
+	if sstm == nil {
+		return binary.ErrFileClosed
+	}
+	return nil
+}
+
 func (mt *Memtable) Put(k string, v []byte) error {
 	mt.data.Put(k, v)
 	if mt.data.Size() > lsmt.FlushThreshold {
@@ -58,4 +67,12 @@ func (mt *Memtable) Get(k string) ([]byte, error) {
 		return nil, lsmt.ErrFoundTombstone
 	}
 	return v, nil
+}
+
+func (mt *Memtable) Del(k string) error {
+	mt.data.Put(k, lsmt.Tombstone)
+	if mt.data.Size() > lsmt.FlushThreshold {
+		return ErrFlushThreshold
+	}
+	return nil
 }
