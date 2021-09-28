@@ -28,7 +28,7 @@ func (b *Batch) Write(key string, value []byte) {
 	b.data = append(b.data, &binary.Entry{Key: []byte(key), Value: value})
 }
 
-func (b *Batch) WriteDataEntry(e *binary.Entry) {
+func (b *Batch) WriteEntry(e *binary.Entry) {
 	b.data = append(b.data, e)
 }
 

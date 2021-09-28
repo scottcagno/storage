@@ -164,6 +164,10 @@ func (ssi *SSTIndex) Find(key string) (*binary.Index, error) {
 	return i, nil
 }
 
+func (ssi *SSTIndex) Len() int {
+	return len(ssi.data)
+}
+
 func (ssi *SSTIndex) Close() error {
 	if !ssi.open {
 		return nil

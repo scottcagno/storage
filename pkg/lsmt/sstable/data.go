@@ -3,6 +3,7 @@ package sstable
 import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -104,6 +105,21 @@ func (sst *SSTable) Read(key string) (*binary.Entry, error) {
 	return e, nil
 }
 
+func (sst *SSTable) ReadAt(offset int64) (*binary.Entry, error) {
+	// error check
+	err := sst.errorCheckFileAndIndex()
+	if err != nil {
+		return nil, err
+	}
+	// use index offset to read data
+	e, err := binary.DecodeEntryAt(sst.file, offset)
+	if err != nil {
+		return nil, err
+	}
+	// found it
+	return e, nil
+}
+
 func (sst *SSTable) Write(e *binary.Entry) error {
 	// error check
 	err := sst.errorCheckFileAndIndex()
@@ -151,6 +167,28 @@ func (sst *SSTable) WriteBatch(b *Batch) error {
 		err = sst.index.Write(e.Key, offset)
 		if err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (sst *SSTable) Scan(iter func(e *binary.Entry) bool) error {
+	// error check
+	err := sst.errorCheckFileAndIndex()
+	if err != nil {
+		return err
+	}
+	for {
+		// decode next data entry
+		e, err := binary.DecodeEntry(sst.file)
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+			return err
+		}
+		if !iter(e) {
+			break
 		}
 	}
 	return nil
