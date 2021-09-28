@@ -47,6 +47,7 @@ func (mt *Memtable) FlushToSSTable(sstm *sstable.SSTManager) error {
 	if sstm == nil {
 		return binary.ErrFileClosed
 	}
+	// write to sstable batch
 	return nil
 }
 
@@ -74,5 +75,9 @@ func (mt *Memtable) Del(k string) error {
 	if mt.data.Size() > lsmt.FlushThreshold {
 		return ErrFlushThreshold
 	}
+	return nil
+}
+
+func (mt *Memtable) Close() error {
 	return nil
 }
