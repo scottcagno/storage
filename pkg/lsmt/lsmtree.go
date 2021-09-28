@@ -104,11 +104,13 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 		return v, nil
 	}
 	// check sparse index, and sstables young to old
-	v, err = lsm.sstm.Get(k)
-	if err == nil {
+	path, offset := lsm.sstm.Get(k)
+	if offset > -1 {
 		// found it
 		return v, nil
 	}
+	// TODO: complete...
+	_ = path
 	// could not find it
 	return nil, ErrKeyNotFound
 }
