@@ -2,10 +2,9 @@ package sstable
 
 import (
 	"bytes"
-	"github.com/scottcagno/storage/pkg/lsmt"
+	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -15,12 +14,67 @@ const (
 	indexFileSuffix = ".idx"
 )
 
-type SSTManager struct {
-	base   string
-	sparse []*SparseIndex
+var Tombstone = []byte(nil)
+
+type KeyPair struct {
+	index int64
+	first string
+	last  string
 }
 
-func Open(base string) (*SSTManager, error) {
+func (kp *KeyPair) KeyBetween(k string) bool {
+	return kp.first <= k && k <= kp.last
+}
+
+func (kp *KeyPair) String() string {
+	return fmt.Sprintf("kp.index=%d, kp.first=%q, kp.last=%q", kp.index, kp.first, kp.last)
+}
+
+type SSTManager struct {
+	base string
+	//sparse []*SparseIndex
+	sparse []*KeyPair
+}
+
+func OpenSSTManager(base string) (*SSTManager, error) {
+	sstm := &SSTManager{
+		base:   base,
+		sparse: make([]*KeyPair, 0),
+	}
+	files, err := os.ReadDir(base)
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), dataFileSuffix) {
+			continue
+		}
+		index, err := IndexFromDataFileName(file.Name())
+		if err != nil {
+			return nil, err
+		}
+		// open index
+		ssi, err := OpenSSTIndex(sstm.base, index)
+		if err != nil {
+			return nil, err
+		}
+		kp := &KeyPair{
+			index: index,
+			first: ssi.first,
+			last:  ssi.last,
+		}
+		sstm.sparse = append(sstm.sparse, kp)
+		// close index
+		err = ssi.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return sstm, nil
+}
+
+/*
+func _openSSTManager(base string) (*SSTManager, error) {
 	sstm := &SSTManager{
 		base:   base,
 		sparse: make([]*SparseIndex, 0),
@@ -45,9 +99,46 @@ func Open(base string) (*SSTManager, error) {
 	}
 	return sstm, nil
 }
+*/
+
+func (sstm *SSTManager) ListSSTables() []string {
+	files, err := os.ReadDir(sstm.base)
+	if err != nil {
+		return nil
+	}
+	var ssts []string
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), dataFileSuffix) {
+			continue
+		}
+		ssts = append(ssts, file.Name())
+	}
+
+	return ssts
+}
+
+func (sstm *SSTManager) ListSSTIndexes() []string {
+	files, err := os.ReadDir(sstm.base)
+	if err != nil {
+		return nil
+	}
+	var ssti []string
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), indexFileSuffix) {
+			continue
+		}
+		ssti = append(ssti, file.Name())
+	}
+	return ssti
+}
 
 func (sstm *SSTManager) NewBatch() *Batch {
 	return new(Batch)
+}
+
+func (sstm *SSTManager) WriteEntry(e *binary.Entry) error {
+	// TODO: implement...
+	return nil
 }
 
 func (sstm *SSTManager) WriteBatch(batch *Batch) error {
@@ -55,7 +146,22 @@ func (sstm *SSTManager) WriteBatch(batch *Batch) error {
 	return nil
 }
 
-func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
+func (sstm *SSTManager) SearchSparseIndex(k string) (int64, error) {
+	for _, kp := range sstm.sparse {
+		if !kp.KeyBetween(k) {
+			continue
+		}
+		return kp.index, nil
+	}
+	return -1, ErrSSTIndexNotFound
+}
+
+func (sstm *SSTManager) GetSparseIndex() []*KeyPair {
+	return sstm.sparse
+}
+
+/*
+func (sstm *SSTManager) SearchSparseIndex(k string) (*binary.Entry, error) {
 	var path string
 	var offset int64
 	for _, index := range sstm.sparse {
@@ -63,6 +169,10 @@ func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
 			path, offset = index.Search(k)
 			break
 		}
+	}
+	// error check
+	if path == "" || offset == -1 {
+		return nil, errors.New("sstable: not found")
 	}
 	// get base and index from path
 	base := filepath.Base(path)
@@ -88,6 +198,7 @@ func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
 	// return entry
 	return e, nil
 }
+*/
 
 func (sstm *SSTManager) Close() error {
 	// TODO: implement...
@@ -105,7 +216,7 @@ func (sstm *SSTManager) CompactSSTables(index int64) error {
 	// iterate
 	err = sst.Scan(func(e *binary.Entry) bool {
 		// add any data entries that are not tombstones to batch
-		if e.Value != nil && !bytes.Equal(e.Value, lsmt.Tombstone) {
+		if e.Value != nil && !bytes.Equal(e.Value, Tombstone) {
 			batch.WriteEntry(e)
 		}
 		return true
