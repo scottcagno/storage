@@ -18,65 +18,81 @@ const (
 
 var Tombstone = []byte(nil)
 
-type KeyPair struct {
+type KeyRange struct {
 	index int64
 	first string
 	last  string
 }
 
-func (kp *KeyPair) KeyBetween(k string) bool {
-	return kp.first <= k && k <= kp.last
+func (kr *KeyRange) InKeyRange(k string) bool {
+	return kr.first <= k && k <= kr.last
 }
 
-func (kp *KeyPair) String() string {
-	return fmt.Sprintf("kp.index=%d, kp.first=%q, kp.last=%q", kp.index, kp.first, kp.last)
+func (kr *KeyRange) String() string {
+	return fmt.Sprintf("kr.gindex=%d, kr.first=%q, kr.last=%q", kr.index, kr.first, kr.last)
 }
 
 type SSTManager struct {
-	base string
-	//sparse []*SparseIndex
-	sparse []*KeyPair
-	index  int64
+	base   string
+	sparse []*KeyRange
+	gindex int64
 }
 
+// OpenSSTManager opens and returns a SSTManager, which allows you to
+// perform operations across all the ss-table and ss-table-indexes,
+// hopefully without too much hassle
 func OpenSSTManager(base string) (*SSTManager, error) {
+	// create ss-table-manager instance
 	sstm := &SSTManager{
 		base:   base,
-		sparse: make([]*KeyPair, 0),
+		sparse: make([]*KeyRange, 0),
 	}
+	// read the ss-table directory
 	files, err := os.ReadDir(base)
 	if err != nil {
 		return nil, err
 	}
+	// go over all the files
 	for _, file := range files {
+		// skip all non ss-tables
 		if file.IsDir() || !strings.HasSuffix(file.Name(), dataFileSuffix) {
 			continue
 		}
+		// get ss-table id from file name
 		index, err := IndexFromDataFileName(file.Name())
 		if err != nil {
 			return nil, err
 		}
-		// open index
+		// open the ss-table-gindex
 		ssi, err := OpenSSTIndex(sstm.base, index)
 		if err != nil {
 			return nil, err
 		}
-		kp := &KeyPair{
-			index: index,
-			first: ssi.first,
-			last:  ssi.last,
+		// create a new key-range "gindex"
+		kr := &KeyRange{
+			index: index,     // gindex of the ss-table
+			first: ssi.first, // first key in the ss-table
+			last:  ssi.last,  // last key in the ss-table
 		}
-		sstm.sparse = append(sstm.sparse, kp)
-		// close index
+		// add it to our "sparse" gindex
+		sstm.sparse = append(sstm.sparse, kr)
+		// close gindex
 		err = ssi.Close()
 		if err != nil {
 			return nil, err
 		}
 	}
-	sstm.index = sstm.sparse[len(sstm.sparse)-1].index
+	// update the last global gindex
+	sstm.gindex = sstm.sparse[len(sstm.sparse)-1].index
 	return sstm, nil
 }
 
+func (sstm *SSTManager) AddKeyRange(first, last string) {
+	kr := &KeyRange{index: sstm.gindex, first: first, last: last}
+	sstm.sparse = append(sstm.sparse, kr)
+}
+
+// FlushMemtable takes a pointer to a memtable and writes it to disk as an ss-table
 func (sstm *SSTManager) FlushMemtable(memt *memtable.Memtable) error {
 	// make new batch
 	batch := sstm.NewBatch()
@@ -92,7 +108,7 @@ func (sstm *SSTManager) FlushMemtable(memt *memtable.Memtable) error {
 		return err
 	}
 	// open new ss-table
-	sst, err := OpenSSTable(sstm.base, sstm.index+1)
+	sst, err := OpenSSTable(sstm.base, sstm.gindex+1)
 	if err != nil {
 		return err
 	}
@@ -108,10 +124,10 @@ func (sstm *SSTManager) FlushMemtable(memt *memtable.Memtable) error {
 	if err != nil {
 		return err
 	}
-	// in the clear, increment index
-	sstm.index++
+	// in the clear, increment gindex
+	sstm.gindex++
 	// add new entry to sparse index
-	sstm.sparse = append(sstm.sparse, &KeyPair{index: sstm.index, first: first, last: last})
+	sstm.AddKeyRange(first, last)
 	// return
 	return nil
 }
@@ -130,11 +146,11 @@ func _openSSTManager(base string) (*SSTManager, error) {
 		if file.IsDir() || !strings.HasSuffix(file.Name(), dataFileSuffix) {
 			continue
 		}
-		index, err := IndexFromDataFileName(file.Name())
+		gindex, err := IndexFromDataFileName(file.Name())
 		if err != nil {
 			return nil, err
 		}
-		spi, err := OpenSparseIndex(sstm.base, index)
+		spi, err := OpenSparseIndex(sstm.base, gindex)
 		if err != nil {
 			return nil, err
 		}
@@ -180,68 +196,48 @@ func (sstm *SSTManager) NewBatch() *Batch {
 }
 
 func (sstm *SSTManager) WriteEntry(e *binary.Entry) error {
-	// TODO: implement...
+
 	return nil
 }
 
-func (sstm *SSTManager) WriteBatch(batch *Batch) error {
-	// TODO: implement...
+func (sstm *SSTManager) FlushBatchToSSTable(batch *Batch) error {
+	// open new ss-table
+	sst, err := OpenSSTable(sstm.base, sstm.gindex+1)
+	if err != nil {
+		return err
+	}
+	// write batch to ss-table
+	err = sst.WriteBatch(batch)
+	if err != nil {
+		return err
+	}
+	// save for later
+	first, last := sst.index.first, sst.index.last
+	// flush and close ss-table
+	err = sst.Close()
+	if err != nil {
+		return err
+	}
+	// in the clear, increment gindex
+	sstm.gindex++
+	// add new entry to sparse index
+	sstm.AddKeyRange(first, last)
 	return nil
 }
 
 func (sstm *SSTManager) SearchSparseIndex(k string) (int64, error) {
-	for _, kp := range sstm.sparse {
-		if !kp.KeyBetween(k) {
+	for _, kr := range sstm.sparse {
+		if !kr.InKeyRange(k) {
 			continue
 		}
-		return kp.index, nil
+		return kr.index, nil
 	}
 	return -1, ErrSSTIndexNotFound
 }
 
-func (sstm *SSTManager) GetSparseIndex() []*KeyPair {
+func (sstm *SSTManager) GetSparseIndex() []*KeyRange {
 	return sstm.sparse
 }
-
-/*
-func (sstm *SSTManager) SearchSparseIndex(k string) (*binary.Entry, error) {
-	var path string
-	var offset int64
-	for _, index := range sstm.sparse {
-		if index.HasKey(k) {
-			path, offset = index.Search(k)
-			break
-		}
-	}
-	// error check
-	if path == "" || offset == -1 {
-		return nil, errors.New("sstable: not found")
-	}
-	// get base and index from path
-	base := filepath.Base(path)
-	index, err := IndexFromDataFileName(base)
-	if err != nil {
-		return nil, err
-	}
-	// open sstable
-	sst, err := OpenSSTable(base, index)
-	if err != nil {
-		return nil, err
-	}
-	// read entry
-	e, err := sst.ReadAt(offset)
-	if err != nil {
-		return nil, err
-	}
-	// close sstable
-	err = sst.Close()
-	if err != nil {
-		return nil, err
-	}
-	// return entry
-	return e, nil
-}
-*/
 
 func (sstm *SSTManager) Close() error {
 	// TODO: implement...
@@ -280,7 +276,7 @@ func (sstm *SSTManager) CompactSSTables(index int64) error {
 	if err != nil {
 		return err
 	}
-	// remove old index
+	// remove old gindex
 	err = os.Remove(ipath)
 	if err != nil {
 		return err

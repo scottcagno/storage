@@ -58,7 +58,7 @@ func OpenSSTable(base string, index int64) (*SSTable, error) {
 	if err != nil {
 		return nil, err
 	}
-	// init sstable index
+	// init sstable gindex
 	ssi, err := OpenSSTIndex(base, index)
 	if err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func (sst *SSTable) errorCheckFileAndIndex() error {
 	if !sst.open {
 		return binary.ErrFileClosed
 	}
-	// make sure index is open
+	// make sure gindex is open
 	if sst.index == nil {
 		return ErrSSTIndexNotFound
 	}
@@ -91,12 +91,12 @@ func (sst *SSTable) Read(key string) (*binary.Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	// find index using key
+	// find gindex using key
 	i, err := sst.index.Find(key)
 	if err != nil {
 		return nil, err
 	}
-	// use index offset to read data
+	// use gindex offset to read data
 	e, err := binary.DecodeEntryAt(sst.file, i.Offset)
 	if err != nil {
 		return nil, err
@@ -111,7 +111,7 @@ func (sst *SSTable) ReadAt(offset int64) (*binary.Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	// use index offset to read data
+	// use gindex offset to read data
 	e, err := binary.DecodeEntryAt(sst.file, offset)
 	if err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func (sst *SSTable) Write(e *binary.Entry) error {
 	if err != nil {
 		return err
 	}
-	// write entry to index
+	// write entry to gindex
 	err = sst.index.Write(e.Key, offset)
 	if err != nil {
 		return err
@@ -163,7 +163,7 @@ func (sst *SSTable) WriteBatch(b *Batch) error {
 		if err != nil {
 			return err
 		}
-		// write entry info to index file
+		// write entry info to gindex file
 		err = sst.index.Write(e.Key, offset)
 		if err != nil {
 			return err

@@ -52,41 +52,41 @@ func TestSSTManager_Open(t *testing.T) {
 	fmt.Printf("\nlisting ss-table indexes....\n")
 	sstidxs := sstm.ListSSTIndexes()
 	for _, ssi := range sstidxs {
-		fmt.Printf("ss-table-index: %s\n", ssi)
+		fmt.Printf("ss-table-gindex: %s\n", ssi)
 	}
 
-	// view sparse index
-	fmt.Printf("\nviewing sparse index....\n")
+	// view sparse gindex
+	fmt.Printf("\nviewing sparse gindex....\n")
 	kps := sstm.GetSparseIndex()
 	for _, kp := range kps {
 		fmt.Printf("%s\n", kp)
 	}
 
-	// search sparse index
+	// search sparse gindex
 	fmt.Printf("\nsearching sparse indexes....\n")
 	i, err := sstm.SearchSparseIndex("data-0025")
 	if err != nil {
-		t.Errorf("searching sparse index (%d): %v\n", 25, err)
+		t.Errorf("searching sparse gindex (%d): %v\n", 25, err)
 	}
-	fmt.Printf("searching sparse index for %d, got found in index: %d\n", 25, i)
+	fmt.Printf("searching sparse gindex for %d, got found in gindex: %d\n", 25, i)
 
 	i, err = sstm.SearchSparseIndex("data-0150")
 	if err != nil {
-		t.Errorf("searching sparse index (%d): %v\n", 150, err)
+		t.Errorf("searching sparse gindex (%d): %v\n", 150, err)
 	}
-	fmt.Printf("searching sparse index for %d, got found in index: %d\n", 150, i)
+	fmt.Printf("searching sparse gindex for %d, got found in gindex: %d\n", 150, i)
 
 	i, err = sstm.SearchSparseIndex("data-0250")
 	if err != nil {
-		t.Errorf("searching sparse index (%d): %v\n", 250, err)
+		t.Errorf("searching sparse gindex (%d): %v\n", 250, err)
 	}
-	fmt.Printf("searching sparse index for %d, got found in index: %d\n", 250, i)
+	fmt.Printf("searching sparse gindex for %d, got found in gindex: %d\n", 250, i)
 
 	i, err = sstm.SearchSparseIndex("data-0500")
 	if err == nil {
-		t.Errorf("searching sparse index (%d): %v\n", 500, err)
+		t.Errorf("searching sparse gindex (%d): %v\n", 500, err)
 	}
-	fmt.Printf("searching sparse index for %d, got found in index: %d\n", 500, i)
+	fmt.Printf("searching sparse gindex for %d, got found in gindex: %d\n", 500, i)
 
 	// close ss-table-manager
 	err = sstm.Close()
@@ -106,7 +106,7 @@ func TestSSTManager_Open(t *testing.T) {
 	for _, ssi := range sstidxs {
 		err = os.Remove("testing/" + ssi)
 		if err != nil {
-			t.Errorf("removing table index %q: %v\n", ssi, err)
+			t.Errorf("removing table gindex %q: %v\n", ssi, err)
 		}
 	}
 }

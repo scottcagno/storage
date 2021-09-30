@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
-	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"github.com/scottcagno/storage/pkg/lsmt/wal"
 	"os"
 	"strings"
 )
+
+var Tombstone = []byte(nil)
 
 const defaultFlushThreshold = 256 << 10 // 256KB
 
@@ -92,6 +93,7 @@ func (mt *Memtable) Reset() error {
 	return nil
 }
 
+/*
 func (mt *Memtable) FlushToSSTable(sstm *sstable.SSTManager) error {
 	// error check
 	if sstm == nil {
@@ -116,6 +118,7 @@ func (mt *Memtable) FlushToSSTable(sstm *sstable.SSTManager) error {
 	mt.data.Reset()
 	return nil
 }
+*/
 
 func (mt *Memtable) insert(e *binary.Entry) error {
 	mt.data.Put(memtableEntry{Key: string(e.Key), Entry: e})
@@ -144,7 +147,7 @@ func (mt *Memtable) Get(k string) (*binary.Entry, error) {
 	if !ok {
 		return nil, ErrKeyNotFound
 	}
-	if v.(memtableEntry).Entry == nil || bytes.Equal(v.(memtableEntry).Entry.Value, sstable.Tombstone) {
+	if v.(memtableEntry).Entry == nil || bytes.Equal(v.(memtableEntry).Entry.Value, Tombstone) {
 		return nil, ErrFoundTombstone
 	}
 	return v.(memtableEntry).Entry, nil
@@ -152,7 +155,7 @@ func (mt *Memtable) Get(k string) (*binary.Entry, error) {
 
 func (mt *Memtable) Del(k string) error {
 	// create delete entry
-	e := &binary.Entry{Key: []byte(k), Value: sstable.Tombstone}
+	e := &binary.Entry{Key: []byte(k), Value: Tombstone}
 	// write entry to the write-ahead commit log
 	_, err := mt.wacl.Write(e)
 	if err != nil {

@@ -58,7 +58,7 @@ func OpenSparseIndex(base string, index int64) (*SparseIndex, error) {
 	path := filepath.Join(base, DataFileNameFromIndex(index))
 	ssi.Scan(func(k string, off int64) bool {
 		if i%(count/n) == 0 {
-			//log.Printf("adding to sparse index: k=%q, v=%d\n", k, off)
+			//log.Printf("adding to sparse gindex: k=%q, v=%d\n", k, off)
 			spi.rbt.Put(sparseIndexEntry{Key: k, Path: path, Index: &binary.Index{Key: []byte(k), Offset: off}})
 		}
 		i++

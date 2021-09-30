@@ -4,6 +4,6 @@ import "testing"
 
 func TestSparseIndex(t *testing.T) {
 
-	// open sparse index
+	// open sparse gindex
 
 }

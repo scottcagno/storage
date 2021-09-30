@@ -52,7 +52,7 @@ func TestSSTableAndSSTIndex(t *testing.T) {
 		t.Fatalf("closing sst: %v\n", err)
 	}
 
-	// open index
+	// open gindex
 	ssi, err := OpenSSTIndex("data", 1)
 	if err != nil {
 		t.Fatalf("opening ssi: %v\n", err)

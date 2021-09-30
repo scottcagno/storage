@@ -36,9 +36,9 @@ func OpenSSTIndex(base string, index int64) (*SSTIndex, error) {
 	}
 	// sanitize any path separators
 	base = filepath.ToSlash(base)
-	// create new index file path
+	// create new gindex file path
 	path := filepath.Join(base, IndexFileNameFromIndex(index))
-	// open (or create) index file
+	// open (or create) gindex file
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func OpenSSTIndex(base string, index int64) (*SSTIndex, error) {
 		file: file,
 		open: true,
 	}
-	// load sst data index info
+	// load sst data gindex info
 	err = ssi.LoadSSIndexData()
 	if err != nil {
 		return nil, err
@@ -70,9 +70,9 @@ func (ssi *SSTIndex) LoadSSIndexData() error {
 	}
 	// make sure we close!
 	defer fd.Close()
-	// read and decode index entries
+	// read and decode gindex entries
 	for {
-		// decode next index entry
+		// decode next gindex entry
 		i, err := binary.DecodeIndex(fd)
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
@@ -80,7 +80,7 @@ func (ssi *SSTIndex) LoadSSIndexData() error {
 			}
 			return err
 		}
-		// add index entry to sst index
+		// add gindex entry to sst gindex
 		ssi.data = append(ssi.data, i)
 	}
 	// update sst first and last and then return
@@ -96,7 +96,7 @@ func (ssi *SSTIndex) errorCheckFileAndIndex() error {
 	if !ssi.open {
 		return binary.ErrFileClosed
 	}
-	// make sure index is loaded
+	// make sure gindex is loaded
 	if ssi.data == nil {
 		err := ssi.LoadSSIndexData()
 		if err != nil {
@@ -112,14 +112,14 @@ func (ssi *SSTIndex) Write(key []byte, offset int64) error {
 	if err != nil {
 		return err
 	}
-	// create new index
+	// create new gindex
 	i := &binary.Index{Key: key, Offset: offset}
-	// write entry info to index file
+	// write entry info to gindex file
 	_, err = binary.EncodeIndex(ssi.file, i)
 	if err != nil {
 		return err
 	}
-	// add to index
+	// add to gindex
 	ssi.data = append(ssi.data, i)
 	// check last
 	last := len(ssi.data) - 1
@@ -155,7 +155,7 @@ func (ssi *SSTIndex) Find(key string) (*binary.Index, error) {
 	if at == -1 {
 		return nil, ErrSSTIndexNotFound
 	}
-	// check index for entry offset
+	// check gindex for entry offset
 	i := ssi.data[at]
 	if i == nil || i.Offset == -1 {
 		return nil, ErrSSTIndexNotFound
