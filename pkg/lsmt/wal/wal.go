@@ -111,8 +111,8 @@ type WAL struct {
 	active     *segment       // active is the current active segment
 }
 
-// Open opens and returns a new write-ahead log structure
-func Open(base string) (*WAL, error) {
+// OpenWAL opens and returns a new write-ahead log structure
+func OpenWAL(base string) (*WAL, error) {
 	// make sure we are working with absolute paths
 	base, err := filepath.Abs(base)
 	if err != nil {

@@ -13,7 +13,7 @@ func TestWAL(t *testing.T) {
 	maxFileSize = 2 << 10
 	//
 	// open log
-	wal, err := Open("logs")
+	wal, err := OpenWAL("logs")
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}
@@ -24,18 +24,21 @@ func TestWAL(t *testing.T) {
 	// do some writing
 	for i := 0; i < 500; i++ {
 		key := fmt.Sprintf("key-%04d", i+1)
-		val := []byte(fmt.Sprintf("my-value-%06d", i+1))
-		_, err := wal.Write(key, val)
+		val := fmt.Sprintf("my-value-%06d", i+1)
+		_, err := wal.Write(&binary.Entry{Key: []byte(key), Value: []byte(val)})
 		if err != nil {
 			t.Fatalf("error writing: %v\n", err)
 		}
 	}
 	//
 	// do some reading
-	wal.Scan(func(e *binary.Entry) bool {
+	err = wal.Scan(func(e *binary.Entry) bool {
 		fmt.Printf("%s\n", e)
 		return true
 	})
+	if err != nil {
+		t.Fatalf("got error: %v\n", err)
+	}
 	//
 	// close log
 	err = wal.Close()
@@ -59,7 +62,7 @@ func TestLog_TruncateFront(t *testing.T) {
 	maxFileSize = 2 << 10
 	//
 	// open log
-	wal, err := Open("logs")
+	wal, err := OpenWAL("logs")
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}
@@ -70,8 +73,8 @@ func TestLog_TruncateFront(t *testing.T) {
 	// do some writing
 	for i := 0; i < 500; i++ {
 		key := fmt.Sprintf("key-%04d", i+1)
-		val := []byte(fmt.Sprintf("my-value-%06d", i+1))
-		_, err := wal.Write(key, val)
+		val := fmt.Sprintf("my-value-%06d", i+1)
+		_, err := wal.Write(&binary.Entry{Key: []byte(key), Value: []byte(val)})
 		if err != nil {
 			t.Fatalf("error writing: %v\n", err)
 		}
@@ -84,7 +87,7 @@ func TestLog_TruncateFront(t *testing.T) {
 	}
 	//
 	// open log
-	wal, err = Open("logs")
+	wal, err = OpenWAL("logs")
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}

@@ -1,14 +1,11 @@
 package lsmt
 
 import (
-	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
-	"github.com/scottcagno/storage/pkg/lsmt/rbtree/augmented"
+	memtable "github.com/scottcagno/storage/pkg/lsmt/memtable"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
-	"github.com/scottcagno/storage/pkg/lsmt/wal"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 )
 
@@ -19,15 +16,12 @@ const (
 )
 
 type LSMTree struct {
-	base    string       // base is the base filepath for the database
-	walbase string       // walbase is the write-ahead commit log base filepath
-	sstbase string       // sstbase is the sstable and index base filepath where data resides
-	lock    sync.RWMutex // lock is a mutex that synchronizes access to the data
-	walg    *wal.WAL     // walg is a write-ahead commit log
-	//memt    *memtable.Memtable
-
-	memt *augmented.RBTree
-	sstm *sstable.SSTManager // sstm is the sorted-strings table manager
+	base    string              // base is the base filepath for the database
+	walbase string              // walbase is the write-ahead commit log base filepath
+	sstbase string              // sstbase is the sstable and index base filepath where data resides
+	lock    sync.RWMutex        // lock is a mutex that synchronizes access to the data
+	memt    *memtable.Memtable  // memt is the main memtable instance
+	sstm    *sstable.SSTManager // sstm is the sorted-strings table manager
 }
 
 func Open(base string) (*LSMTree, error) {
@@ -50,8 +44,8 @@ func Open(base string) (*LSMTree, error) {
 	if err != nil {
 		return nil, err
 	}
-	// open write-ahead logger
-	walg, err := wal.Open(walbase)
+	// open mem-table
+	memt, err := memtable.OpenMemtable(walbase, FlushThreshold)
 	if err != nil {
 		return nil, err
 	}
@@ -65,32 +59,28 @@ func Open(base string) (*LSMTree, error) {
 		base:    base,
 		walbase: walbase,
 		sstbase: sstbase,
-		walg:    walg,
-		memt:    augmented.NewRBTree(),
+		memt:    memt,
 		sstm:    sstm,
 	}
-	// load any commit log data
-	err = lsmt.loadDataFromCommitLog()
-	if err != nil {
-		return nil, err
-	}
+	// return lsm-tree
 	return lsmt, nil
 }
 
 func (lsm *LSMTree) Put(k string, v []byte) error {
 	// create binary entry
 	e := &binary.Entry{Key: []byte(k), Value: v}
-	// write entry to write-ahead commit log
-	_, err := lsm.walg.Write(e)
+	// write entry to memtable
+	err := lsm.memt.Put(e)
 	if err != nil {
 		return err
 	}
-	// write entry to mem-table
-	lsm.memt.Put(memtableEntry{Key: string(e.Key), Entry: e})
-	// check to see if mem-table size has hit the threshold
-	if lsm.memt.Size() > FlushThreshold {
-		// flush to sstable
-		err = lsm.flushMemtableToSSTable()
+	// return an error that is unknown
+	if err != nil {
+		if err != memtable.ErrFlushThreshold {
+			return err
+		}
+		// otherwise flush to sstable
+		err = lsm.memt.FlushToSSTable(lsm.sstm)
 		if err != nil {
 			return err
 		}
@@ -100,9 +90,10 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 
 func (lsm *LSMTree) Get(k string) ([]byte, error) {
 	// search memtable
-	e, found := lsm.memt.Get(memtableEntry{Key: k})
-	if found {
-		return e.(memtableEntry).Entry.Value, nil
+	e, err := lsm.memt.Get(k)
+	if err == nil {
+		// we found it!
+		return e.Value, nil
 	}
 	// check sparse index, and ss-tables, young to old
 	index, err := lsm.sstm.SearchSparseIndex(k)
@@ -129,87 +120,35 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 }
 
 func (lsm *LSMTree) Del(k string) error {
-	// create binary entry
-	e := &binary.Entry{Key: []byte(k), Value: sstable.Tombstone}
-	// write entry to write-ahead commit log
-	_, err := lsm.walg.Write(e)
+	// write entry to memtable
+	err := lsm.memt.Del(k)
 	if err != nil {
 		return err
 	}
-	// write entry to mem-table
-	lsm.memt.Put(memtableEntry{Key: string(e.Key), Entry: e})
-	// check to see if mem-table size has hit the threshold
-	if lsm.memt.Size() > FlushThreshold {
-		// flush to sstable
-		err = lsm.flushMemtableToSSTable()
+	// return an error that is unknown
+	if err != nil {
+		if err != memtable.ErrFlushThreshold {
+			return err
+		}
+		// otherwise flush to sstable
+		err = lsm.memt.FlushToSSTable(lsm.sstm)
 		if err != nil {
 			return err
 		}
 	}
-	return ErrKeyNotFound
+	return nil
 }
 
 func (lsm *LSMTree) Close() error {
-	// close wal
-	err := lsm.walg.Close()
+	// close memtable
+	err := lsm.memt.Close()
 	if err != nil {
 		return err
 	}
-	// close mem-table
-	lsm.memt.Close()
 	// close sst-manager
 	err = lsm.sstm.Close()
 	if err != nil {
 		return err
 	}
-	return nil
-}
-
-type memtableEntry struct {
-	Key   string
-	Entry *binary.Entry
-}
-
-func (me memtableEntry) Compare(that augmented.RBEntry) int {
-	return strings.Compare(me.Key, that.(memtableEntry).Key)
-}
-
-func (me memtableEntry) Size() int {
-	return len(me.Key) + len(me.Entry.Key) + len(me.Entry.Value)
-}
-
-func (me memtableEntry) String() string {
-	return fmt.Sprintf("entry.key=%q", me.Key)
-}
-
-// loadDataFromCommitLog loads any entries from the supplied segmented file back into the memtable
-func (lsm *LSMTree) loadDataFromCommitLog() error {
-	err := lsm.walg.Scan(func(e *binary.Entry) bool {
-		lsm.memt.Put(memtableEntry{Key: string(e.Key), Entry: e})
-		return true
-	})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (lsm *LSMTree) flushMemtableToSSTable() error {
-	// make new ss-table batch
-	batch := lsm.sstm.NewBatch()
-	// scan the whole tree and write each entry to the batch
-	lsm.memt.Scan(func(e augmented.RBEntry) bool {
-		batch.WriteEntry(e.(memtableEntry).Entry)
-		return true
-	})
-	// pass batch to sst-manager
-	err := lsm.sstm.WriteBatch(batch)
-	if err != nil {
-		return err
-	}
-	// "free" batch
-	batch = nil
-	// reset tree
-	lsm.memt.Reset()
 	return nil
 }
