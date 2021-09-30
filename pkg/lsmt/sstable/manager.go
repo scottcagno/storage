@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
+	"github.com/scottcagno/storage/pkg/lsmt/memtable"
+	"github.com/scottcagno/storage/pkg/lsmt/rbtree/augmented"
 	"os"
 	"strings"
 )
@@ -34,6 +36,7 @@ type SSTManager struct {
 	base string
 	//sparse []*SparseIndex
 	sparse []*KeyPair
+	index  int64
 }
 
 func OpenSSTManager(base string) (*SSTManager, error) {
@@ -70,7 +73,47 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 			return nil, err
 		}
 	}
+	sstm.index = sstm.sparse[len(sstm.sparse)-1].index
 	return sstm, nil
+}
+
+func (sstm *SSTManager) FlushMemtable(memt *memtable.Memtable) error {
+	// make new batch
+	batch := sstm.NewBatch()
+	// iterate mem-table entries
+	memt.Scan(func(me augmented.RBEntry) bool {
+		// and write each entry to the batch
+		batch.WriteEntry(me.(memtable.MemtableEntry).Entry)
+		return true
+	})
+	// reset memtable asap
+	err := memt.Reset()
+	if err != nil {
+		return err
+	}
+	// open new ss-table
+	sst, err := OpenSSTable(sstm.base, sstm.index+1)
+	if err != nil {
+		return err
+	}
+	// write batch to ss-table
+	err = sst.WriteBatch(batch)
+	if err != nil {
+		return err
+	}
+	// save for later
+	first, last := sst.index.first, sst.index.last
+	// flush and close ss-table
+	err = sst.Close()
+	if err != nil {
+		return err
+	}
+	// in the clear, increment index
+	sstm.index++
+	// add new entry to sparse index
+	sstm.sparse = append(sstm.sparse, &KeyPair{index: sstm.index, first: first, last: last})
+	// return
+	return nil
 }
 
 /*

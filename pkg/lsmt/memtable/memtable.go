@@ -7,10 +7,13 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt/rbtree/augmented"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/lsmt/wal"
+	"os"
 	"strings"
 )
 
 const defaultFlushThreshold = 256 << 10 // 256KB
+
+type MemtableEntry = memtableEntry
 
 type memtableEntry struct {
 	Key   string
@@ -66,6 +69,27 @@ func (mt *Memtable) loadDataFromCommitLog() error {
 		mt.data.Put(memtableEntry{Key: string(e.Key), Entry: e})
 		return true
 	})
+}
+
+func (mt *Memtable) Reset() error {
+	// close write-ahead commit log
+	err := mt.wacl.Close()
+	if err != nil {
+		return err
+	}
+	// wipe write-ahead commit log
+	err = os.RemoveAll(mt.base)
+	if err != nil {
+		return err
+	}
+	// open fresh write-ahead commit log
+	mt.wacl, err = wal.OpenWAL(mt.base)
+	if err != nil {
+		return err
+	}
+	// reset tree data
+	mt.data.Reset()
+	return nil
 }
 
 func (mt *Memtable) FlushToSSTable(sstm *sstable.SSTManager) error {

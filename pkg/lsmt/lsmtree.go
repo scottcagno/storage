@@ -69,18 +69,19 @@ func Open(base string) (*LSMTree, error) {
 func (lsm *LSMTree) Put(k string, v []byte) error {
 	// create binary entry
 	e := &binary.Entry{Key: []byte(k), Value: v}
-	// write entry to memtable
+	// write entry to mem-table
 	err := lsm.memt.Put(e)
 	if err != nil {
 		return err
 	}
 	// return an error that is unknown
 	if err != nil {
+		// make sure it's the mem-table doesn't need flushing
 		if err != memtable.ErrFlushThreshold {
 			return err
 		}
-		// otherwise flush to sstable
-		err = lsm.memt.FlushToSSTable(lsm.sstm)
+		// looks like it needs a flush
+		err = lsm.sstm.FlushMemtable(lsm.memt)
 		if err != nil {
 			return err
 		}
@@ -127,11 +128,12 @@ func (lsm *LSMTree) Del(k string) error {
 	}
 	// return an error that is unknown
 	if err != nil {
+		// make sure it's the mem-table doesn't need flushing
 		if err != memtable.ErrFlushThreshold {
 			return err
 		}
-		// otherwise flush to sstable
-		err = lsm.memt.FlushToSSTable(lsm.sstm)
+		// looks like it needs a flush
+		err = lsm.sstm.FlushMemtable(lsm.memt)
 		if err != nil {
 			return err
 		}
