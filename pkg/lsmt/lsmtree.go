@@ -24,7 +24,7 @@ type LSMTree struct {
 	sstm    *sstable.SSTManager // sstm is the sorted-strings table manager
 }
 
-func Open(base string) (*LSMTree, error) {
+func OpenLSMTree(base string) (*LSMTree, error) {
 	// make sure we are working with absolute paths
 	base, err := filepath.Abs(base)
 	if err != nil {
