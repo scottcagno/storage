@@ -30,17 +30,17 @@ func TestFindNearest(t *testing.T) {
 
 	// find O
 	key := "o"
-	a, b, c := tree.GetPrevNext(key)
-	fmt.Printf("find(%q): a=%q, b=%q, c=%q\n", key, a, b, c)
+	a, b, c, d := tree.GetApproxPrevNext(key)
+	fmt.Printf("find(%q): a=%q, b=%q, c=%q, d=%v\n", key, a, b, c, d)
 
 	// find K
 	key = "k"
-	a, b, c = tree.GetPrevNext(key)
-	fmt.Printf("find(%q): a=%q, b=%q, c=%q\n", key, a, b, c)
+	a, b, c, d = tree.GetApproxPrevNext(key)
+	fmt.Printf("find(%q): a=%q, b=%q, c=%q, d=%v\n", key, a, b, c, d)
 
 	key = "f"
-	a, b, c = tree.GetPrevNext(key)
-	fmt.Printf("find(%q): a=%q, b=%q, c=%q\n", key, a, b, c)
+	a, b, c, d = tree.GetApproxPrevNext(key)
+	fmt.Printf("find(%q): a=%q, b=%q, c=%q, d=%v\n", key, a, b, c, d)
 
 	tree.Close()
 }

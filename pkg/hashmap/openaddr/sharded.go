@@ -196,7 +196,7 @@ func (s *ShardedHashMap) Stats() {
 func (s *ShardedHashMap) Close() {
 	for i := range s.shards {
 		s.shards[i].mu.Lock()
-		destroy(s.shards[i].hm)
+		destroyMap(s.shards[i].hm)
 		s.shards[i].mu.Unlock()
 	}
 	s.shards = nil
