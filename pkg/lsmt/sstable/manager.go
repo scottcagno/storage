@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
-	"github.com/scottcagno/storage/pkg/lsmt/rbtree/augmented"
+	"github.com/scottcagno/storage/pkg/lsmt/rbtree"
 	"os"
 	"strings"
 )
@@ -81,7 +81,7 @@ func (sstm *SSTManager) FlushMemtable(memt *memtable.Memtable) error {
 	// make new batch
 	batch := sstm.NewBatch()
 	// iterate mem-table entries
-	memt.Scan(func(me augmented.RBEntry) bool {
+	memt.Scan(func(me rbtree.RBEntry) bool {
 		// and write each entry to the batch
 		batch.WriteEntry(me.(memtable.MemtableEntry).Entry)
 		return true

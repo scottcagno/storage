@@ -3,7 +3,7 @@ package sstable
 import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
-	"github.com/scottcagno/storage/pkg/lsmt/rbtree/augmented"
+	"github.com/scottcagno/storage/pkg/lsmt/rbtree"
 	"math"
 	"path/filepath"
 	"strings"
@@ -15,7 +15,7 @@ type sparseIndexEntry struct {
 	Index *binary.Index
 }
 
-func (r sparseIndexEntry) Compare(that augmented.RBEntry) int {
+func (r sparseIndexEntry) Compare(that rbtree.RBEntry) int {
 	return strings.Compare(r.Key, that.(sparseIndexEntry).Key)
 }
 
@@ -30,7 +30,7 @@ func (r sparseIndexEntry) String() string {
 type SparseIndex struct {
 	base  string
 	index int64
-	rbt   *augmented.RBTree
+	rbt   *rbtree.RBTree
 }
 
 func ratio(n int64) int64 {
@@ -47,7 +47,7 @@ func OpenSparseIndex(base string, index int64) (*SparseIndex, error) {
 	spi := &SparseIndex{
 		base:  base,
 		index: index,
-		rbt:   augmented.NewRBTree(),
+		rbt:   rbtree.NewRBTree(),
 	}
 	ssi, err := OpenSSTIndex(base, index)
 	if err != nil {

@@ -3,7 +3,7 @@ package memtable
 import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
-	"github.com/scottcagno/storage/pkg/lsmt/rbtree/augmented"
+	"github.com/scottcagno/storage/pkg/lsmt/rbtree"
 	"os"
 	"testing"
 )
@@ -18,7 +18,7 @@ func TestMemtable_All(t *testing.T) {
 
 	// if there is data, read it and exit
 	if memt.Len() > 0 {
-		memt.Scan(func(me augmented.RBEntry) bool {
+		memt.Scan(func(me rbtree.RBEntry) bool {
 			fmt.Printf("%s\n", me.(memtableEntry))
 			return true
 		})

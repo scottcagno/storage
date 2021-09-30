@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
-	"github.com/scottcagno/storage/pkg/lsmt/rbtree/augmented"
+	"github.com/scottcagno/storage/pkg/lsmt/rbtree"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/lsmt/wal"
 	"os"
@@ -20,7 +20,7 @@ type memtableEntry struct {
 	Entry *binary.Entry
 }
 
-func (me memtableEntry) Compare(that augmented.RBEntry) int {
+func (me memtableEntry) Compare(that rbtree.RBEntry) int {
 	return strings.Compare(me.Key, that.(memtableEntry).Key)
 }
 
@@ -35,7 +35,7 @@ func (me memtableEntry) String() string {
 type Memtable struct {
 	base  string
 	flush int64
-	data  *augmented.RBTree
+	data  *rbtree.RBTree
 	wacl  *wal.WAL
 }
 
@@ -52,7 +52,7 @@ func OpenMemtable(base string, flush int64) (*Memtable, error) {
 	memt := &Memtable{
 		base:  base,
 		flush: flush << 10, // flush x KB
-		data:  augmented.NewRBTree(),
+		data:  rbtree.NewRBTree(),
 		wacl:  wacl,
 	}
 	// load mem-table entries from commit log
@@ -103,7 +103,7 @@ func (mt *Memtable) FlushToSSTable(sstm *sstable.SSTManager) error {
 	// make new ss-table batch
 	batch := sstm.NewBatch()
 	// scan the whole tree and write each entry to the batch
-	mt.data.Scan(func(e augmented.RBEntry) bool {
+	mt.data.Scan(func(e rbtree.RBEntry) bool {
 		batch.WriteEntry(e.(memtableEntry).Entry)
 		return true
 	})
@@ -166,7 +166,7 @@ func (mt *Memtable) Del(k string) error {
 	return nil
 }
 
-func (mt *Memtable) Scan(iter func(me augmented.RBEntry) bool) {
+func (mt *Memtable) Scan(iter func(me rbtree.RBEntry) bool) {
 	if mt.data.Len() < 1 {
 		return
 	}

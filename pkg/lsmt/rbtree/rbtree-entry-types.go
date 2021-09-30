@@ -1,4 +1,4 @@
-package augmented
+package rbtree
 
 import (
 	"fmt"

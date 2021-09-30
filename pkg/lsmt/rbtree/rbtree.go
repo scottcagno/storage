@@ -1,40 +1,21 @@
 package rbtree
 
 import (
-	"fmt"
 	"runtime"
 	"strings"
+	"sync"
 )
 
-type rbEntry struct {
-	key   string
-	value []byte
+type RBEntry interface {
+	Compare(that RBEntry) int
+	Size() int
+	String() string
 }
 
-func (e rbEntry) String() string {
-	return fmt.Sprintf("rbEntry.key=%q, rbEntry.value=%q\n", e.key, e.value)
-}
+var empty = *new(RBEntry)
 
-var empty = *new(rbEntry)
-
-func isempty(e rbEntry) bool {
-	return e.key == ""
-}
-
-func compare(this, that rbEntry) int {
-	if len(this.key) < len(that.key) {
-		return -1
-	}
-	if len(this.key) > len(that.key) {
-		return +1
-	}
-	if this.key < that.key {
-		return -1
-	}
-	if this.key > that.key {
-		return 1
-	}
-	return 0
+func compare(this, that RBEntry) int {
+	return this.Compare(that)
 }
 
 const (
@@ -47,29 +28,14 @@ type rbNode struct {
 	right  *rbNode
 	parent *rbNode
 	color  uint
-	entry  rbEntry
-}
-
-func (n *rbNode) String() string {
-	left, right, parent := "", "", ""
-	if n.left != nil {
-		left = n.left.entry.key
-	}
-	if n.right != nil {
-		right = n.right.entry.key
-	}
-	if n.parent != nil {
-		parent = n.parent.entry.key
-	}
-	return fmt.Sprintf("node.key=%q, node.left=%q, node.right=%q, node.parent=%q",
-		n.entry.key, left, right, parent)
-
+	entry  RBEntry
 }
 
 type RBTree = rbTree
 
 // rbTree is a struct representing a rbTree
 type rbTree struct {
+	lock  sync.RWMutex
 	NIL   *rbNode
 	root  *rbNode
 	count int
@@ -96,10 +62,34 @@ func newRBTree() *rbTree {
 	}
 }
 
+func (t *rbTree) GetClone() *rbTree {
+	t.Lock()
+	defer t.Unlock()
+	clone := newRBTree()
+	t.cloneEntries(clone)
+	return clone
+}
+
+func (t *rbTree) Lock() {
+	t.lock.Lock()
+}
+
+func (t *rbTree) Unlock() {
+	t.lock.Unlock()
+}
+
+func (t *rbTree) RLock() {
+	t.lock.RLock()
+}
+
+func (t *rbTree) RUnlock() {
+	t.lock.RUnlock()
+}
+
 // Has tests and returns a boolean value if the
 // provided key exists in the tree
-func (t *rbTree) Has(key string) bool {
-	_, ok := t.getInternal(key)
+func (t *rbTree) Has(entry RBEntry) bool {
+	_, ok := t.getInternal(entry)
 	return ok
 }
 
@@ -107,23 +97,22 @@ func (t *rbTree) Has(key string) bool {
 // already exist in the tree. It returns false if the key and
 // value was not able to be added, and true if it was added
 // successfully
-func (t *rbTree) Add(key string, value []byte) bool {
-	_, ok := t.getInternal(key)
+func (t *rbTree) Add(entry RBEntry) bool {
+	_, ok := t.getInternal(entry)
 	if ok {
 		// key already exists, so we are not adding
 		return false
 	}
-	t.putInternal(key, value)
+	t.putInternal(entry)
 	return true
 }
 
-func (t *rbTree) Put(key string, value []byte) ([]byte, bool) {
-	return t.putInternal(key, value)
+func (t *rbTree) Put(entry RBEntry) (RBEntry, bool) {
+	return t.putInternal(entry)
 }
 
-func (t *rbTree) putInternal(key string, value []byte) ([]byte, bool) {
-	e := rbEntry{key: key, value: value}
-	if isempty(e) {
+func (t *rbTree) putInternal(entry RBEntry) (RBEntry, bool) {
+	if entry == nil {
 		return nil, false
 	}
 	// insert returns the node inserted
@@ -134,13 +123,13 @@ func (t *rbTree) putInternal(key string, value []byte) ([]byte, bool) {
 		right:  t.NIL,
 		parent: t.NIL,
 		color:  RED,
-		entry:  e,
+		entry:  entry,
 	})
-	return ret.entry.value, ok
+	return ret.entry, ok
 }
 
-func (t *rbTree) Get(key string) ([]byte, bool) {
-	return t.getInternal(key)
+func (t *rbTree) Get(entry RBEntry) (RBEntry, bool) {
+	return t.getInternal(entry)
 }
 
 // GetNearMin performs an approximate search for the specified key
@@ -148,9 +137,8 @@ func (t *rbTree) Get(key string) ([]byte, bool) {
 // to the searched key as well as a boolean reporting true if an
 // exact match was found for the key, and false if it is unknown
 // or and exact match was not found
-func (t *rbTree) GetNearMin(key string) ([]byte, bool) {
-	e := rbEntry{key: key}
-	if isempty(e) {
+func (t *rbTree) GetNearMin(entry RBEntry) (RBEntry, bool) {
+	if entry == nil {
 		return nil, false
 	}
 	ret := t.searchApprox(&rbNode{
@@ -158,13 +146,13 @@ func (t *rbTree) GetNearMin(key string) ([]byte, bool) {
 		right:  t.NIL,
 		parent: t.NIL,
 		color:  RED,
-		entry:  e,
+		entry:  entry,
 	})
-	prev := t.predecessor(ret).entry.value
+	prev := t.predecessor(ret).entry
 	if prev == nil {
-		_, prev, _ = t.Min()
+		prev, _ = t.Min()
 	}
-	return prev, ret.entry.key == key
+	return prev, ret.entry.Compare(entry) == 0
 }
 
 // GetNearMax performs an approximate search for the specified key
@@ -172,9 +160,8 @@ func (t *rbTree) GetNearMin(key string) ([]byte, bool) {
 // to the searched key as well as a boolean reporting true if an
 // exact match was found for the key, and false if it is unknown or
 // and exact match was not found
-func (t *rbTree) GetNearMax(key string) ([]byte, bool) {
-	e := rbEntry{key: key}
-	if isempty(e) {
+func (t *rbTree) GetNearMax(entry RBEntry) (RBEntry, bool) {
+	if entry == nil {
 		return nil, false
 	}
 	ret := t.searchApprox(&rbNode{
@@ -182,34 +169,32 @@ func (t *rbTree) GetNearMax(key string) ([]byte, bool) {
 		right:  t.NIL,
 		parent: t.NIL,
 		color:  RED,
-		entry:  e,
+		entry:  entry,
 	})
-	return t.successor(ret).entry.value, ret.entry.key == key
+	return t.successor(ret).entry, ret.entry.Compare(entry) == 0
 }
 
 // GetApproxPrevNext performs an approximate search for the specified key
 // and returns the searched key, the predecessor, and the successor and a
 // boolean reporting true if an exact match was found for the key, and false
 // if it is unknown or and exact match was not found
-func (t *rbTree) GetApproxPrevNext(key string) (rbEntry, rbEntry, rbEntry, bool) {
-	e := rbEntry{key: key}
-	if isempty(e) {
-		return rbEntry{}, rbEntry{}, rbEntry{}, false
+func (t *rbTree) GetApproxPrevNext(entry RBEntry) (RBEntry, RBEntry, RBEntry, bool) {
+	if entry == nil {
+		return nil, nil, nil, false
 	}
 	ret := t.searchApprox(&rbNode{
 		left:   t.NIL,
 		right:  t.NIL,
 		parent: t.NIL,
 		color:  RED,
-		entry:  e,
+		entry:  entry,
 	})
 	return ret.entry, t.predecessor(ret).entry, t.successor(ret).entry,
-		ret.entry.key == key
+		ret.entry.Compare(entry) == 0
 }
 
-func (t *rbTree) getInternal(key string) ([]byte, bool) {
-	e := rbEntry{key: key}
-	if isempty(e) {
+func (t *rbTree) getInternal(entry RBEntry) (RBEntry, bool) {
+	if entry == nil {
 		return nil, false
 	}
 	ret := t.search(&rbNode{
@@ -217,18 +202,17 @@ func (t *rbTree) getInternal(key string) ([]byte, bool) {
 		right:  t.NIL,
 		parent: t.NIL,
 		color:  RED,
-		entry:  e,
+		entry:  entry,
 	})
-	return ret.entry.value, !isempty(ret.entry)
+	return ret.entry, ret.entry != nil
 }
 
-func (t *rbTree) Del(key string) ([]byte, bool) {
-	return t.delInternal(key)
+func (t *rbTree) Del(entry RBEntry) (RBEntry, bool) {
+	return t.delInternal(entry)
 }
 
-func (t *rbTree) delInternal(key string) ([]byte, bool) {
-	e := rbEntry{key: key}
-	if isempty(e) {
+func (t *rbTree) delInternal(entry RBEntry) (RBEntry, bool) {
+	if entry == nil {
 		return nil, false
 	}
 	cnt := t.count
@@ -237,9 +221,9 @@ func (t *rbTree) delInternal(key string) ([]byte, bool) {
 		right:  t.NIL,
 		parent: t.NIL,
 		color:  RED,
-		entry:  e,
+		entry:  entry,
 	})
-	return ret.entry.value, cnt == t.count+1
+	return ret.entry, cnt == t.count+1
 }
 
 func (t *rbTree) Len() int {
@@ -251,25 +235,33 @@ func (t *rbTree) Size() int64 {
 	return t.size
 }
 
-func (t *rbTree) Min() (string, []byte, bool) {
+func (t *rbTree) Min() (RBEntry, bool) {
 	x := t.min(t.root)
 	if x == t.NIL {
-		return "", nil, false
+		return nil, false
 	}
-	return x.entry.key, x.entry.value, true
+	return x.entry, true
 }
 
-func (t *rbTree) Max() (string, []byte, bool) {
+func (t *rbTree) Max() (RBEntry, bool) {
 	x := t.max(t.root)
 	if x == t.NIL {
-		return "", nil, false
+		return nil, false
 	}
-	return x.entry.key, x.entry.value, true
+	return x.entry, true
 }
 
-type Iterator func(key string, value []byte) bool
+// helper function for clone
+func (t *rbTree) cloneEntries(t2 *rbTree) {
+	t.ascend(t.root, t.min(t.root).entry, func(e RBEntry) bool {
+		t2.putInternal(e)
+		return true
+	})
+}
 
-func (t *rbTree) Scan(iter func(key string, value []byte) bool) {
+type Iterator func(entry RBEntry) bool
+
+func (t *rbTree) Scan(iter Iterator) {
 	t.ascend(t.root, t.min(t.root).entry, iter)
 }
 
@@ -277,14 +269,14 @@ func (t *rbTree) ScanBack(iter Iterator) {
 	t.descend(t.root, t.max(t.root).entry, iter)
 }
 
-func (t *rbTree) ScanRange(startKey, endKey string, iter Iterator) {
-	t.ascendRange(t.root, startKey, endKey, iter)
+func (t *rbTree) ScanRange(start, end RBEntry, iter Iterator) {
+	t.ascendRange(t.root, start, end, iter)
 }
 
 func (t *rbTree) String() string {
 	var sb strings.Builder
-	t.ascend(t.root, t.min(t.root).entry, func(key string, value []byte) bool {
-		sb.WriteString(rbEntry{key: key, value: value}.String())
+	t.ascend(t.root, t.min(t.root).entry, func(entry RBEntry) bool {
+		sb.WriteString(entry.String())
 		return true
 	})
 	return sb.String()
@@ -324,10 +316,10 @@ func (t *rbTree) insert(z *rbNode) (*rbNode, bool) {
 		} else if compare(x.entry, z.entry) == -1 {
 			x = x.right
 		} else {
-			t.size -= int64(len(x.entry.key) + len(x.entry.value))
-			t.size += int64(len(z.entry.key) + len(z.entry.value))
+			t.size -= int64(x.entry.Size())
+			t.size += int64(z.entry.Size())
 			// originally we were just returning x
-			// without updating the rbEntry, but if we
+			// without updating the RBEntry, but if we
 			// want it to have similar behavior to
 			// a hashmap then we need to update any
 			// entries that already exist in the tree
@@ -349,7 +341,7 @@ func (t *rbTree) insert(z *rbNode) (*rbNode, bool) {
 		y.right = z
 	}
 	t.count++
-	t.size += int64(len(z.entry.key) + len(z.entry.value))
+	t.size += int64(z.entry.Size())
 	t.insertFixup(z)
 	return z, false
 }
@@ -559,7 +551,7 @@ func (t *rbTree) delete(key *rbNode) *rbNode {
 	if y.color == BLACK {
 		t.deleteFixup(x)
 	}
-	t.size -= int64(len(ret.entry.key) + len(ret.entry.value))
+	t.size -= int64(ret.entry.Size())
 	t.count--
 	return ret
 }
@@ -620,7 +612,7 @@ func (t *rbTree) deleteFixup(x *rbNode) {
 	x.color = BLACK
 }
 
-func (t *rbTree) ascend(x *rbNode, entry rbEntry, iter Iterator) bool {
+func (t *rbTree) ascend(x *rbNode, entry RBEntry, iter Iterator) bool {
 	if x == t.NIL {
 		return true
 	}
@@ -628,18 +620,18 @@ func (t *rbTree) ascend(x *rbNode, entry rbEntry, iter Iterator) bool {
 		if !t.ascend(x.left, entry, iter) {
 			return false
 		}
-		if !iter(x.entry.key, x.entry.value) {
+		if !iter(x.entry) {
 			return false
 		}
 	}
 	return t.ascend(x.right, entry, iter)
 }
 
-func (t *rbTree) __Descend(pivot rbEntry, iter Iterator) {
+func (t *rbTree) __Descend(pivot RBEntry, iter Iterator) {
 	t.descend(t.root, pivot, iter)
 }
 
-func (t *rbTree) descend(x *rbNode, pivot rbEntry, iter Iterator) bool {
+func (t *rbTree) descend(x *rbNode, pivot RBEntry, iter Iterator) bool {
 	if x == t.NIL {
 		return true
 	}
@@ -647,27 +639,27 @@ func (t *rbTree) descend(x *rbNode, pivot rbEntry, iter Iterator) bool {
 		if !t.descend(x.right, pivot, iter) {
 			return false
 		}
-		if !iter(x.entry.key, x.entry.value) {
+		if !iter(x.entry) {
 			return false
 		}
 	}
 	return t.descend(x.left, pivot, iter)
 }
 
-func (t *rbTree) ascendRange(x *rbNode, inf, sup string, iter Iterator) bool {
+func (t *rbTree) ascendRange(x *rbNode, inf, sup RBEntry, iter Iterator) bool {
 	if x == t.NIL {
 		return true
 	}
-	if !(compare(x.entry, rbEntry{key: sup}) == -1) {
+	if !(compare(x.entry, sup) == -1) {
 		return t.ascendRange(x.left, inf, sup, iter)
 	}
-	if compare(x.entry, rbEntry{key: inf}) == -1 {
+	if compare(x.entry, inf) == -1 {
 		return t.ascendRange(x.right, inf, sup, iter)
 	}
 	if !t.ascendRange(x.left, inf, sup, iter) {
 		return false
 	}
-	if !iter(x.entry.key, x.entry.value) {
+	if !iter(x.entry) {
 		return false
 	}
 	return t.ascendRange(x.right, inf, sup, iter)
