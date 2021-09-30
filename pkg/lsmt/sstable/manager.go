@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
-	"github.com/scottcagno/storage/pkg/lsmt/rbtree"
+	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"os"
 	"strings"
 )

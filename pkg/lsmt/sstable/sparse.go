@@ -3,7 +3,7 @@ package sstable
 import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
-	"github.com/scottcagno/storage/pkg/lsmt/rbtree"
+	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"math"
 	"path/filepath"
 	"strings"
