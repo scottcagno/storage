@@ -2,7 +2,7 @@ package sstable
 
 import (
 	"fmt"
-	"github.com/scottcagno/storage/pkg/lsmtree/container/rbtree"
+	"github.com/scottcagno/storage/pkg/_lsmtree/container/rbtree"
 	"log"
 	"math"
 	"path/filepath"

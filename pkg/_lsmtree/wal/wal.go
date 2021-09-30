@@ -3,7 +3,7 @@ package wal
 import (
 	"errors"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/lsmtree/encoding/binary"
+	"github.com/scottcagno/storage/pkg/_lsmtree/encoding/binary"
 	"io"
 	"os"
 	"path/filepath"

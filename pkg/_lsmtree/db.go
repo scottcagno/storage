@@ -1,8 +1,8 @@
-package lsmtree
+package _lsmtree
 
 import (
-	"github.com/scottcagno/storage/pkg/lsmtree/memtable"
-	"github.com/scottcagno/storage/pkg/lsmtree/sstable"
+	"github.com/scottcagno/storage/pkg/_lsmtree/memtable"
+	"github.com/scottcagno/storage/pkg/_lsmtree/sstable"
 	"log"
 	"path/filepath"
 	"sync"

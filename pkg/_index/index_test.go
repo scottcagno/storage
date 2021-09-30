@@ -1,4 +1,4 @@
-package index
+package _index
 
 import (
 	"math/rand"

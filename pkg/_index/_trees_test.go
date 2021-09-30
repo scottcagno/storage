@@ -1,9 +1,9 @@
-package index
+package _index
 
 import (
 	"bytes"
-	"github.com/scottcagno/storage/pkg/index/bptree"
-	"github.com/scottcagno/storage/pkg/index/rbtree"
+	"github.com/scottcagno/storage/pkg/_index/bptree"
+	"github.com/scottcagno/storage/pkg/_index/rbtree"
 	"math/rand"
 	"strconv"
 	"testing"
