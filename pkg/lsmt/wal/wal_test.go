@@ -13,7 +13,7 @@ func TestWAL(t *testing.T) {
 	maxFileSize = 2 << 10
 	//
 	// open log
-	wal, err := OpenWAL("logs")
+	wal, err := OpenWAL("testing")
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}
@@ -62,7 +62,7 @@ func TestLog_TruncateFront(t *testing.T) {
 	maxFileSize = 2 << 10
 	//
 	// open log
-	wal, err := OpenWAL("logs")
+	wal, err := OpenWAL("testing")
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}
@@ -87,7 +87,7 @@ func TestLog_TruncateFront(t *testing.T) {
 	}
 	//
 	// open log
-	wal, err = OpenWAL("logs")
+	wal, err = OpenWAL("testing")
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}
