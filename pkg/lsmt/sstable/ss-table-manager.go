@@ -192,10 +192,7 @@ func (sstm *SSTManager) FlushBatchToSSTable(batch *Batch) error {
 	return nil
 }
 
-func (sstm *SSTManager) SearchSparseIndex(k string) (int64, error) {
-	// read lock
-	sstm.lock.RLock()
-	defer sstm.lock.RUnlock()
+func (sstm *SSTManager) searchSparseIndex(k string) (int64, error) {
 	for _, kr := range sstm.sparse {
 		if !kr.InKeyRange(k) {
 			continue
@@ -205,8 +202,35 @@ func (sstm *SSTManager) SearchSparseIndex(k string) (int64, error) {
 	return -1, ErrSSTIndexNotFound
 }
 
-func (sstm *SSTManager) GetSparseIndex() []*KeyRange {
-	return sstm.sparse
+func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
+	// read lock
+	sstm.lock.RLock()
+	defer sstm.lock.RUnlock()
+	// search sparse index
+	index, err := sstm.searchSparseIndex(k)
+	if err != nil {
+		return nil, err
+	}
+	if index == -1 {
+		return nil, ErrSSTIndexNotFound
+	}
+	// open ss-table for reading
+	sst, err := OpenSSTable(sstm.base, index)
+	if err != nil {
+		return nil, err
+	}
+	// search the sstable
+	e, err := sst.Read(k)
+	if err != nil {
+		return nil, err
+	}
+	// close ss-table
+	err = sst.Close()
+	if err != nil {
+		return nil, err
+	}
+	// return entry
+	return e, nil
 }
 
 func (sstm *SSTManager) ListSSTables() []string {

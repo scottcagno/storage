@@ -81,7 +81,7 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 			return err
 		}
 		// looks like it needs a flush
-		err = lsm.sstm.FlushMemtable(lsm.memt)
+		err = lsm.sstm.FlushMemtableToSSTable(lsm.memt)
 		if err != nil {
 			return err
 		}
@@ -97,22 +97,7 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 		return e.Value, nil
 	}
 	// check sparse index, and ss-tables, young to old
-	index, err := lsm.sstm.SearchSparseIndex(k)
-	if err != nil {
-		return nil, err
-	}
-	// open ss-table for reading
-	sst, err := sstable.OpenSSTable(lsm.sstbase, index)
-	if err != nil {
-		return nil, err
-	}
-	// search the sstable
-	de, err := sst.Read(k)
-	if err != nil {
-		return nil, err
-	}
-	// close ss-table
-	err = sst.Close()
+	de, err := lsm.sstm.Get(k)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +118,7 @@ func (lsm *LSMTree) Del(k string) error {
 			return err
 		}
 		// looks like it needs a flush
-		err = lsm.sstm.FlushMemtable(lsm.memt)
+		err = lsm.sstm.FlushMemtableToSSTable(lsm.memt)
 		if err != nil {
 			return err
 		}
