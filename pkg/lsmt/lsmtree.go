@@ -2,7 +2,7 @@ package lsmt
 
 import (
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
-	memtable "github.com/scottcagno/storage/pkg/lsmt/memtable"
+	"github.com/scottcagno/storage/pkg/lsmt/memtable"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"os"
 	"path/filepath"
@@ -12,7 +12,7 @@ import (
 const (
 	walPath        = "log"
 	sstPath        = "data"
-	FlushThreshold = 256 << 10 // 256KB
+	FlushThreshold = 256 // 256KB
 )
 
 type LSMTree struct {
@@ -67,14 +67,14 @@ func OpenLSMTree(base string) (*LSMTree, error) {
 }
 
 func (lsm *LSMTree) Put(k string, v []byte) error {
+	// lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
 	// create binary entry
 	e := &binary.Entry{Key: []byte(k), Value: v}
 	// write entry to mem-table
 	err := lsm.memt.Put(e)
-	if err != nil {
-		return err
-	}
-	// return an error that is unknown
+	// check err properly
 	if err != nil {
 		// make sure it's the mem-table doesn't need flushing
 		if err != memtable.ErrFlushThreshold {
@@ -101,6 +101,10 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// check to make sure entry is not a tombstone
+	if de == nil || de.Value == nil {
+		return nil, ErrFoundTombstone
+	}
 	// may have found it
 	return de.Value, nil
 }
@@ -108,10 +112,7 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 func (lsm *LSMTree) Del(k string) error {
 	// write entry to memtable
 	err := lsm.memt.Del(k)
-	if err != nil {
-		return err
-	}
-	// return an error that is unknown
+	// check err properly
 	if err != nil {
 		// make sure it's the mem-table doesn't need flushing
 		if err != memtable.ErrFlushThreshold {

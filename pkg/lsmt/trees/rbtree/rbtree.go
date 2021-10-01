@@ -304,6 +304,7 @@ func (t *rbTree) Reset() {
 	t.NIL = n
 	t.root = n
 	t.count = 0
+	t.size = 0
 }
 
 func (t *rbTree) insert(z *rbNode) (*rbNode, bool) {

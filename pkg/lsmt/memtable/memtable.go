@@ -8,6 +8,7 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt/wal"
 	"os"
 	"strings"
+	"sync"
 )
 
 var Tombstone = []byte(nil)
@@ -34,10 +35,27 @@ func (me memtableEntry) String() string {
 }
 
 type Memtable struct {
+	lock  sync.RWMutex
 	base  string
 	flush int64
 	data  *rbtree.RBTree
 	wacl  *wal.WAL
+}
+
+func (mt *Memtable) Lock() {
+	mt.lock.Lock()
+}
+
+func (mt *Memtable) Unlock() {
+	mt.lock.Unlock()
+}
+
+func (mt *Memtable) RLock() {
+	mt.lock.RLock()
+}
+
+func (mt *Memtable) RUnlock() {
+	mt.lock.RUnlock()
 }
 
 func OpenMemtable(base string, flush int64) (*Memtable, error) {

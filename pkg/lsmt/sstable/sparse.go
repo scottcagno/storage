@@ -5,13 +5,12 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"math"
-	"path/filepath"
 	"strings"
 )
 
 type sparseIndexEntry struct {
 	Key   string
-	Path  string
+	Path  int64
 	Index *binary.Index
 }
 
@@ -28,7 +27,6 @@ func (r sparseIndexEntry) String() string {
 }
 
 type SparseIndex struct {
-	base  string
 	index int64
 	rbt   *rbtree.RBTree
 }
@@ -43,36 +41,24 @@ func ratio(n int64) int64 {
 	return int64(math.Log2(float64(n)))
 }
 
-func OpenSparseIndex(base string, index int64) (*SparseIndex, error) {
+func makeNewSparseIndex(index int64, ssi *SSTIndex) *SparseIndex {
 	spi := &SparseIndex{
-		base:  base,
 		index: index,
 		rbt:   rbtree.NewRBTree(),
 	}
-	ssi, err := OpenSSTIndex(base, index)
-	if err != nil {
-		return nil, err
-	}
 	count := int64(ssi.Len())
 	n, i := ratio(count), int64(0)
-	path := filepath.Join(base, DataFileNameFromIndex(index))
 	ssi.Scan(func(k string, off int64) bool {
 		if i%(count/n) == 0 {
-			//log.Printf("adding to sparse gindex: k=%q, v=%d\n", k, off)
-			spi.rbt.Put(sparseIndexEntry{Key: k, Path: path, Index: &binary.Index{Key: []byte(k), Offset: off}})
+			spi.rbt.Put(sparseIndexEntry{Key: k, Path: index, Index: &binary.Index{Key: []byte(k), Offset: off}})
 		}
 		i++
 		return true
 	})
-	// DON'T FORGET TO CLOSE STUFF!
-	err = ssi.Close()
-	if err != nil {
-		return nil, err
-	}
-	return spi, nil
+	return spi
 }
 
-func (spi *SparseIndex) Search(k string) (string, int64) {
+func (spi *SparseIndex) Search(k string) (int64, int64) {
 	v, _ := spi.rbt.GetNearMin(sparseIndexEntry{Key: k})
 	return v.(sparseIndexEntry).Path, v.(sparseIndexEntry).Index.Offset
 }

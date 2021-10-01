@@ -194,6 +194,43 @@ func (sst *SSTable) Scan(iter func(e *binary.Entry) bool) error {
 	return nil
 }
 
+func (sst *SSTable) ScanAt(offset int64, iter func(e *binary.Entry) bool) error {
+	// error check
+	err := sst.errorCheckFileAndIndex()
+	if err != nil {
+		return err
+	}
+	// get current offset, so we can return here when were done
+	cur, err := binary.Offset(sst.file)
+	if err != nil {
+		return err
+	}
+	// seek to provided location
+	_, err = sst.file.Seek(offset, io.SeekStart)
+	if err != nil {
+		return err
+	}
+	for {
+		// decode next data entry
+		e, err := binary.DecodeEntry(sst.file)
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+			return err
+		}
+		if !iter(e) {
+			break
+		}
+	}
+	// go back to where the file was at the beginning
+	_, err = sst.file.Seek(cur, io.SeekStart)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (sst *SSTable) Close() error {
 	if sst.open {
 		err := sst.file.Sync()
