@@ -35,10 +35,10 @@ func (kr *KeyRange) String() string {
 }
 
 type SSTManager struct {
-	lock      sync.RWMutex
-	base      string
-	inrange   []*KeyRange
-	sparse    map[int64]*SparseIndex
+	lock    sync.RWMutex
+	base    string
+	inrange []*KeyRange
+	//sparse    map[int64]*SparseIndex
 	gindex    int64
 	cachedSST *SSTable
 }
@@ -63,7 +63,7 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 	sstm := &SSTManager{
 		base:    base,
 		inrange: make([]*KeyRange, 0),
-		sparse:  make(map[int64]*SparseIndex, 0),
+		//sparse:  make(map[int64]*SparseIndex, 0),
 	}
 	// read the ss-table directory
 	files, err := os.ReadDir(base)
@@ -98,7 +98,7 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 		// add it to our key in-range index
 		sstm.inrange = append(sstm.inrange, kr)
 		// populate sparse index
-		sstm.sparse[index] = makeNewSparseIndex(index, ssi)
+		//sstm.sparse[index] = makeNewSparseIndex(index, ssi)
 		// close gindex
 		err = ssi.Close()
 		if err != nil {
@@ -186,7 +186,7 @@ func (sstm *SSTManager) FlushBatchToSSTable(batch *Batch) error {
 	// save for later
 	first, last := sst.index.first, sst.index.last
 	// add new sparse index
-	sstm.sparse[sstm.gindex+1] = makeNewSparseIndex(sstm.gindex+1, sst.index)
+	//sstm.sparse[sstm.gindex+1] = makeNewSparseIndex(sstm.gindex+1, sst.index)
 	// flush and close ss-table
 	err = sst.Close()
 	if err != nil {
@@ -199,18 +199,19 @@ func (sstm *SSTManager) FlushBatchToSSTable(batch *Batch) error {
 	return nil
 }
 
-func (sstm *SSTManager) searchSparseIndex(k string) (*SparseIndex, error) {
+func (sstm *SSTManager) searchSparseIndex(k string) (int64, error) { //(*SparseIndex, error) {
 	for _, kr := range sstm.inrange {
 		if !kr.InKeyRange(k) {
 			continue
 		}
-		spi, ok := sstm.sparse[kr.index]
-		if !ok {
-			continue
-		}
-		return spi, nil
+		return kr.index, nil
+		//spi, ok := sstm.sparse[kr.index]
+		//if !ok {
+		//	continue
+		//}
+		//return spi, nil
 	}
-	return nil, ErrSSTIndexNotFound
+	return -1, ErrSSTIndexNotFound
 }
 
 func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
@@ -218,27 +219,31 @@ func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
 	sstm.lock.RLock()
 	defer sstm.lock.RUnlock()
 	// search sparse index
-	spi, err := sstm.searchSparseIndex(k)
+	index, err := sstm.searchSparseIndex(k)
 	if err != nil {
 		return nil, err
 	}
+	if index == -1 {
+		return nil, ErrSSTIndexNotFound
+	}
 	// get table path index, and relative offset
-	index, offset := spi.Search(k)
+	//index, offset := spi.Search(k)
 	// open ss-table for reading
 	sst, err := OpenSSTable(sstm.base, index)
 	if err != nil {
 		return nil, err
 	}
 	// scan starting at location until we find match
-	var de *binary.Entry
-	err = sst.ScanAt(offset, func(e *binary.Entry) bool {
-		if string(e.Key) == k {
-			de = e
-			// got match, lets break
-			return false
-		}
-		return true
-	})
+	//var de *binary.Entry
+	//err = sst.ScanAt(offset, func(e *binary.Entry) bool {
+	//	if string(e.Key) == k {
+	//		de = e
+	//		// got match, lets break
+	//		return false
+	//	}
+	//	return true
+	//})
+	de, err := sst.Read(k)
 	if err != nil {
 		return nil, err
 	}

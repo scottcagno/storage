@@ -12,7 +12,7 @@ import (
 const (
 	walPath        = "log"
 	sstPath        = "data"
-	FlushThreshold = 256 // 256KB
+	FlushThreshold = 2048 // 256KB
 )
 
 type LSMTree struct {

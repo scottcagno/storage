@@ -22,7 +22,7 @@ func logger(s string) {
 
 func TestLSMTree(t *testing.T) {
 
-	count := 10000
+	count := 100000
 
 	// open lsm tree
 	logger("opening lsm tree")
