@@ -46,15 +46,15 @@ func OpenSSTable(base string, index int64) (*SSTable, error) {
 	var file *os.File
 	// check to make sure file doesn't exist
 	_, err = os.Stat(path)
-	if os.IsNotExist(err) {
-		// create new data file
-		file, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
-		if err != nil {
-			return nil, err
-		}
-	}
+	//if os.IsNotExist(err) {
+	//	// create new data file
+	//	file, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//}
 	// otherwise, just open new data file
-	file, err = os.OpenFile(path, os.O_RDWR, 0666)
+	file, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		return nil, err
 	}

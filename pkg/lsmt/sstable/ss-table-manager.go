@@ -7,7 +7,9 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 )
 
 const (
@@ -33,6 +35,7 @@ func (kr *KeyRange) String() string {
 }
 
 type SSTManager struct {
+	lock   sync.RWMutex
 	base   string
 	sparse []*KeyRange
 	gindex int64
@@ -42,6 +45,18 @@ type SSTManager struct {
 // perform operations across all the ss-table and ss-table-indexes,
 // hopefully without too much hassle
 func OpenSSTManager(base string) (*SSTManager, error) {
+	// make sure we are working with absolute paths
+	base, err := filepath.Abs(base)
+	if err != nil {
+		return nil, err
+	}
+	// sanitize any path separators
+	base = filepath.ToSlash(base)
+	// create any directories if they are not there
+	err = os.MkdirAll(base, os.ModeDir)
+	if err != nil {
+		return nil, err
+	}
 	// create ss-table-manager instance
 	sstm := &SSTManager{
 		base:   base,
@@ -52,6 +67,9 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 	if err != nil {
 		return nil, err
 	}
+	// lock
+	sstm.lock.RLock()
+	defer sstm.lock.RUnlock()
 	// go over all the files
 	for _, file := range files {
 		// skip all non ss-tables
@@ -83,17 +101,27 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 		}
 	}
 	// update the last global gindex
-	sstm.gindex = sstm.sparse[len(sstm.sparse)-1].index
+	sstm.gindex = sstm.getLastGIndex()
 	return sstm, nil
 }
 
-func (sstm *SSTManager) AddKeyRange(first, last string) {
+func (sstm *SSTManager) getLastGIndex() int64 {
+	if len(sstm.sparse) == 0 {
+		return 0
+	}
+	return sstm.sparse[len(sstm.sparse)-1].index
+}
+
+func (sstm *SSTManager) addKeyRange(first, last string) {
 	kr := &KeyRange{index: sstm.gindex, first: first, last: last}
 	sstm.sparse = append(sstm.sparse, kr)
 }
 
-// FlushMemtable takes a pointer to a memtable and writes it to disk as an ss-table
-func (sstm *SSTManager) FlushMemtable(memt *memtable.Memtable) error {
+// FlushMemtableToSSTable takes a pointer to a memtable and writes it to disk as an ss-table
+func (sstm *SSTManager) FlushMemtableToSSTable(memt *memtable.Memtable) error {
+	// lock
+	sstm.lock.Lock()
+	defer sstm.lock.Unlock()
 	// make new batch
 	batch := sstm.NewBatch()
 	// iterate mem-table entries
@@ -127,80 +155,19 @@ func (sstm *SSTManager) FlushMemtable(memt *memtable.Memtable) error {
 	// in the clear, increment gindex
 	sstm.gindex++
 	// add new entry to sparse index
-	sstm.AddKeyRange(first, last)
+	sstm.addKeyRange(first, last)
 	// return
 	return nil
-}
-
-/*
-func _openSSTManager(base string) (*SSTManager, error) {
-	sstm := &SSTManager{
-		base:   base,
-		sparse: make([]*SparseIndex, 0),
-	}
-	files, err := os.ReadDir(base)
-	if err != nil {
-		return nil, err
-	}
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), dataFileSuffix) {
-			continue
-		}
-		gindex, err := IndexFromDataFileName(file.Name())
-		if err != nil {
-			return nil, err
-		}
-		spi, err := OpenSparseIndex(sstm.base, gindex)
-		if err != nil {
-			return nil, err
-		}
-		sstm.sparse = append(sstm.sparse, spi)
-	}
-	return sstm, nil
-}
-*/
-
-func (sstm *SSTManager) ListSSTables() []string {
-	files, err := os.ReadDir(sstm.base)
-	if err != nil {
-		return nil
-	}
-	var ssts []string
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), dataFileSuffix) {
-			continue
-		}
-		ssts = append(ssts, file.Name())
-	}
-
-	return ssts
-}
-
-func (sstm *SSTManager) ListSSTIndexes() []string {
-	files, err := os.ReadDir(sstm.base)
-	if err != nil {
-		return nil
-	}
-	var ssti []string
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), indexFileSuffix) {
-			continue
-		}
-		ssti = append(ssti, file.Name())
-	}
-	return ssti
 }
 
 func (sstm *SSTManager) NewBatch() *Batch {
 	return new(Batch)
 }
 
-func (sstm *SSTManager) WriteEntry(e *binary.Entry) error {
-
-	return nil
-}
-
 func (sstm *SSTManager) FlushBatchToSSTable(batch *Batch) error {
+	// lock
+	sstm.lock.Lock()
+	defer sstm.lock.Unlock()
 	// open new ss-table
 	sst, err := OpenSSTable(sstm.base, sstm.gindex+1)
 	if err != nil {
@@ -221,11 +188,14 @@ func (sstm *SSTManager) FlushBatchToSSTable(batch *Batch) error {
 	// in the clear, increment gindex
 	sstm.gindex++
 	// add new entry to sparse index
-	sstm.AddKeyRange(first, last)
+	sstm.addKeyRange(first, last)
 	return nil
 }
 
 func (sstm *SSTManager) SearchSparseIndex(k string) (int64, error) {
+	// read lock
+	sstm.lock.RLock()
+	defer sstm.lock.RUnlock()
 	for _, kr := range sstm.sparse {
 		if !kr.InKeyRange(k) {
 			continue
@@ -239,12 +209,47 @@ func (sstm *SSTManager) GetSparseIndex() []*KeyRange {
 	return sstm.sparse
 }
 
-func (sstm *SSTManager) Close() error {
-	// TODO: implement...
-	return nil
+func (sstm *SSTManager) ListSSTables() []string {
+	// read lock
+	sstm.lock.RLock()
+	defer sstm.lock.RUnlock()
+	files, err := os.ReadDir(sstm.base)
+	if err != nil {
+		return nil
+	}
+	var ssts []string
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), dataFileSuffix) {
+			continue
+		}
+		ssts = append(ssts, file.Name())
+	}
+
+	return ssts
+}
+
+func (sstm *SSTManager) ListSSTIndexes() []string {
+	// read lock
+	sstm.lock.RLock()
+	defer sstm.lock.RUnlock()
+	files, err := os.ReadDir(sstm.base)
+	if err != nil {
+		return nil
+	}
+	var ssti []string
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), indexFileSuffix) {
+			continue
+		}
+		ssti = append(ssti, file.Name())
+	}
+	return ssti
 }
 
 func (sstm *SSTManager) CompactSSTables(index int64) error {
+	// lock
+	sstm.lock.Lock()
+	defer sstm.lock.Unlock()
 	// load sstable
 	sst, err := OpenSSTable(sstm.base, index)
 	if err != nil {
@@ -264,7 +269,6 @@ func (sstm *SSTManager) CompactSSTables(index int64) error {
 		return err
 	}
 	// get path
-
 	tpath, ipath := sst.path, sst.index.path
 	// close sstable
 	err = sst.Close()
@@ -297,6 +301,9 @@ func (sstm *SSTManager) CompactSSTables(index int64) error {
 }
 
 func (sstm *SSTManager) MergeSSTables(iA, iB int64) error {
+	// lock
+	sstm.lock.Lock()
+	defer sstm.lock.Unlock()
 	// load sstable A
 	sstA, err := OpenSSTable(sstm.base, iA)
 	if err != nil {
@@ -336,6 +343,11 @@ func (sstm *SSTManager) MergeSSTables(iA, iB int64) error {
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func (sstm *SSTManager) Close() error {
+	// TODO: implement...
 	return nil
 }
 

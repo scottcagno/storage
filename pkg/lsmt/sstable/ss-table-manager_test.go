@@ -11,34 +11,28 @@ func TestSSTManager_Open(t *testing.T) {
 
 	var count int
 
-	// add some data
-	for i := 1; i <= 5; i++ {
-		// open sstable
-		sst, err := OpenSSTable("testing", int64(i))
-		if err != nil {
-			t.Errorf("opening sstable (%d): %v\n", i, err)
-		}
-		// write data
-		stop := count + 59
-		for k := count; k < stop; k++ {
-			data := fmt.Sprintf("data-%04d", k)
-			err = sst.Write(&binary.Entry{Key: []byte(data), Value: []byte(data)})
-			if err != nil {
-				t.Errorf("writing entry: %v\n", err)
-			}
-			count++
-		}
-		// close sstable
-		err = sst.Close()
-		if err != nil {
-			t.Errorf("closing sstable (%d): %v\n", i, err)
-		}
-	}
-
 	// open ss-table-manager
 	sstm, err := OpenSSTManager("testing")
 	if err != nil {
-		t.Errorf("opening sstablemanager: %v\n", err)
+		t.Errorf("opening ss-table-manager: %v\n", err)
+	}
+
+	// add some data
+	for i := 1; i <= 5; i++ {
+		// get fresh batch to write to
+		batch := sstm.NewBatch()
+		// write data to batch
+		stop := count + 59
+		for k := count; k < stop; k++ {
+			data := fmt.Sprintf("data-%04d", k)
+			batch.WriteEntry(&binary.Entry{Key: []byte(data), Value: []byte(data)})
+			count++
+		}
+		// write batch to ss-table
+		err = sstm.FlushBatchToSSTable(batch)
+		if err != nil {
+			t.Errorf("flushing batch to ss-table: %v\n", err)
+		}
 	}
 
 	// list ss-tables
@@ -94,19 +88,22 @@ func TestSSTManager_Open(t *testing.T) {
 		t.Errorf("closing ss-table-manager: %v\n", err)
 	}
 
-	// remove ss-tables
-	for _, sst := range sstables {
-		err = os.Remove("testing/" + sst)
-		if err != nil {
-			t.Errorf("removing table %q: %v\n", sst, err)
+	doClean := false
+	if doClean {
+		// remove ss-tables
+		for _, sst := range sstables {
+			err = os.Remove("testing/" + sst)
+			if err != nil {
+				t.Errorf("removing table %q: %v\n", sst, err)
+			}
 		}
-	}
 
-	// remove ss-table-indexes
-	for _, ssi := range sstidxs {
-		err = os.Remove("testing/" + ssi)
-		if err != nil {
-			t.Errorf("removing table gindex %q: %v\n", ssi, err)
+		// remove ss-table-indexes
+		for _, ssi := range sstidxs {
+			err = os.Remove("testing/" + ssi)
+			if err != nil {
+				t.Errorf("removing table gindex %q: %v\n", ssi, err)
+			}
 		}
 	}
 }
