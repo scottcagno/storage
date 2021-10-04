@@ -8,6 +8,7 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -32,6 +33,20 @@ func (kr *KeyRange) InKeyRange(k string) bool {
 
 func (kr *KeyRange) String() string {
 	return fmt.Sprintf("kr.gindex=%d, kr.first=%q, kr.last=%q", kr.index, kr.first, kr.last)
+}
+
+type KeyRangeSlice []*KeyRange
+
+func (krs KeyRangeSlice) Len() int {
+	return len(krs)
+}
+
+func (krs KeyRangeSlice) Less(i, j int) bool {
+	return krs[i].first < krs[j].first
+}
+
+func (krs KeyRangeSlice) Swap(i, j int) {
+	krs[i], krs[j] = krs[j], krs[i]
 }
 
 type SSTManager struct {
@@ -199,19 +214,27 @@ func (sstm *SSTManager) FlushBatchToSSTable(batch *Batch) error {
 	return nil
 }
 
-func (sstm *SSTManager) searchSparseIndex(k string) (int64, error) { //(*SparseIndex, error) {
-	for _, kr := range sstm.inrange {
-		if !kr.InKeyRange(k) {
-			continue
-		}
-		return kr.index, nil
-		//spi, ok := sstm.sparse[kr.index]
-		//if !ok {
-		//	continue
-		//}
-		//return spi, nil
+func (sstm *SSTManager) isInRange(k string) (int64, error) { //(*SparseIndex, error) {
+
+	n := sort.Search(len(sstm.inrange),
+		func(i int) bool {
+			return sstm.inrange[i].first <= k && k <= sstm.inrange[i].last
+		})
+	if n < 0 {
+		return -1, ErrSSTIndexNotFound
 	}
-	return -1, ErrSSTIndexNotFound
+	//for _, kr := range sstm.inrange {
+	//	if !kr.InKeyRange(k) {
+	//		continue
+	//	}
+	//	return kr.index, nil
+	//spi, ok := sstm.sparse[kr.index]
+	//if !ok {
+	//	continue
+	//}
+	//return spi, nil
+	//}
+	return int64(n), nil
 }
 
 func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
@@ -219,7 +242,7 @@ func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
 	sstm.lock.RLock()
 	defer sstm.lock.RUnlock()
 	// search sparse index
-	index, err := sstm.searchSparseIndex(k)
+	index, err := sstm.isInRange(k)
 	if err != nil {
 		return nil, err
 	}

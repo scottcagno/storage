@@ -425,7 +425,7 @@ func insertIntoNode(root, n *bpNode, leftIndex int, key string, right *bpNode) *
 // the nodes size to exceed the ORDER, and causing the bpNode to split
 func insertIntoNodeAfterSplitting(root, oldNode *bpNode, leftIndex int, key string, right *bpNode) *bpNode {
 
-	// First create a temp set of keys and pointers to hold everything in ORDER, including
+	// first create a temp set of keys and pointers to hold everything in ORDER, including
 	// the new key and pointer, inserted in their correct places--then create a new bpNode
 	// and copy half of the keys and pointers to the old bpNode and the other half to the new
 
