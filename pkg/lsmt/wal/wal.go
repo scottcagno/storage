@@ -109,6 +109,7 @@ type WAL struct {
 	lastIndex  int64          // lastIndex is the index of the last segEntry
 	segments   []*segment     // segments is an index of the current file segments
 	active     *segment       // active is the current active segment
+	doSync     bool           // doSync sync on every write (default: true)
 }
 
 // OpenWAL opens and returns a new write-ahead log structure
@@ -131,6 +132,7 @@ func OpenWAL(base string) (*WAL, error) {
 		firstIndex: 0,
 		lastIndex:  1,
 		segments:   make([]*segment, 0),
+		doSync:     true,
 	}
 	// attempt to load segments
 	err = l.loadIndex()
@@ -139,6 +141,19 @@ func OpenWAL(base string) (*WAL, error) {
 	}
 	// return write-ahead log
 	return l, nil
+}
+
+func OpenWALWithSync(base string, doSync bool) (*WAL, error) {
+	l, err := OpenWAL(base)
+	if err != nil {
+		return nil, err
+	}
+	l.doSync = doSync
+	return l, nil
+}
+
+func (l *WAL) SetSyncOnWrite(ok bool) {
+	l.doSync = ok
 }
 
 // loadIndex initializes the segment index. It looks for segment
@@ -192,7 +207,7 @@ func (l *WAL) loadIndex() error {
 	}
 	// and then attempt to open a file writer to also work
 	// with the active segment, so we can begin appending data
-	l.w, err = binary.OpenWriter(l.active.path)
+	l.w, err = binary.OpenWriterWithSync(l.active.path, l.doSync)
 	if err != nil {
 		return err
 	}
@@ -331,7 +346,7 @@ func (l *WAL) cycleSegment() error {
 	// update the active segment pointer
 	l.active = l.getLastSegment()
 	// open file writer associated with active segment
-	l.w, err = binary.OpenWriter(l.active.path)
+	l.w, err = binary.OpenWriterWithSync(l.active.path, l.doSync)
 	if err != nil {
 		return err
 	}

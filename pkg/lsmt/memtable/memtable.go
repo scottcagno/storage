@@ -35,11 +35,12 @@ func (me memtableEntry) String() string {
 }
 
 type Memtable struct {
-	lock  sync.RWMutex
-	base  string
-	flush int64
-	data  *rbtree.RBTree
-	wacl  *wal.WAL
+	lock   sync.RWMutex
+	base   string
+	flush  int64
+	data   *rbtree.RBTree
+	wacl   *wal.WAL
+	doSync bool
 }
 
 func (mt *Memtable) Lock() {
@@ -58,12 +59,12 @@ func (mt *Memtable) RUnlock() {
 	mt.lock.RUnlock()
 }
 
-func OpenMemtable(base string, flush int64) (*Memtable, error) {
+func OpenMemtable(base string, flush int64, doSync bool) (*Memtable, error) {
 	if flush < 1 {
 		flush = defaultFlushThreshold
 	}
 	// open write-ahead commit log
-	wacl, err := wal.OpenWAL(base)
+	wacl, err := wal.OpenWALWithSync(base, doSync)
 	if err != nil {
 		return nil, err
 	}

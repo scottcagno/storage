@@ -3,15 +3,17 @@ package lsmt
 import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
+	"github.com/scottcagno/storage/pkg/util"
 	"log"
 	"testing"
+	"time"
 )
 
-func makeKey(i int) string {
+func _makeKey(i int) string {
 	return fmt.Sprintf("key-%06d", i)
 }
 
-func makeVal(i int) []byte {
+func _makeVal(i int) []byte {
 	return []byte(fmt.Sprintf("value-%08d", i))
 }
 
@@ -22,7 +24,7 @@ func logger(s string) {
 
 func TestLSMTree(t *testing.T) {
 
-	count := 100000
+	count := 50000
 
 	// open lsm tree
 	logger("opening lsm tree")
@@ -33,12 +35,15 @@ func TestLSMTree(t *testing.T) {
 
 	// write data
 	logger("writing data")
+	ts1 := time.Now()
 	for i := 0; i < count; i++ {
 		err := lsm.Put(makeKey(i), makeVal(i))
 		if err != nil {
 			t.Errorf("put: %v\n", err)
 		}
 	}
+	ts2 := time.Now()
+	fmt.Println(util.FormatTime("writing data", ts1, ts2))
 
 	// close
 	logger("closing lsm tree")
@@ -56,6 +61,7 @@ func TestLSMTree(t *testing.T) {
 
 	// read data
 	logger("reading data")
+	ts1 = time.Now()
 	for i := 0; i < count; i++ {
 		v, err := lsm.Get(makeKey(i))
 		if err != nil {
@@ -65,9 +71,12 @@ func TestLSMTree(t *testing.T) {
 			fmt.Printf("get(%q) -> %q\n", makeKey(i), v)
 		}
 	}
+	ts2 = time.Now()
+	fmt.Println(util.FormatTime("reading data", ts1, ts2))
 
 	// remove data
 	logger("removing data (only odds)")
+	ts1 = time.Now()
 	for i := 0; i < count; i++ {
 		if i%2 != 0 {
 			err = lsm.Del(makeKey(i))
@@ -76,6 +85,8 @@ func TestLSMTree(t *testing.T) {
 			}
 		}
 	}
+	ts2 = time.Now()
+	fmt.Println(util.FormatTime("removing data", ts1, ts2))
 
 	// close
 	logger("closing lsm tree")
@@ -93,6 +104,7 @@ func TestLSMTree(t *testing.T) {
 
 	// read data
 	logger("reading data")
+	ts1 = time.Now()
 	for i := 0; i < count; i++ {
 		v, err := lsm.Get(makeKey(i))
 		if err != nil {
@@ -105,6 +117,8 @@ func TestLSMTree(t *testing.T) {
 			fmt.Printf("get(%q) -> %q\n", makeKey(i), v)
 		}
 	}
+	ts2 = time.Now()
+	fmt.Println(util.FormatTime("reading data", ts1, ts2))
 
 	// close
 	logger("closing lsm tree")

@@ -13,6 +13,7 @@ const (
 	walPath        = "log"
 	sstPath        = "data"
 	FlushThreshold = 2048 // 256KB
+	doSyncDefault  = false
 )
 
 type LSMTree struct {
@@ -22,6 +23,7 @@ type LSMTree struct {
 	lock    sync.RWMutex        // lock is a mutex that synchronizes access to the data
 	memt    *memtable.Memtable  // memt is the main memtable instance
 	sstm    *sstable.SSTManager // sstm is the sorted-strings table manager
+	doSync  bool                // doSync tells the memtable to sync every write (default: true)
 }
 
 func OpenLSMTree(base string) (*LSMTree, error) {
@@ -45,7 +47,7 @@ func OpenLSMTree(base string) (*LSMTree, error) {
 		return nil, err
 	}
 	// open mem-table
-	memt, err := memtable.OpenMemtable(walbase, FlushThreshold)
+	memt, err := memtable.OpenMemtable(walbase, FlushThreshold, doSyncDefault)
 	if err != nil {
 		return nil, err
 	}
