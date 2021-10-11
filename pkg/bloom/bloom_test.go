@@ -11,8 +11,8 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
-	"github.com/scottcagno/leviathan/pkg/hashtable/openaddr"
-	"github.com/scottcagno/leviathan/pkg/util/memory"
+	"github.com/scottcagno/storage/pkg/hashmap/openaddr"
+	"github.com/scottcagno/storage/pkg/util"
 	"log"
 	"runtime"
 	"strconv"
@@ -87,7 +87,7 @@ func bloomFilterTest(data ...[]byte) {
 		}
 	}
 	ts2 := time.Since(ts1)
-	size := memory.Sizeof(bf)
+	size := util.Sizeof(bf)
 	fmt.Printf(">> bloom filter size estimate %dB -> %dKB -> %dMB\n", size, size/1024, size/1024/1024)
 	fmt.Println(ts2)
 	bf = nil
@@ -100,11 +100,11 @@ func hashMaptest(data ...[]byte) {
 	for i := 0; i < 10; i++ {
 		for _, word := range data {
 			key := fmt.Sprintf("%s-%d", word, i)
-			hm.Put(key, []byte(key))
+			hm.Set(key, []byte(key))
 		}
 	}
 	ts2 := time.Since(ts1)
-	size := memory.Sizeof(hm)
+	size := util.Sizeof(hm)
 	fmt.Printf(">> hashmap size estimate %dB -> %dKB -> %dMB\n", size, size/1024, size/1024/1024)
 	fmt.Println(ts2)
 	hm = nil
