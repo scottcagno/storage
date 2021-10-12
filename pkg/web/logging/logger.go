@@ -3,6 +3,7 @@ package logging
 import (
 	"io"
 	"log"
+	"os"
 )
 
 func NewStdOutLogger(out io.Writer) *log.Logger {
@@ -15,4 +16,8 @@ func NewStdErrLogger(out io.Writer) *log.Logger {
 
 func NewLogger(out, err io.Writer) (*log.Logger, *log.Logger) {
 	return NewStdOutLogger(out), NewStdErrLogger(err)
+}
+
+func NewDefaultLogger() (*log.Logger, *log.Logger) {
+	return NewLogger(os.Stdout, os.Stderr)
 }

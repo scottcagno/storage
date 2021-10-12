@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bytes"
 	"fmt"
 	"html/template"
 	"io"
@@ -9,18 +8,13 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
-	"sync"
 )
 
 var fm = template.FuncMap{}
-var templatePathRegex = `([\/|\\]*)?[A-z\-0-9]+[\/|\\]{1}`
-var templateSuffixRegex = ``
 
 type TemplateCache struct {
 	cache  *template.Template
 	logger *log.Logger
-	buff   sync.Pool
-	sync.RWMutex
 }
 
 // NewTemplateCache0 takes a pattern to glob and an optional logger and returns a
@@ -34,11 +28,6 @@ func NewTemplateCache0(pattern string, logger *log.Logger) (*TemplateCache, erro
 	tc := &TemplateCache{
 		cache:  t,
 		logger: logger,
-		buff: sync.Pool{
-			New: func() interface{} {
-				return new(bytes.Buffer)
-			},
-		},
 	}
 	return tc, nil
 }
@@ -59,24 +48,15 @@ func NewTemplateCache1(pattern string, logger *log.Logger) (*TemplateCache, erro
 	tc := &TemplateCache{
 		cache:  template.Must(template.New("*").Funcs(fm).ParseGlob(pattern)),
 		logger: logger,
-		buff: sync.Pool{
-			New: func() interface{} {
-				return new(bytes.Buffer)
-			},
-		},
 	}
 	return tc, nil
 }
 
 func (t *TemplateCache) Lookup(name string) *template.Template {
-	t.Lock()
-	defer t.Unlock()
 	return t.cache.Lookup(name)
 }
 
 func (t *TemplateCache) ExecuteTemplate(w io.Writer, name string, data interface{}) error {
-	t.Lock()
-	defer t.Unlock()
 	err := t.cache.ExecuteTemplate(w, name, data)
 	if err != nil {
 		return err
@@ -84,14 +64,12 @@ func (t *TemplateCache) ExecuteTemplate(w io.Writer, name string, data interface
 	return nil
 }
 
-func (t *TemplateCache) Render(w http.ResponseWriter, r *http.Request, tmpl string, data interface{}) {
-	t.Lock()
-	defer t.Unlock()
-	buffer := t.buff.Get().(*bytes.Buffer)
-	buffer.Reset()
+func (t *TemplateCache) RenderWithBuffer(w http.ResponseWriter, r *http.Request, tmpl string, data interface{}) {
+	bufPool := OpenBufferPool()
+	buffer := bufPool.Get()
 	err := t.cache.ExecuteTemplate(buffer, tmpl, data)
 	if err != nil {
-		t.buff.Put(buffer)
+		bufPool.Put(buffer)
 		t.logger.Printf("Error while executing template (%s): %v\n", tmpl, err)
 		http.Redirect(w, r, "/error/404", http.StatusTemporaryRedirect)
 		return
@@ -100,13 +78,24 @@ func (t *TemplateCache) Render(w http.ResponseWriter, r *http.Request, tmpl stri
 	if err != nil {
 		t.logger.Printf("Error while writing (Render) to ResponseWriter: %v\n", err)
 	}
-	t.buff.Put(buffer)
+	bufPool.Put(buffer)
+	return
+}
+
+func (t *TemplateCache) Render(w http.ResponseWriter, r *http.Request, tmpl string, data interface{}) {
+	err := t.cache.ExecuteTemplate(w, tmpl, data)
+	if err != nil {
+		t.logger.Printf("Error while executing template (%s): %v\n", tmpl, err)
+		http.Redirect(w, r, "/error/404", http.StatusTemporaryRedirect)
+		return
+	}
+	if err != nil {
+		t.logger.Printf("Error while writing (Render) to ResponseWriter: %v\n", err)
+	}
 	return
 }
 
 func (t *TemplateCache) Raw(w http.ResponseWriter, format string, data ...interface{}) {
-	t.Lock()
-	defer t.Unlock()
 	_, err := fmt.Fprintf(w, format, data...)
 	if err != nil {
 		t.logger.Printf("Error while writing (Raw) to ResponseWriter: %v\n", err)
@@ -116,8 +105,6 @@ func (t *TemplateCache) Raw(w http.ResponseWriter, format string, data ...interf
 }
 
 func (t *TemplateCache) ContentType(w http.ResponseWriter, content string) {
-	t.Lock()
-	defer t.Unlock()
 	ct := mime.TypeByExtension(content)
 	if ct == "" {
 		t.logger.Printf("Error, incompatible content type!\n")
