@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -57,16 +58,18 @@ func (s *ServeMux) Search(x string) int {
 }
 
 var (
-	defaultStaticPath   = "web/static/"
-	defaultTemplatePath = "web/templates/*.html"
+	defaultStaticPath     = "web/static/"
+	defaultTemplatePath   = "web/templates/"
+	defaultTemplateSuffix = ".tmpl.html"
 
 	defaultMuxConfigMaxOpts = &MuxConfig{
-		StaticPath:    defaultStaticPath,
-		WithLogging:   true,
-		StdOutLogger:  logging.NewStdOutLogger(os.Stdout),
-		StdErrLogger:  logging.NewStdErrLogger(os.Stderr),
-		WithTemplates: true,
-		TemplatePath:  defaultTemplatePath,
+		StaticPath:     defaultStaticPath,
+		WithLogging:    true,
+		StdOutLogger:   logging.NewStdOutLogger(os.Stdout),
+		StdErrLogger:   logging.NewStdErrLogger(os.Stderr),
+		WithTemplates:  true,
+		TemplatePath:   defaultTemplatePath,
+		TemplateSuffix: ".tmpl.html",
 	}
 
 	defaultMuxConfigMinOpts = &MuxConfig{
@@ -75,12 +78,13 @@ var (
 )
 
 type MuxConfig struct {
-	StaticPath    string
-	WithLogging   bool
-	StdOutLogger  *log.Logger
-	StdErrLogger  *log.Logger
-	WithTemplates bool
-	TemplatePath  string
+	StaticPath     string
+	WithLogging    bool
+	StdOutLogger   *log.Logger
+	StdErrLogger   *log.Logger
+	WithTemplates  bool
+	TemplatePath   string
+	TemplateSuffix string
 }
 
 func checkConfig(conf *MuxConfig) *MuxConfig {
@@ -91,6 +95,8 @@ func checkConfig(conf *MuxConfig) *MuxConfig {
 	}
 	if conf.StaticPath == *new(string) {
 		conf.StaticPath = defaultStaticPath
+	} else {
+		conf.StaticPath = filepath.FromSlash(conf.StaticPath + string(filepath.Separator))
 	}
 	if conf.WithLogging {
 		if conf.StdOutLogger == nil {
@@ -103,6 +109,11 @@ func checkConfig(conf *MuxConfig) *MuxConfig {
 	if conf.WithTemplates {
 		if conf.TemplatePath == *new(string) {
 			conf.TemplatePath = defaultTemplatePath
+		} else {
+			conf.TemplatePath = filepath.FromSlash(conf.TemplatePath + string(filepath.Separator))
+		}
+		if conf.TemplateSuffix == *new(string) {
+			conf.TemplateSuffix = defaultTemplateSuffix
 		}
 	}
 	return conf
@@ -298,7 +309,7 @@ func (s *ServeMux) renderer() http.Handler {
 			http.Redirect(w, r, "/error/404", http.StatusTemporaryRedirect)
 			return
 		}
-		// otherwise, the write to the buffer went find, so now we write to the http.ResponseWriter
+		// otherwise, write to the buffer went find, so now we write to the http.ResponseWriter
 		_, err = buffer.WriteTo(w)
 		if err != nil {
 			s.conf.StdErrLogger.Printf("Error while writing (Render) to ResponseWriter: %v\n", err)

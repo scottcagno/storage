@@ -114,6 +114,9 @@ type WAL struct {
 
 // OpenWAL opens and returns a new write-ahead log structure
 func OpenWAL(base string) (*WAL, error) {
+	// TODO: consider replacing `filepath.Abs()`, and `filepath.ToSlash()`
+	// TODO: with `filepath.Clean()` at some point or another. It should
+	// TODO: close enough to the same (possibly even better), so yeah.
 	// make sure we are working with absolute paths
 	base, err := filepath.Abs(base)
 	if err != nil {
