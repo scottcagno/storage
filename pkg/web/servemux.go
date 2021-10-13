@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"github.com/scottcagno/storage/pkg/web/logging"
 	"log"
 	"mime"
@@ -19,6 +20,14 @@ type muxEntry struct {
 	method  string
 	pattern string
 	handler http.Handler
+}
+
+func (m muxEntry) Compare(that rbtree.RBEntry) int {
+	return strings.Compare(m.pattern, that.(muxEntry).pattern)
+}
+
+func (m muxEntry) Size() int {
+	return len(m.method) + len(m.pattern) + 8
 }
 
 func (m muxEntry) String() string {
@@ -98,10 +107,11 @@ func checkMuxConfig(conf *MuxConfig) *MuxConfig {
 }
 
 type ServeMux struct {
-	lock sync.Mutex
-	conf *MuxConfig
-	em   map[string]muxEntry
-	es   []muxEntry
+	lock   sync.Mutex
+	conf   *MuxConfig
+	em     map[string]muxEntry
+	es     []muxEntry
+	routes *rbtree.RBTree
 }
 
 func NewServeMux(conf *MuxConfig) *ServeMux {
@@ -139,6 +149,7 @@ func (s *ServeMux) Handle(method string, pattern string, handler http.Handler) {
 	if pattern[len(pattern)-1] == '/' {
 		s.es = appendSorted(s.es, entry)
 	}
+	s.routes.Put(entry)
 }
 
 func appendSorted(es []muxEntry, e muxEntry) []muxEntry {

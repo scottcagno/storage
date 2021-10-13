@@ -36,6 +36,7 @@ func checkTemplateConfig(conf *TemplateConfig) *TemplateConfig {
 	return conf
 }
 
+// TemplateCache is a template engine that caches golang html/template files
 type TemplateCache struct {
 	conf  *TemplateConfig
 	cache *template.Template
