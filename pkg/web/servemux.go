@@ -56,11 +56,9 @@ func (s *ServeMux) Search(x string) int {
 }
 
 var (
-	defaultStaticPath     = "web/static/"
-	defaultTemplatePath   = "web/templates/"
-	defaultTemplateSuffix = ".tmpl.html"
+	defaultStaticPath = "web/static/"
 
-	defaultMuxConfigMaxOpts = &MuxConfig{
+	DefaultMuxConfigMaxOpts = &MuxConfig{
 		StaticPath:   defaultStaticPath,
 		WithLogging:  true,
 		StdOutLogger: logging.NewStdOutLogger(os.Stdout),
@@ -81,9 +79,7 @@ type MuxConfig struct {
 
 func checkMuxConfig(conf *MuxConfig) *MuxConfig {
 	if conf == nil {
-		conf = &MuxConfig{
-			StaticPath: defaultStaticPath,
-		}
+		conf = defaultMuxConfigMinOpts
 	}
 	if conf.StaticPath == *new(string) {
 		conf.StaticPath = defaultStaticPath
