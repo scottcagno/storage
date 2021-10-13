@@ -1,13 +1,17 @@
 package main
 
 import (
+	"fmt"
 	"github.com/scottcagno/storage/pkg/util"
 	"github.com/scottcagno/storage/pkg/web"
 	"github.com/scottcagno/storage/pkg/web/logging"
 	"html/template"
 	"log"
+	"math"
+	"math/rand"
 	"net/http"
 	"path/filepath"
+	"time"
 )
 
 const LISTENING_ADDR = ":8080"
@@ -17,21 +21,29 @@ func main() {
 	// initialize a logger
 	stdOut, stdErr := logging.NewDefaultLogger()
 
+	// get filepath for later
+	path, _ := util.GetFilepath()
+
 	// initialize a new multiplexer configuration
-	conf := &web.MuxConfig{
+	muxConf := &web.MuxConfig{
+		StaticPath:   filepath.Join(path, "data/static/"),
 		WithLogging:  true,
 		StdOutLogger: stdOut,
 		StdErrLogger: stdErr,
 	}
 
 	// initialize new http multiplexer
-	mux := web.NewServeMux(conf)
+	mux := web.NewServeMux(muxConf)
 
-	// get filepath for later
-	path, _ := util.GetFilepath()
+	// initialize a new template cache configuration
+	tmplConf := &web.TemplateConfig{
+		TemplatePattern: filepath.Join(path, "data/templates/*.html"),
+		StdErrLogger:    stdErr,
+		FuncMap:         fm,
+	}
 
-	// initialize new template cache
-	tc, err := web.NewTemplateCache0(filepath.Join(path, "data/templates/*.html"), stdErr)
+	// initialize a new template cache instance
+	tc, err := web.NewTemplateCache(tmplConf)
 	if err != nil {
 		log.Panicln(err)
 	}
@@ -43,6 +55,7 @@ func main() {
 	mux.Get("/home", homeHandler(tc.Lookup("home.html")))
 	mux.Get("/login", loginHandler(tc.Lookup("login.html")))
 	mux.Get("/post", postHandler(tc.Lookup("post.html")))
+	mux.Get("/functest", funcTestHandler(tc.Lookup("func-test.html")))
 
 	// OPTION #1 (passing the entire template cache)
 	mux.Get("/user", userHandler(tc))
@@ -56,6 +69,28 @@ func main() {
 
 	util.HandleSignalInterrupt("Server started, listening on %s", LISTENING_ADDR)
 	stdErr.Panicln(http.ListenAndServe(LISTENING_ADDR, mux))
+}
+
+var fm = template.FuncMap{
+	"add": func(a, b int) int {
+		return a + b
+	},
+	"mod": func(a, b int) int {
+		return a % b
+	},
+	"rand": func(min, max int) int {
+		rand.Seed(time.Now().UnixNano())
+		return rand.Intn(max-min+1) + min
+	},
+	"log2": math.Log2,
+	"log":  math.Log,
+}
+
+func PrintTemplates(name string, tc *web.TemplateCache) {
+	fmt.Printf("[%s]\n", name)
+	for i, tmpl := range tc.Templates() {
+		fmt.Printf("template[%d]=%q\n", i, tmpl.Name())
+	}
 }
 
 func indexHandler(t *template.Template) http.Handler {
@@ -98,6 +133,19 @@ func loginHandler(t *template.Template) http.Handler {
 }
 
 func postHandler(t *template.Template) http.Handler {
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		err := t.Execute(w, nil)
+		if err != nil {
+			code := http.StatusNotAcceptable
+			http.Error(w, http.StatusText(code), code)
+			return
+		}
+		return
+	}
+	return http.HandlerFunc(fn)
+}
+
+func funcTestHandler(t *template.Template) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		err := t.Execute(w, nil)
 		if err != nil {

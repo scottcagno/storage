@@ -1,10 +1,8 @@
 package web
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/scottcagno/storage/pkg/web/logging"
-	"html/template"
 	"log"
 	"mime"
 	"net/http"
@@ -63,13 +61,10 @@ var (
 	defaultTemplateSuffix = ".tmpl.html"
 
 	defaultMuxConfigMaxOpts = &MuxConfig{
-		StaticPath:     defaultStaticPath,
-		WithLogging:    true,
-		StdOutLogger:   logging.NewStdOutLogger(os.Stdout),
-		StdErrLogger:   logging.NewStdErrLogger(os.Stderr),
-		WithTemplates:  true,
-		TemplatePath:   defaultTemplatePath,
-		TemplateSuffix: ".tmpl.html",
+		StaticPath:   defaultStaticPath,
+		WithLogging:  true,
+		StdOutLogger: logging.NewStdOutLogger(os.Stdout),
+		StdErrLogger: logging.NewStdErrLogger(os.Stderr),
 	}
 
 	defaultMuxConfigMinOpts = &MuxConfig{
@@ -78,16 +73,13 @@ var (
 )
 
 type MuxConfig struct {
-	StaticPath     string
-	WithLogging    bool
-	StdOutLogger   *log.Logger
-	StdErrLogger   *log.Logger
-	WithTemplates  bool
-	TemplatePath   string
-	TemplateSuffix string
+	StaticPath   string
+	WithLogging  bool
+	StdOutLogger *log.Logger
+	StdErrLogger *log.Logger
 }
 
-func checkConfig(conf *MuxConfig) *MuxConfig {
+func checkMuxConfig(conf *MuxConfig) *MuxConfig {
 	if conf == nil {
 		conf = &MuxConfig{
 			StaticPath: defaultStaticPath,
@@ -106,45 +98,26 @@ func checkConfig(conf *MuxConfig) *MuxConfig {
 			conf.StdErrLogger = logging.NewStdErrLogger(os.Stderr)
 		}
 	}
-	if conf.WithTemplates {
-		if conf.TemplatePath == *new(string) {
-			conf.TemplatePath = defaultTemplatePath
-		} else {
-			conf.TemplatePath = filepath.FromSlash(conf.TemplatePath + string(filepath.Separator))
-		}
-		if conf.TemplateSuffix == *new(string) {
-			conf.TemplateSuffix = defaultTemplateSuffix
-		}
-	}
 	return conf
 }
 
 type ServeMux struct {
 	lock sync.Mutex
-	pool sync.Pool
 	conf *MuxConfig
 	em   map[string]muxEntry
 	es   []muxEntry
-	tmpl *template.Template
 }
 
 func NewServeMux(conf *MuxConfig) *ServeMux {
-	conf = checkConfig(conf)
+	conf = checkMuxConfig(conf)
 	mux := &ServeMux{
-		pool: sync.Pool{
-			New: func() interface{} {
-				return new(bytes.Buffer)
-			},
-		},
 		conf: conf,
 		em:   make(map[string]muxEntry),
 		es:   make([]muxEntry, 0),
 	}
 	mux.Get("/favicon.ico", http.NotFoundHandler())
-	if conf.WithTemplates {
-		mux.tmpl = template.Must(template.New("*").Funcs(fm).ParseGlob(conf.TemplatePath))
-		mux.Get("/render", mux.renderer())
-	}
+	mux.Get("/static/img/favicon.ico", http.NotFoundHandler())
+	mux.Get("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(conf.StaticPath))))
 	mux.Get("/info", mux.info())
 	return mux
 }
@@ -276,7 +249,9 @@ func (s *ServeMux) info() http.Handler {
 	return http.HandlerFunc(fn)
 }
 
-func (s *ServeMux) renderer() http.Handler {
+// TODO: consider removing...
+/*
+func (s *ServeMux) _renderer() http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		// get view supplied
 		name := r.URL.Query().Get("view")
@@ -320,6 +295,7 @@ func (s *ServeMux) renderer() http.Handler {
 	}
 	return http.HandlerFunc(fn)
 }
+*/
 
 func (s *ServeMux) ContentType(w http.ResponseWriter, content string) {
 	s.lock.Lock()
