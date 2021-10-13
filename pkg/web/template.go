@@ -22,13 +22,13 @@ type TemplateConfig struct {
 func checkTemplateConfig(conf *TemplateConfig) *TemplateConfig {
 	if conf == nil {
 		conf = &TemplateConfig{
-			TemplatePattern: defaultTemplatePath,
+			TemplatePattern: defaultTemplatePattern,
 			StdErrLogger:    logging.NewStdErrLogger(os.Stderr),
 			FuncMap:         template.FuncMap{},
 		}
 	}
 	if conf.TemplatePattern == *new(string) {
-		conf.TemplatePattern = defaultTemplatePath
+		conf.TemplatePattern = defaultTemplatePattern
 	}
 	if conf.StdErrLogger == nil {
 		conf.StdErrLogger = logging.NewStdErrLogger(os.Stderr)

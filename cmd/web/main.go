@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -52,7 +53,9 @@ func main() {
 	//mux.Get("", http.NotFoundHandler())
 	mux.Get("/", http.RedirectHandler("/info", http.StatusTemporaryRedirect))
 	mux.Get("/index", indexHandler(tc.Lookup("index.html")))
+
 	mux.Get("/home", homeHandler(tc.Lookup("home.html")))
+
 	mux.Get("/login", loginHandler(tc.Lookup("login.html")))
 	mux.Get("/post", postHandler(tc.Lookup("post.html")))
 	mux.Get("/functest", funcTestHandler(tc.Lookup("func-test.html")))
@@ -84,6 +87,10 @@ var fm = template.FuncMap{
 	},
 	"log2": math.Log2,
 	"log":  math.Log,
+	"love": func(name string) string {
+		return "I love you " + name
+	},
+	"title": strings.ToTitle,
 }
 
 func PrintTemplates(name string, tc *web.TemplateCache) {
