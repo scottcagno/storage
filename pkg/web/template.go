@@ -9,11 +9,14 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 )
 
 var defaultTemplatePattern = "web/templates/*.html"
 
 type TemplateConfig struct {
+	StubsPattern    string
+	TemplatePath    string
 	TemplatePattern string
 	StdErrLogger    *log.Logger
 	FuncMap         template.FuncMap
@@ -58,8 +61,38 @@ func NewTemplateCache(conf *TemplateConfig) (*TemplateCache, error) {
 	return tc, nil
 }
 
-func (t *TemplateCache) Templates() []*template.Template {
-	return t.cache.Templates()
+func NewTemplateCacheWithSeperateStubs(conf *TemplateConfig) (*TemplateCache, error) {
+	conf = checkTemplateConfig(conf)
+	t, err := template.New("*").Funcs(conf.FuncMap).ParseGlob(conf.TemplatePattern)
+	if err != nil {
+		return nil, err
+	}
+	if matches, _ := filepath.Glob(conf.StubsPattern); len(matches) > 0 {
+		t, err = t.ParseGlob(conf.StubsPattern)
+		if err != nil {
+			return nil, err
+		}
+	}
+	tc := &TemplateCache{
+		cache: t,
+		conf:  checkTemplateConfig(conf),
+	}
+	return tc, nil
+}
+
+func (tc *TemplateCache) AddSeperateStubs(stubsPattern string) error {
+	var err error
+	if matches, _ := filepath.Glob(stubsPattern); len(matches) > 0 {
+		tc.cache, err = tc.cache.ParseGlob(stubsPattern)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *TemplateCache) Templates() ([]*template.Template, string) {
+	return t.cache.Templates(), t.cache.DefinedTemplates()
 }
 
 func (t *TemplateCache) Use(name string) *template.Template {

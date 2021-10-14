@@ -38,13 +38,20 @@ func main() {
 
 	// initialize a new template cache configuration
 	tmplConf := &web.TemplateConfig{
-		TemplatePattern: filepath.Join(path, "data/templates/**.html"),
+		StubsPattern:    filepath.Join(path, "data/templates/*/*.html"),
+		TemplatePath:    filepath.Join(path, "data/templates/"),
+		TemplatePattern: filepath.Join(path, "data/templates/*.html"),
 		StdErrLogger:    stdErr,
 		FuncMap:         fm,
 	}
 
 	// initialize a new template cache instance
 	tc, err := web.NewTemplateCache(tmplConf)
+	if err != nil {
+		log.Panicln(err)
+	}
+	// add seperate stubs
+	err = tc.AddSeperateStubs(tmplConf.StubsPattern)
 	if err != nil {
 		log.Panicln(err)
 	}
@@ -71,6 +78,7 @@ func main() {
 	// OPTION #3 (also, just a different way of passing the single template)
 	user3 := tc.Lookup("user-model-03.html")
 	mux.Get("/user/3", user3Handler(user3))
+	mux.Get("/templates", listTemplates(tc))
 
 	util.HandleSignalInterrupt("Server started, listening on %s", LISTENING_ADDR)
 	stdErr.Panicln(http.ListenAndServe(LISTENING_ADDR, mux))
@@ -96,10 +104,25 @@ var fm = template.FuncMap{
 }
 
 func PrintTemplates(name string, tc *web.TemplateCache) {
-	fmt.Printf("[%s]\n", name)
-	for i, tmpl := range tc.Templates() {
+	templs, defined := tc.Templates()
+	fmt.Printf("[%s]\n%s\n", name, defined)
+	for i, tmpl := range templs {
 		fmt.Printf("template[%d]=%q\n", i, tmpl.Name())
 	}
+}
+
+func listTemplates(tc *web.TemplateCache) http.Handler {
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		var s string
+		templs, defined := tc.Templates()
+		s += fmt.Sprintf("%s\n", defined)
+		for i, tmpl := range templs {
+			s += fmt.Sprintf("template[%d]=%q\n", i, tmpl.Name())
+		}
+		fmt.Fprint(w, s)
+		return
+	}
+	return http.HandlerFunc(fn)
 }
 
 func indexHandler(t *template.Template) http.Handler {
