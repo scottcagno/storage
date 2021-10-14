@@ -107,11 +107,11 @@ func checkMuxConfig(conf *MuxConfig) *MuxConfig {
 }
 
 type ServeMux struct {
-	lock   sync.Mutex
-	conf   *MuxConfig
-	em     map[string]muxEntry
-	es     []muxEntry
-	routes *rbtree.RBTree
+	lock sync.Mutex
+	conf *MuxConfig
+	em   map[string]muxEntry
+	es   []muxEntry
+	//routes *rbtree.RBTree
 }
 
 func NewServeMux(conf *MuxConfig) *ServeMux {
@@ -149,7 +149,7 @@ func (s *ServeMux) Handle(method string, pattern string, handler http.Handler) {
 	if pattern[len(pattern)-1] == '/' {
 		s.es = appendSorted(s.es, entry)
 	}
-	s.routes.Put(entry)
+	//s.routes.Put(entry)
 }
 
 func appendSorted(es []muxEntry, e muxEntry) []muxEntry {

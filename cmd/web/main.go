@@ -38,7 +38,7 @@ func main() {
 
 	// initialize a new template cache configuration
 	tmplConf := &web.TemplateConfig{
-		TemplatePattern: filepath.Join(path, "data/templates/*.html"),
+		TemplatePattern: filepath.Join(path, "data/templates/**.html"),
 		StdErrLogger:    stdErr,
 		FuncMap:         fm,
 	}
@@ -53,6 +53,8 @@ func main() {
 	//mux.Get("", http.NotFoundHandler())
 	mux.Get("/", http.RedirectHandler("/info", http.StatusTemporaryRedirect))
 	mux.Get("/index", indexHandler(tc.Lookup("index.html")))
+
+	mux.Get("/index2", index2Handler(tc.Lookup("index-two.html")))
 
 	mux.Get("/home", homeHandler(tc.Lookup("home.html")))
 
@@ -101,6 +103,19 @@ func PrintTemplates(name string, tc *web.TemplateCache) {
 }
 
 func indexHandler(t *template.Template) http.Handler {
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		err := t.Execute(w, nil)
+		if err != nil {
+			code := http.StatusNotAcceptable
+			http.Error(w, http.StatusText(code), code)
+			return
+		}
+		return
+	}
+	return http.HandlerFunc(fn)
+}
+
+func index2Handler(t *template.Template) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		err := t.Execute(w, nil)
 		if err != nil {

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {{ template "header.stub.html" }}
+    <title>Blog | Index</title>
+</head>
+<body>
+<div class="content">
+    <div class="container">
+        <h1>Index</h1>
+        <p>This is the index page</p>
+        </p>{{ .Data }}</p>
+        <p>Add: 123+89321={{ add 123 89321 }} (89444)</p>
+        <p>Mod: 24 % 5={{ mod 24 5 }} (4)</p>
+        <p>Rand: {{ rand 35 625 }} (between 35 and 625)</p>
+        <p>Log2: log2(72.0)={{ log2 72.0 }} (6.16)</p>
+        <p>Log: log(21.0)={{ log 21.0 }} (1.32)</p>
+        <p>Custom: {{ love "victoria" }}</p>
+        <p>this is the title of my book {{ title "this is the title of my book" }}</p>
+        <hr>
+        {{ template "links.stub.html" }}
+    </div>
+</div>
+{{ template "scripts.stub.html" }}
+{{ template "footer.stub.html" }}
+</body>
+</html>
