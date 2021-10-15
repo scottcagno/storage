@@ -165,6 +165,40 @@ func (t *TemplateCache) ContentType(w http.ResponseWriter, content string) {
 	return
 }
 
+func (t *TemplateCache) Handle(name string) http.Handler {
+	tmpl := t.Lookup(name)
+	if tmpl == nil {
+		return http.NotFoundHandler()
+	}
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		err := tmpl.Execute(w, nil)
+		if err != nil {
+			code := http.StatusInternalServerError
+			http.Error(w, http.StatusText(code), code)
+			return
+		}
+		return
+	}
+	return http.HandlerFunc(fn)
+}
+
+func (t *TemplateCache) HandleWithData(name string, data interface{}) http.Handler {
+	tmpl := t.Lookup(name)
+	if tmpl == nil {
+		return http.NotFoundHandler()
+	}
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		err := tmpl.Execute(w, data)
+		if err != nil {
+			code := http.StatusInternalServerError
+			http.Error(w, http.StatusText(code), code)
+			return
+		}
+		return
+	}
+	return http.HandlerFunc(fn)
+}
+
 type TemplateManager struct {
 	lock  sync.RWMutex
 	scope map[string]*TemplateCache
