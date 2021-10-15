@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"github.com/scottcagno/storage/pkg/web/logging"
 	"html/template"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 var (
@@ -161,4 +163,54 @@ func (t *TemplateCache) ContentType(w http.ResponseWriter, content string) {
 	}
 	w.Header().Set("Content-Type", ct)
 	return
+}
+
+type TemplateManager struct {
+	lock  sync.RWMutex
+	scope map[string]*TemplateCache
+}
+
+func NewTemplateManager() *TemplateManager {
+	return &TemplateManager{
+		scope: make(map[string]*TemplateCache),
+	}
+}
+
+var ErrScopeExists = errors.New("scope already exists and cannot be added again")
+var ErrScopeNotExists = errors.New("scope does not exist; cannot be found")
+
+func (tm *TemplateManager) AddCache(scope, base, tmplPattern, stubPattern string) error {
+	tm.lock.Lock()
+	defer tm.lock.Unlock()
+	if _, ok := tm.scope[scope]; ok {
+		return ErrScopeExists
+	}
+	tmplConf := &TemplateConfig{
+		StubsPattern:    filepath.Join(base, stubPattern),
+		TemplatePattern: filepath.Join(base, tmplPattern),
+	}
+	tc, err := NewTemplateCacheWithSeparateStubs(tmplConf)
+	if err != nil {
+		return err
+	}
+	tm.scope[scope] = tc
+	return nil
+}
+
+func (tm *TemplateManager) GetCache(scope string) *TemplateCache {
+	tm.lock.RLock()
+	defer tm.lock.RUnlock()
+	if tc, ok := tm.scope[scope]; ok {
+		return tc
+	}
+	return nil
+}
+
+func (tm *TemplateManager) Lookup(scope, name string) *template.Template {
+	tm.lock.RLock()
+	defer tm.lock.RUnlock()
+	if tc, ok := tm.scope[scope]; ok {
+		return tc.Lookup(name)
+	}
+	return nil
 }
