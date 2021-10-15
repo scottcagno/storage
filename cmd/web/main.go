@@ -79,6 +79,13 @@ func main() {
 	mux.Get("/user/3", user3Handler(user3))
 	mux.Get("/templates", listTemplates(tc))
 
+	mux.Get("/foo", tc.Handle("foo.html"))
+	mux.Get("/foo/data", tc.HandleWithData("foo.html", struct {
+		Data interface{}
+	}{
+		Data: "THIS IS A TEST",
+	}))
+
 	util.HandleSignalInterrupt("Server started, listening on %s", LISTENING_ADDR)
 	stdErr.Panicln(http.ListenAndServe(LISTENING_ADDR, mux))
 }
