@@ -39,7 +39,6 @@ func main() {
 	// initialize a new template cache configuration
 	tmplConf := &web.TemplateConfig{
 		StubsPattern:    filepath.Join(path, "data/templates/*/*.html"),
-		TemplatePath:    filepath.Join(path, "data/templates/"),
 		TemplatePattern: filepath.Join(path, "data/templates/*.html"),
 		StdErrLogger:    stdErr,
 		FuncMap:         fm,
@@ -50,7 +49,7 @@ func main() {
 	if err != nil {
 		log.Panicln(err)
 	}
-	// add seperate stubs
+	// add separate stubs
 	err = tc.AddSeparateStubs(tmplConf.StubsPattern)
 	if err != nil {
 		log.Panicln(err)
