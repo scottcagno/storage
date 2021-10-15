@@ -51,20 +51,20 @@ type TemplateCache struct {
 // new *TemplateCache instance. On success, it returns a nil error. An example
 // pattern to glob would be: "web/templates/*.html" or "my-path/*.tmpl.html"
 func NewTemplateCache(conf *TemplateConfig) (*TemplateCache, error) {
-	conf = checkTemplateConfig(conf)
+	sconf := checkTemplateConfig(conf)
 	t, err := template.New("*").Funcs(conf.FuncMap).ParseGlob(conf.TemplatePattern)
 	if err != nil {
 		return nil, err
 	}
 	tc := &TemplateCache{
 		cache: t,
-		conf:  checkTemplateConfig(conf),
+		conf:  sconf,
 	}
 	return tc, nil
 }
 
-func NewTemplateCacheWithSeperateStubs(conf *TemplateConfig) (*TemplateCache, error) {
-	conf = checkTemplateConfig(conf)
+func NewTemplateCacheWithSeparateStubs(conf *TemplateConfig) (*TemplateCache, error) {
+	sconf := checkTemplateConfig(conf)
 	t, err := template.New("*").Funcs(conf.FuncMap).ParseGlob(conf.TemplatePattern)
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func NewTemplateCacheWithSeperateStubs(conf *TemplateConfig) (*TemplateCache, er
 	}
 	tc := &TemplateCache{
 		cache: t,
-		conf:  checkTemplateConfig(conf),
+		conf:  sconf,
 	}
 	return tc, nil
 }
