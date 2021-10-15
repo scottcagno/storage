@@ -12,11 +12,13 @@ import (
 	"path/filepath"
 )
 
-var defaultTemplatePattern = "web/templates/*.html"
+var (
+	defaultTemplatePattern = "web/templates/*.html"
+	defaultStubsPattern    = "web/templates/*/*.html"
+)
 
 type TemplateConfig struct {
 	StubsPattern    string
-	TemplatePath    string
 	TemplatePattern string
 	StdErrLogger    *log.Logger
 	FuncMap         template.FuncMap
@@ -80,10 +82,10 @@ func NewTemplateCacheWithSeperateStubs(conf *TemplateConfig) (*TemplateCache, er
 	return tc, nil
 }
 
-func (tc *TemplateCache) AddSeperateStubs(stubsPattern string) error {
+func (t *TemplateCache) AddSeparateStubs(stubsPattern string) error {
 	var err error
 	if matches, _ := filepath.Glob(stubsPattern); len(matches) > 0 {
-		tc.cache, err = tc.cache.ParseGlob(stubsPattern)
+		t.cache, err = t.cache.ParseGlob(stubsPattern)
 		if err != nil {
 			return err
 		}

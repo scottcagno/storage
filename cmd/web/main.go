@@ -51,7 +51,7 @@ func main() {
 		log.Panicln(err)
 	}
 	// add seperate stubs
-	err = tc.AddSeperateStubs(tmplConf.StubsPattern)
+	err = tc.AddSeparateStubs(tmplConf.StubsPattern)
 	if err != nil {
 		log.Panicln(err)
 	}
