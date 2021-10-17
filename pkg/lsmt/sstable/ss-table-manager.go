@@ -279,6 +279,37 @@ func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
 	return de, nil
 }
 
+func (sstm *SSTManager) GetEntryIndex(k string) (*binary.Index, error) {
+	// read lock
+	sstm.lock.RLock()
+	defer sstm.lock.RUnlock()
+	// search sparse index
+	index, err := sstm.isInRange(k)
+	if err != nil {
+		return nil, err
+	}
+	if index == -1 {
+		return nil, ErrSSTIndexNotFound
+	}
+	// open ss-table-index for reading
+	sst, err := OpenSSTable(sstm.base, index)
+	if err != nil {
+		return nil, err
+	}
+	// read index data
+	di, err := sst.ReadIndex(k)
+	if err != nil {
+		return nil, err
+	}
+	// close ss-table
+	err = sst.Close()
+	if err != nil {
+		return nil, err
+	}
+	// return entry
+	return di, nil
+}
+
 func (sstm *SSTManager) ListSSTables() []string {
 	// read lock
 	sstm.lock.RLock()

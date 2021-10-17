@@ -111,6 +111,15 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 	return de.Value, nil
 }
 
+type Iterator struct {
+	entry *binary.Entry
+}
+
+func (lsm *LSMTree) GetIteratorAt(k string) (*Iterator, error) {
+	// TODO: finish this...
+	return nil, nil
+}
+
 func (lsm *LSMTree) Del(k string) error {
 	// write entry to memtable
 	err := lsm.memt.Del(k)

@@ -105,6 +105,21 @@ func (sst *SSTable) Read(key string) (*binary.Entry, error) {
 	return e, nil
 }
 
+func (sst *SSTable) ReadIndex(key string) (*binary.Index, error) {
+	// error check
+	err := sst.errorCheckFileAndIndex()
+	if err != nil {
+		return nil, err
+	}
+	// find gindex using key
+	i, err := sst.index.Find(key)
+	if err != nil {
+		return nil, err
+	}
+	// found it
+	return i, nil
+}
+
 func (sst *SSTable) ReadAt(offset int64) (*binary.Entry, error) {
 	// error check
 	err := sst.errorCheckFileAndIndex()
