@@ -55,6 +55,12 @@ func main() {
 		log.Panicln(err)
 	}
 
+	tc2, err := web.NewTemplateCacheWithFiles(nil, path+"/data/templates/index.html")
+	if err != nil {
+		panic(err)
+	}
+	log.Printf(">>>>>>>>>>>> %+v\n", tc2)
+
 	// setup routes and handlers
 	//mux.Get("", http.NotFoundHandler())
 	mux.Get("/", http.RedirectHandler("/info", http.StatusTemporaryRedirect))

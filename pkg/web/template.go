@@ -84,6 +84,19 @@ func NewTemplateCacheWithSeparateStubs(conf *TemplateConfig) (*TemplateCache, er
 	return tc, nil
 }
 
+func NewTemplateCacheWithFiles(conf *TemplateConfig, files ...string) (*TemplateCache, error) {
+	sconf := checkTemplateConfig(conf)
+	t, err := template.New("*").Funcs(sconf.FuncMap).ParseFiles(files...)
+	if err != nil {
+		return nil, err
+	}
+	tc := &TemplateCache{
+		cache: t,
+		conf:  sconf,
+	}
+	return tc, nil
+}
+
 func (t *TemplateCache) AddSeparateStubs(stubsPattern string) error {
 	var err error
 	if matches, _ := filepath.Glob(stubsPattern); len(matches) > 0 {
@@ -224,6 +237,24 @@ func (tm *TemplateManager) AddCache(scope, base, tmplPattern, stubPattern string
 		TemplatePattern: filepath.Join(base, tmplPattern),
 	}
 	tc, err := NewTemplateCacheWithSeparateStubs(tmplConf)
+	if err != nil {
+		return err
+	}
+	tm.scope[scope] = tc
+	return nil
+}
+
+func (tm *TemplateManager) AddCacheWithFiles(scope, base string, files ...string) error {
+	tm.lock.Lock()
+	defer tm.lock.Unlock()
+	if _, ok := tm.scope[scope]; ok {
+		return ErrScopeExists
+	}
+	var filepaths []string
+	for _, file := range files {
+		filepaths = append(filepaths, filepath.Join(base, file))
+	}
+	tc, err := NewTemplateCacheWithFiles(nil, filepaths...)
 	if err != nil {
 		return err
 	}
