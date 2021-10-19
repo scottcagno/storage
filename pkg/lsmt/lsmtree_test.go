@@ -5,6 +5,7 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/util"
 	"log"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -53,7 +54,8 @@ func TestOpenAndCloseNoWrite(t *testing.T) {
 
 func TestLSMTree(t *testing.T) {
 
-	count := 50000
+	strt := 0
+	stop := strt + 50000
 
 	// open lsm tree
 	logger("opening lsm tree")
@@ -62,10 +64,28 @@ func TestLSMTree(t *testing.T) {
 		t.Errorf("open: %v\n", err)
 	}
 
+	// get last key and update counter
+	k, err := lsm.GetLastKey()
+	if err != nil && err != sstable.ErrSSTIndexNotFound {
+		t.Errorf("get last key: %v\n", err)
+	}
+	if k != "" {
+		keyn, err := strconv.Atoi(k[4:])
+		if err != nil {
+			t.Errorf("get last key and set to count: %v\n", err)
+		}
+		if keyn == stop-1 {
+			strt = stop
+			stop = strt + 50000
+		}
+	}
+	log.Printf("start: %d, stop: %d\n", strt, stop)
+	time.Sleep(3 * time.Second)
+
 	// write Entries
 	logger("writing data")
 	ts1 := time.Now()
-	for i := 0; i < count; i++ {
+	for i := strt; i < stop; i++ {
 		err := lsm.Put(makeKey(i), makeVal(i))
 		if err != nil {
 			t.Errorf("put: %v\n", err)
@@ -96,7 +116,7 @@ func TestLSMTree(t *testing.T) {
 	// read Entries
 	logger("reading data")
 	ts1 = time.Now()
-	for i := 0; i < count; i++ {
+	for i := strt; i < stop; i++ {
 		v, err := lsm.Get(makeKey(i))
 		if err != nil {
 			t.Errorf("get: %v\n", err)
@@ -109,9 +129,9 @@ func TestLSMTree(t *testing.T) {
 	fmt.Println(util.FormatTime("reading Entries", ts1, ts2))
 
 	// remove Entries
-	logger("removing Entries (only odds)")
+	logger("removing data (only odds)")
 	ts1 = time.Now()
-	for i := 0; i < count; i++ {
+	for i := strt; i < stop; i++ {
 		if i%2 != 0 {
 			err = lsm.Del(makeKey(i))
 			if err != nil {
@@ -137,10 +157,11 @@ func TestLSMTree(t *testing.T) {
 	}
 
 	// read Entries
-	logger("reading Entries")
+	logger("reading data")
 	ts1 = time.Now()
-	for i := 0; i < count; i++ {
+	for i := strt; i < stop; i++ {
 		v, err := lsm.Get(makeKey(i))
+		log.Printf("%T, %v\n", err, err)
 		if err != nil {
 			if err == sstable.ErrSSTIndexNotFound {
 				continue
@@ -152,7 +173,7 @@ func TestLSMTree(t *testing.T) {
 		}
 	}
 	ts2 = time.Now()
-	fmt.Println(util.FormatTime("reading Entries", ts1, ts2))
+	fmt.Println(util.FormatTime("reading data", ts1, ts2))
 
 	// close
 	logger("closing lsm tree")

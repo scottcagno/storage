@@ -163,6 +163,14 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 	return de.Value, nil
 }
 
+func (lsm *LSMTree) GetLastKey() (string, error) {
+	key, err := lsm.sstm.GetLastKey()
+	if err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
 type Iterator struct {
 	entry *binary.Entry
 }

@@ -57,6 +57,7 @@ type SSTManager struct {
 	//sparse    map[int64]*SparseIndex
 	gindex    int64
 	cachedSST *SSTable
+	keyIndex  *rbtree.RBTree
 }
 
 // https://play.golang.org/p/m_cJtw4wWMc
@@ -82,6 +83,7 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 		base:    base,
 		inrange: make([]*KeyRange, 0),
 		//sparse:  make(map[int64]*SparseIndex, 0),
+		keyIndex: rbtree.NewRBTree(),
 	}
 	// read the ss-table directory
 	files, err := os.ReadDir(base)
@@ -113,6 +115,14 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 			first: ssi.first, // first key in the ss-table
 			last:  ssi.last,  // last key in the ss-table
 		}
+		// add to keyIndex
+		sstm.keyIndex.Put(sparseIndexEntry{
+			LastKey:  ssi.last,
+			SSTIndex: index,
+		})
+
+		fmt.Println(file.Name(), ssi.file.Name(), ssi.first, ssi.last)
+
 		// add it to our key in-range index
 		sstm.inrange = append(sstm.inrange, kr)
 		// populate sparse index
@@ -124,11 +134,26 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 		}
 	}
 	// update the last global gindex
-	sstm.gindex = sstm.getLastGIndex()
-
+	//sstm.gindex = sstm.getLastGIndex()
+	e, ok := sstm.keyIndex.Max()
+	if !ok {
+		sstm.gindex = 0
+	} else {
+		sstm.gindex = e.(sparseIndexEntry).SSTIndex
+	}
 	//log.Println(sstm.inrange, len(sstm.inrange), sstm.gindex)
 
+	fmt.Printf("KeyIndex: %s\n", sstm.keyIndex)
+
 	return sstm, nil
+}
+
+func (sstm *SSTManager) GetLastKey() (string, error) {
+	e, ok := sstm.keyIndex.Max()
+	if !ok {
+		return "", ErrSSTIndexNotFound
+	}
+	return e.(sparseIndexEntry).LastKey, nil
 }
 
 func (sstm *SSTManager) getLastGIndex() int64 {
@@ -257,6 +282,39 @@ func (sstm *SSTManager) isInRange(k string) (int64, error) { //(*SparseIndex, er
 }
 
 func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
+	// read lock
+	sstm.lock.RLock()
+	defer sstm.lock.RUnlock()
+	// search "sparse index"
+	e, ok := sstm.keyIndex.GetNearMin(sparseIndexEntry{LastKey: k})
+	if !ok {
+		if e.(sparseIndexEntry).LastKey < k {
+			log.Panicf("[HMMMM] >>> %s, searching key: %q\n", e, k)
+			return nil, ErrSSTIndexNotFound
+		}
+	}
+	// get the table path index
+	sstIndex := e.(sparseIndexEntry).SSTIndex
+	// open ss-table for reading
+	sst, err := OpenSSTable(sstm.base, sstIndex)
+	if err != nil {
+		return nil, err
+	}
+	// read data by key (performs search using ssi inside read)
+	de, err := sst.Read(k)
+	if err != nil {
+		return nil, err
+	}
+	// close ss-table
+	err = sst.Close()
+	if err != nil {
+		return nil, err
+	}
+	// return entry
+	return de, nil
+}
+
+func (sstm *SSTManager) GetOLD(k string) (*binary.Entry, error) {
 	// read lock
 	sstm.lock.RLock()
 	defer sstm.lock.RUnlock()

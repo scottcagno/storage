@@ -2,34 +2,46 @@ package sstable
 
 import (
 	"fmt"
-	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
-	"math"
 	"strings"
 )
 
 type sparseIndexEntry struct {
-	Key   string
-	Path  int64
-	Index *binary.Index
+	LastKey  string
+	SSTIndex int64
+	//Index *binary.Index
 }
 
 func (r sparseIndexEntry) Compare(that rbtree.RBEntry) int {
-	return strings.Compare(r.Key, that.(sparseIndexEntry).Key)
+	return strings.Compare(r.LastKey, that.(sparseIndexEntry).LastKey)
 }
 
 func (r sparseIndexEntry) Size() int {
-	return len(r.Key) + 8
+	return len(r.LastKey) + 8
 }
 
 func (r sparseIndexEntry) String() string {
-	return fmt.Sprintf("entry.Key=%q", r.Key)
+	return fmt.Sprintf("entry.LastKey=%q", r.LastKey)
 }
 
 type SparseIndex struct {
-	index int64
-	rbt   *rbtree.RBTree
+	rbt *rbtree.RBTree
 }
+
+func NewSparseIndex() *SparseIndex {
+	return &SparseIndex{
+		rbt: rbtree.NewRBTree(),
+	}
+}
+
+func (s *SparseIndex) Put(last string, index int64) {
+	s.rbt.Put(sparseIndexEntry{
+		LastKey:  last,
+		SSTIndex: index,
+	})
+}
+
+/*
 
 func ratio(n int64) int64 {
 	if n < 1 {
@@ -43,7 +55,6 @@ func ratio(n int64) int64 {
 
 func makeNewSparseIndex(index int64, ssi *SSTIndex) *SparseIndex {
 	spi := &SparseIndex{
-		index: index,
 		rbt:   rbtree.NewRBTree(),
 	}
 	count := int64(ssi.Len())
@@ -74,3 +85,4 @@ func (spi *SparseIndex) HasKey(k string) bool {
 	}
 	return false
 }
+*/
