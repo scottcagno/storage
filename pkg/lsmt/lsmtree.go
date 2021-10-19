@@ -10,25 +10,52 @@ import (
 )
 
 const (
-	walPath        = "log"
-	sstPath        = "data"
-	FlushThreshold = 2048 // 256KB
-	doSyncDefault  = false
+	walPath               = "log"
+	sstPath               = "data"
+	defaultBasePath       = "lsm-db"
+	defaultFlushThreshold = 1 << 20 // 1 MB
+	defaultSyncOnWrite    = false
 )
 
+var defaultLSMConfig = &LSMConfig{
+	BasePath:       defaultBasePath,
+	FlushThreshold: defaultFlushThreshold,
+	SyncOnWrite:    defaultSyncOnWrite,
+}
+
+type LSMConfig struct {
+	BasePath       string // base storage path
+	FlushThreshold int64  // memtable flush threshold in KB
+	SyncOnWrite    bool   // perform sync every time an entry is write
+}
+
+func checkLSMConfig(conf *LSMConfig) *LSMConfig {
+	if conf == nil {
+		return defaultLSMConfig
+	}
+	if conf.BasePath == *new(string) {
+		conf.BasePath = defaultBasePath
+	}
+	if conf.FlushThreshold < 1 {
+		conf.FlushThreshold = defaultFlushThreshold
+	}
+	return conf
+}
+
 type LSMTree struct {
-	base    string              // base is the base filepath for the database
+	conf    *LSMConfig
 	walbase string              // walbase is the write-ahead commit log base filepath
 	sstbase string              // sstbase is the sstable and index base filepath where data resides
 	lock    sync.RWMutex        // lock is a mutex that synchronizes access to the data
 	memt    *memtable.Memtable  // memt is the main memtable instance
 	sstm    *sstable.SSTManager // sstm is the sorted-strings table manager
-	doSync  bool                // doSync tells the memtable to sync every write (default: true)
 }
 
-func OpenLSMTree(base string) (*LSMTree, error) {
+func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
+	// check lsm config
+	conf := checkLSMConfig(c)
 	// make sure we are working with absolute paths
-	base, err := filepath.Abs(base)
+	base, err := filepath.Abs(conf.BasePath)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +74,11 @@ func OpenLSMTree(base string) (*LSMTree, error) {
 		return nil, err
 	}
 	// open mem-table
-	memt, err := memtable.OpenMemtable(walbase, FlushThreshold, doSyncDefault)
+	memt, err := memtable.OpenMemtable(&memtable.MemtableConfig{
+		BasePath:       walbase,
+		FlushThreshold: conf.FlushThreshold,
+		SyncOnWrite:    conf.SyncOnWrite,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +89,7 @@ func OpenLSMTree(base string) (*LSMTree, error) {
 	}
 	// create lsm-tree instance and return
 	lsmt := &LSMTree{
-		base:    base,
+		conf:    conf,
 		walbase: walbase,
 		sstbase: sstbase,
 		memt:    memt,
@@ -76,6 +107,27 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 	e := &binary.Entry{Key: []byte(k), Value: v}
 	// write entry to mem-table
 	err := lsm.memt.Put(e)
+	// check err properly
+	if err != nil {
+		// make sure it's the mem-table doesn't need flushing
+		if err != memtable.ErrFlushThreshold {
+			return err
+		}
+		// looks like it needs a flush
+		err = lsm.sstm.FlushMemtableToSSTable(lsm.memt)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (lsm *LSMTree) PutBatch(batch *binary.Batch) error {
+	// lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+	// write batch to mem-table
+	err := lsm.memt.PutBatch(batch)
 	// check err properly
 	if err != nil {
 		// make sure it's the mem-table doesn't need flushing
@@ -134,6 +186,15 @@ func (lsm *LSMTree) Del(k string) error {
 		if err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (lsm *LSMTree) Sync() error {
+	// sync memtable
+	err := lsm.memt.Sync()
+	if err != nil {
+		return err
 	}
 	return nil
 }

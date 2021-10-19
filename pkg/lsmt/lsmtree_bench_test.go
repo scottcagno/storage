@@ -17,7 +17,7 @@ func makeVal(i int) []byte {
 
 func lsmTreeWrite(b *testing.B, db *LSMTree, count int) {
 
-	// write data
+	// write Entries
 	for i := 0; i < count; i++ {
 		err := db.Put(makeKey(i), makeVal(i))
 		if err != nil {
@@ -31,7 +31,7 @@ func lsmTreeRead(b *testing.B, db *LSMTree, count int) {
 	// used to "catch" value
 	var vv interface{}
 
-	// read data
+	// read Entries
 	for i := 0; i < count; i++ {
 		v, err := db.Get(makeKey(i))
 		if err != nil {
@@ -47,7 +47,7 @@ func lsmTreeRead(b *testing.B, db *LSMTree, count int) {
 
 func lsmTreeRemove(b *testing.B, db *LSMTree, count int) {
 
-	// remove data
+	// remove Entries
 	for i := 0; i < count; i++ {
 		err := db.Del(makeKey(i))
 		if err != nil {
@@ -59,7 +59,7 @@ func lsmTreeRemove(b *testing.B, db *LSMTree, count int) {
 func setup(b *testing.B) *LSMTree {
 
 	// open
-	db, err := OpenLSMTree("lsm-testing")
+	db, err := OpenLSMTree(conf)
 	if err != nil {
 		b.Errorf("open: %v\n", err)
 	}
@@ -78,7 +78,7 @@ func teardown(b *testing.B, db *LSMTree, shouldClean bool) {
 
 	// check cleanup
 	if shouldClean {
-		err = os.RemoveAll(db.base)
+		err = os.RemoveAll(db.conf.BasePath)
 		if err != nil {
 			b.Fatalf("got error: %v\n", err)
 		}

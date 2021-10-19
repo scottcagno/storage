@@ -6,6 +6,7 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -57,6 +58,8 @@ type SSTManager struct {
 	gindex    int64
 	cachedSST *SSTable
 }
+
+// https://play.golang.org/p/m_cJtw4wWMc
 
 // OpenSSTManager opens and returns a SSTManager, which allows you to
 // perform operations across all the ss-table and ss-table-indexes,
@@ -122,6 +125,9 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 	}
 	// update the last global gindex
 	sstm.gindex = sstm.getLastGIndex()
+
+	//log.Println(sstm.inrange, len(sstm.inrange), sstm.gindex)
+
 	return sstm, nil
 }
 
@@ -180,11 +186,11 @@ func (sstm *SSTManager) FlushMemtableToSSTable(memt *memtable.Memtable) error {
 	return nil
 }
 
-func (sstm *SSTManager) NewBatch() *Batch {
-	return new(Batch)
+func (sstm *SSTManager) NewBatch() *binary.Batch {
+	return new(binary.Batch)
 }
 
-func (sstm *SSTManager) FlushBatchToSSTable(batch *Batch) error {
+func (sstm *SSTManager) FlushBatchToSSTable(batch *binary.Batch) error {
 	// lock
 	sstm.lock.Lock()
 	defer sstm.lock.Unlock()
@@ -215,14 +221,27 @@ func (sstm *SSTManager) FlushBatchToSSTable(batch *Batch) error {
 }
 
 func (sstm *SSTManager) isInRange(k string) (int64, error) { //(*SparseIndex, error) {
-
-	n := sort.Search(len(sstm.inrange),
+	if len(sstm.inrange) == 1 {
+		return sstm.getLastGIndex(), nil
+	}
+	keys := KeyRangeSlice(sstm.inrange)
+	sort.Sort(keys)
+	n := sort.Search(keys.Len(),
 		func(i int) bool {
 			return sstm.inrange[i].first <= k && k <= sstm.inrange[i].last
 		})
+	log.Println("DEBUG >> N=", n, len(sstm.inrange))
 	if n < 0 {
 		return -1, ErrSSTIndexNotFound
 	}
+
+	//	if i < len(data) && data[i] == x {
+	//		// x is present at data[i]
+	//	} else {
+	//		// x is not present in data,
+	//		// but i is the index where it would be inserted.
+	//	}
+
 	//for _, kr := range sstm.inrange {
 	//	if !kr.InKeyRange(k) {
 	//		continue
@@ -357,7 +376,7 @@ func (sstm *SSTManager) CompactSSTables(index int64) error {
 		return err
 	}
 	// make batch
-	batch := NewBatch()
+	batch := binary.NewBatch()
 	// iterate
 	err = sst.Scan(func(e *binary.Entry) bool {
 		// add any data entries that are not tombstones to batch
@@ -416,7 +435,7 @@ func (sstm *SSTManager) MergeSSTables(iA, iB int64) error {
 		return err
 	}
 	// make batch to write data to
-	batch := NewBatch()
+	batch := binary.NewBatch()
 	// pass tables to the merge writer
 	err = mergeWriter(sstA, sstB, batch)
 	if err != nil {
@@ -448,11 +467,11 @@ func (sstm *SSTManager) MergeSSTables(iA, iB int64) error {
 }
 
 func (sstm *SSTManager) Close() error {
-	// TODO: implement...
+
 	return nil
 }
 
-func mergeWriter(sstA, sstB *SSTable, batch *Batch) error {
+func mergeWriter(sstA, sstB *SSTable, batch *binary.Batch) error {
 
 	i, j := 0, 0
 	n1, n2 := sstA.index.Len(), sstB.index.Len()

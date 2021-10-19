@@ -8,12 +8,18 @@ import (
 	"testing"
 )
 
+var conf = &MemtableConfig{
+	BasePath:       "memtable-testing",
+	FlushThreshold: -1,
+	SyncOnWrite:    false,
+}
+
 func TestMemtable_All(t *testing.T) {
 
-	path := "testing"
+	path := conf.BasePath
 
 	// open mem-table
-	memt, err := OpenMemtable(path, -1)
+	memt, err := OpenMemtable(conf)
 	HandleErr(t, "opening", err)
 
 	// if there is data, read it and exit
@@ -39,7 +45,7 @@ close:
 	HandleErr(t, "closing", err)
 
 	// clean up (maybe)
-	doClean := true
+	doClean := false
 	if doClean {
 		err = os.RemoveAll(path)
 		HandleErr(t, "remove all", err)

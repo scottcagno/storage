@@ -14,15 +14,15 @@ import (
 )
 
 const (
-	FilePrefix = "dat-"
-	FileSuffix = ".seg"
-
-	defaultMaxFileSize uint64 = 16 << 10 // 16 KB
+	FilePrefix               = "dat-"
+	FileSuffix               = ".seg"
+	defaultMaxFileSize int64 = 16 << 10 // 16 KB
+	defaultBasePath          = "log"
+	defaultSyncOnWrite       = false
 )
 
 var (
-	maxFileSize = defaultMaxFileSize
-
+	maxFileSize       = defaultMaxFileSize
 	ErrOutOfBounds    = errors.New("error: out of bounds")
 	ErrSegmentFull    = errors.New("error: segment is full")
 	ErrFileClosed     = errors.New("error: file closed")
@@ -47,7 +47,7 @@ type segment struct {
 	path      string     // path is the full path to this segment file
 	index     int64      // starting index of the segment
 	entries   []segEntry // entries is an index of the entries in the segment
-	remaining uint64     // remaining is the bytes left after max file size minus segEntry data
+	remaining int64      // remaining is the bytes left after max file size minus segEntry data
 }
 
 // String is the stringer method for a segment
@@ -99,26 +99,52 @@ func (s *segment) findEntryIndex(index int64) int {
 	return i - 1
 }
 
+var defaultWALConfig = &WALConfig{
+	BasePath:    defaultBasePath,
+	MaxFileSize: defaultMaxFileSize,
+	SyncOnWrite: defaultSyncOnWrite,
+}
+
+type WALConfig struct {
+	BasePath    string // base storage path
+	MaxFileSize int64  // memtable flush threshold in KB
+	SyncOnWrite bool   // perform sync every time an entry is write
+}
+
+func checkWALConfig(conf *WALConfig) *WALConfig {
+	if conf == nil {
+		return defaultWALConfig
+	}
+	if conf.BasePath == *new(string) {
+		conf.BasePath = defaultBasePath
+	}
+	if conf.MaxFileSize < 1 {
+		conf.MaxFileSize = defaultMaxFileSize
+	}
+	return conf
+}
+
 // WAL is a write-ahead log structure
 type WAL struct {
-	lock       sync.RWMutex   // lock is a mutual exclusion lock
-	base       string         // base is the base filepath
+	lock       sync.RWMutex // lock is a mutual exclusion lock
+	conf       *WALConfig
 	r          *binary.Reader // r is a binary reader
 	w          *binary.Writer // w is a binary writer
 	firstIndex int64          // firstIndex is the index of the first segEntry
 	lastIndex  int64          // lastIndex is the index of the last segEntry
 	segments   []*segment     // segments is an index of the current file segments
 	active     *segment       // active is the current active segment
-	doSync     bool           // doSync sync on every write (default: true)
 }
 
 // OpenWAL opens and returns a new write-ahead log structure
-func OpenWAL(base string) (*WAL, error) {
+func OpenWAL(c *WALConfig) (*WAL, error) {
+	// check config
+	conf := checkWALConfig(c)
 	// TODO: consider replacing `filepath.Abs()`, and `filepath.ToSlash()`
 	// TODO: with `filepath.Clean()` at some point or another. It should
 	// TODO: close enough to the same (possibly even better), so yeah.
 	// make sure we are working with absolute paths
-	base, err := filepath.Abs(base)
+	base, err := filepath.Abs(conf.BasePath)
 	if err != nil {
 		return nil, err
 	}
@@ -131,11 +157,10 @@ func OpenWAL(base string) (*WAL, error) {
 	}
 	// create a new write-ahead log instance
 	l := &WAL{
-		base:       base,
+		conf:       conf,
 		firstIndex: 0,
 		lastIndex:  1,
 		segments:   make([]*segment, 0),
-		doSync:     true,
 	}
 	// attempt to load segments
 	err = l.loadIndex()
@@ -144,19 +169,6 @@ func OpenWAL(base string) (*WAL, error) {
 	}
 	// return write-ahead log
 	return l, nil
-}
-
-func OpenWALWithSync(base string, doSync bool) (*WAL, error) {
-	l, err := OpenWAL(base)
-	if err != nil {
-		return nil, err
-	}
-	l.doSync = doSync
-	return l, nil
-}
-
-func (l *WAL) SetSyncOnWrite(ok bool) {
-	l.doSync = ok
 }
 
 // loadIndex initializes the segment index. It looks for segment
@@ -168,7 +180,7 @@ func (l *WAL) loadIndex() error {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	// get the files in the base directory path
-	files, err := os.ReadDir(l.base)
+	files, err := os.ReadDir(l.conf.BasePath)
 	if err != nil {
 		return err
 	}
@@ -180,8 +192,21 @@ func (l *WAL) loadIndex() error {
 			!strings.HasSuffix(file.Name(), FileSuffix) {
 			continue // skip this, continue on to the next file
 		}
+		// check the size of segment file
+		fi, err := file.Info()
+		if err != nil {
+			return err
+		}
+		// if the file is empty, remove it and skip to next file
+		if fi.Size() == 0 {
+			err = os.Remove(filepath.Join(l.conf.BasePath, file.Name()))
+			if err != nil {
+				return err
+			}
+			continue // make sure we skip to next segment
+		}
 		// attempt to load segment (and index entries in segment)
-		s, err := l.loadSegmentFile(filepath.Join(l.base, file.Name()))
+		s, err := l.loadSegmentFile(filepath.Join(l.conf.BasePath, file.Name()))
 		if err != nil {
 			return err
 		}
@@ -210,7 +235,7 @@ func (l *WAL) loadIndex() error {
 	}
 	// and then attempt to open a file writer to also work
 	// with the active segment, so we can begin appending data
-	l.w, err = binary.OpenWriterWithSync(l.active.path, l.doSync)
+	l.w, err = binary.OpenWriterWithSync(l.active.path, l.conf.SyncOnWrite)
 	if err != nil {
 		return err
 	}
@@ -283,7 +308,7 @@ func (l *WAL) loadSegmentFile(path string) (*segment, error) {
 		return nil, err
 	}
 	// update the segment remaining bytes
-	s.remaining = maxFileSize - uint64(offset)
+	s.remaining = maxFileSize - offset
 	return s, nil
 }
 
@@ -291,7 +316,7 @@ func (l *WAL) loadSegmentFile(path string) (*segment, error) {
 // as the segment name. On success, it will simply return a new segment and a nil error
 func (l *WAL) makeSegmentFile(index int64) (*segment, error) {
 	// create a new file
-	path := filepath.Join(l.base, MakeFileNameFromIndex(index))
+	path := filepath.Join(l.conf.BasePath, MakeFileNameFromIndex(index))
 	fd, err := os.Create(path)
 	if err != nil {
 		return nil, err
@@ -306,7 +331,7 @@ func (l *WAL) makeSegmentFile(index int64) (*segment, error) {
 		path:      path,
 		index:     l.lastIndex,
 		entries:   make([]segEntry, 0),
-		remaining: maxFileSize,
+		remaining: l.conf.MaxFileSize,
 	}
 	return s, nil
 }
@@ -349,7 +374,7 @@ func (l *WAL) cycleSegment() error {
 	// update the active segment pointer
 	l.active = l.getLastSegment()
 	// open file writer associated with active segment
-	l.w, err = binary.OpenWriterWithSync(l.active.path, l.doSync)
+	l.w, err = binary.OpenWriterWithSync(l.active.path, l.conf.SyncOnWrite)
 	if err != nil {
 		return err
 	}
@@ -388,7 +413,7 @@ func (l *WAL) Read(index int64) (*binary.Entry, error) {
 	return e, nil
 }
 
-// WriteIndexEntry writes an segEntry to the write-ahead log in an append-only fashion
+// Write writes an segEntry to the write-ahead log in an append-only fashion
 func (l *WAL) Write(e *binary.Entry) (int64, error) {
 	// lock
 	l.lock.Lock()
@@ -411,7 +436,7 @@ func (l *WAL) Write(e *binary.Entry) (int64, error) {
 		return 0, err
 	}
 	// update segment remaining
-	l.active.remaining -= uint64(offset2 - offset)
+	l.active.remaining -= offset2 - offset
 	// check to see if the active segment needs to be cycled
 	if l.active.remaining < 64 {
 		err = l.cycleSegment()
@@ -420,6 +445,62 @@ func (l *WAL) Write(e *binary.Entry) (int64, error) {
 		}
 	}
 	return l.lastIndex - 1, nil
+}
+
+// WriteBatch writes a batch of entries performing no syncing until the end of the batch
+func (l *WAL) WriteBatch(batch *binary.Batch) error {
+	// lock
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	// check sync policy
+	changedSyncPolicy := false
+	if l.conf.SyncOnWrite == true {
+		l.conf.SyncOnWrite = false // if it's on, temporarily disable
+		l.w.SetSyncOnWrite(false)
+		changedSyncPolicy = true
+	}
+	// iterate batch
+	for i := range batch.Entries {
+		// entry
+		e := batch.Entries[i]
+		// write entry to data file
+		offset, err := l.w.WriteEntry(e)
+		if err != nil {
+			return err
+		}
+		// add new segEntry to the segment index
+		l.active.entries = append(l.active.entries, segEntry{
+			index:  l.lastIndex,
+			offset: offset,
+		})
+		// update lastIndex
+		l.lastIndex++
+		// grab the current offset written
+		offset2, err := l.w.Offset()
+		if err != nil {
+			return err
+		}
+		// update segment remaining
+		l.active.remaining -= offset2 - offset
+		// check to see if the active segment needs to be cycled
+		if l.active.remaining < 64 {
+			err = l.cycleSegment()
+			if err != nil {
+				return err
+			}
+		}
+	}
+	// after batch, set everything back how it was
+	if changedSyncPolicy {
+		l.conf.SyncOnWrite = true
+		l.w.SetSyncOnWrite(true)
+	}
+	// after batch has been written, do sync
+	err := l.w.Sync()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // Scan provides an iterator method for the write-ahead log
@@ -495,7 +576,7 @@ func (l *WAL) TruncateFront(index int64) error {
 	// prepare to re-write partial segment
 	var err error
 	var entries []segEntry
-	tmpfd, err := os.Create(filepath.Join(l.base, "tmp-partial.seg"))
+	tmpfd, err := os.Create(filepath.Join(l.conf.BasePath, "tmp-partial.seg"))
 	if err != nil {
 		return err
 	}
@@ -559,6 +640,24 @@ func (l *WAL) TruncateFront(index int64) error {
 	return nil
 }
 
+func (l *WAL) GetConfig() *WALConfig {
+	// lock
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	return l.conf
+}
+
+func (l *WAL) Sync() error {
+	// lock
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	err := l.w.Sync()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // Count returns the number of entries currently in the write-ahead log
 func (l *WAL) Count() int {
 	// lock
@@ -605,7 +704,6 @@ func (l *WAL) Close() error {
 		return err
 	}
 	// clean everything else up
-	l.base = ""
 	l.r = nil
 	l.w = nil
 	l.firstIndex = 0
@@ -617,15 +715,11 @@ func (l *WAL) Close() error {
 	return nil
 }
 
-func (l *WAL) Path() string {
-	return l.base
-}
-
 // String is the stringer method for the write-ahead log
 func (l *WAL) String() string {
 	var ss string
 	ss += fmt.Sprintf("\n\n[write-ahead log]\n")
-	ss += fmt.Sprintf("base: %q\n", l.base)
+	ss += fmt.Sprintf("base: %q\n", l.conf.BasePath)
 	ss += fmt.Sprintf("firstIndex: %d\n", l.firstIndex)
 	ss += fmt.Sprintf("lastIndex: %d\n", l.lastIndex)
 	ss += fmt.Sprintf("segments: %d\n", len(l.segments))

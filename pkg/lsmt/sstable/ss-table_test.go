@@ -15,7 +15,7 @@ func TestSSTableAndSSTIndex(t *testing.T) {
 	}
 
 	// create and test batch
-	batch := NewBatch()
+	batch := binary.NewBatch()
 	batch.Write("key-01", []byte("value-01"))
 	batch.Write("key-02", []byte("value-02"))
 	batch.Write("key-03", []byte("value-03"))

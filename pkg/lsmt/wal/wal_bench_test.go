@@ -53,7 +53,7 @@ func walRead(b *testing.B, wal *WAL) {
 func setup(b *testing.B) *WAL {
 
 	// open
-	wal, err := OpenWAL("wal-testing")
+	wal, err := OpenWAL(conf)
 	if err != nil {
 		b.Errorf("open: %v\n", err)
 	}
@@ -72,7 +72,7 @@ func teardown(b *testing.B, wal *WAL, shouldClean bool) {
 
 	// check cleanup
 	if shouldClean {
-		err = os.RemoveAll(wal.base)
+		err = os.RemoveAll(wal.conf.BasePath)
 		if err != nil {
 			b.Fatalf("got error: %v\n", err)
 		}

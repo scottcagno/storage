@@ -7,19 +7,45 @@ import (
 	"testing"
 )
 
+var conf = &WALConfig{
+	BasePath:    "wal-testing",
+	MaxFileSize: 2 << 10, // 2KB,
+	SyncOnWrite: false,
+}
+
+func TestOpenAndCloseNoWrite(t *testing.T) {
+	// open
+	wal, err := OpenWAL(conf)
+	if err != nil {
+		t.Fatalf("opening: %v\n", err)
+	}
+	// close
+	err = wal.Close()
+	if err != nil {
+		t.Fatalf("closing: %v\n", err)
+	}
+	// open
+	wal, err = OpenWAL(conf)
+	if err != nil {
+		t.Fatalf("opening: %v\n", err)
+	}
+	// close
+	err = wal.Close()
+	if err != nil {
+		t.Fatalf("closing: %v\n", err)
+	}
+}
+
 func TestWAL(t *testing.T) {
 	//
-	// set max file size
-	maxFileSize = 2 << 10
-	//
 	// open log
-	wal, err := OpenWAL("testing")
+	wal, err := OpenWAL(conf)
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}
 	//
 	// get path for cleanup
-	path := wal.Path()
+	path := wal.GetConfig().BasePath
 	//
 	// do some writing
 	for i := 0; i < 500; i++ {
@@ -57,18 +83,16 @@ func TestWAL(t *testing.T) {
 }
 
 func TestLog_TruncateFront(t *testing.T) {
-	//
-	// set max file size
-	maxFileSize = 2 << 10
+
 	//
 	// open log
-	wal, err := OpenWAL("testing")
+	wal, err := OpenWAL(conf)
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}
 	//
 	// get path for cleanup
-	path := wal.Path()
+	path := wal.GetConfig().BasePath
 	//
 	// do some writing
 	for i := 0; i < 500; i++ {
@@ -87,7 +111,7 @@ func TestLog_TruncateFront(t *testing.T) {
 	}
 	//
 	// open log
-	wal, err = OpenWAL("testing")
+	wal, err = OpenWAL(conf)
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}

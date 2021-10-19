@@ -43,9 +43,9 @@ func OpenSSTable(base string, index int64) (*SSTable, error) {
 	// create new data file path
 	path := filepath.Join(base, DataFileNameFromIndex(index))
 	// file handler
-	var file *os.File
+	//var file *os.File
 	// check to make sure file doesn't exist
-	_, err = os.Stat(path)
+	//_, err = os.Stat(path)
 	//if os.IsNotExist(err) {
 	//	// create new data file
 	//	file, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
@@ -54,7 +54,7 @@ func OpenSSTable(base string, index int64) (*SSTable, error) {
 	//	}
 	//}
 	// otherwise, just open new data file
-	file, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func (sst *SSTable) Write(e *binary.Entry) error {
 	return nil
 }
 
-func (sst *SSTable) WriteBatch(b *Batch) error {
+func (sst *SSTable) WriteBatch(b *binary.Batch) error {
 	// error check
 	err := sst.errorCheckFileAndIndex()
 	if err != nil {
@@ -170,9 +170,9 @@ func (sst *SSTable) WriteBatch(b *Batch) error {
 		sort.Stable(b)
 	}
 	// range batch and write
-	for i := range b.data {
+	for i := range b.Entries {
 		// entry
-		e := b.data[i]
+		e := b.Entries[i]
 		// write entry to data file
 		offset, err := binary.EncodeEntry(sst.file, e)
 		if err != nil {

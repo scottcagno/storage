@@ -22,18 +22,47 @@ func logger(s string) {
 	log.Printf("%s\n", s)
 }
 
+var conf = &LSMConfig{
+	BasePath:       "lsm-testing",
+	FlushThreshold: -1,
+	SyncOnWrite:    false,
+}
+
+func TestOpenAndCloseNoWrite(t *testing.T) {
+
+	db, err := OpenLSMTree(conf)
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	err = db.Close()
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	db, err = OpenLSMTree(conf)
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	err = db.Close()
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+}
+
 func TestLSMTree(t *testing.T) {
 
 	count := 50000
 
 	// open lsm tree
 	logger("opening lsm tree")
-	lsm, err := OpenLSMTree("lsm-testing")
+	lsm, err := OpenLSMTree(conf)
 	if err != nil {
 		t.Errorf("open: %v\n", err)
 	}
 
-	// write data
+	// write Entries
 	logger("writing data")
 	ts1 := time.Now()
 	for i := 0; i < count; i++ {
@@ -43,7 +72,12 @@ func TestLSMTree(t *testing.T) {
 		}
 	}
 	ts2 := time.Now()
-	fmt.Println(util.FormatTime("writing data", ts1, ts2))
+	fmt.Println(util.FormatTime("writing Entries", ts1, ts2))
+
+	err = lsm.Sync()
+	if err != nil {
+		t.Errorf(">>> syncing: %v\n", err)
+	}
 
 	// close
 	logger("closing lsm tree")
@@ -54,12 +88,12 @@ func TestLSMTree(t *testing.T) {
 
 	// open
 	logger("opening lsm tree")
-	lsm, err = OpenLSMTree("lsm-testing")
+	lsm, err = OpenLSMTree(conf)
 	if err != nil {
 		t.Errorf("open: %v\n", err)
 	}
 
-	// read data
+	// read Entries
 	logger("reading data")
 	ts1 = time.Now()
 	for i := 0; i < count; i++ {
@@ -72,10 +106,10 @@ func TestLSMTree(t *testing.T) {
 		}
 	}
 	ts2 = time.Now()
-	fmt.Println(util.FormatTime("reading data", ts1, ts2))
+	fmt.Println(util.FormatTime("reading Entries", ts1, ts2))
 
-	// remove data
-	logger("removing data (only odds)")
+	// remove Entries
+	logger("removing Entries (only odds)")
 	ts1 = time.Now()
 	for i := 0; i < count; i++ {
 		if i%2 != 0 {
@@ -86,7 +120,7 @@ func TestLSMTree(t *testing.T) {
 		}
 	}
 	ts2 = time.Now()
-	fmt.Println(util.FormatTime("removing data", ts1, ts2))
+	fmt.Println(util.FormatTime("removing Entries", ts1, ts2))
 
 	// close
 	logger("closing lsm tree")
@@ -97,13 +131,13 @@ func TestLSMTree(t *testing.T) {
 
 	// open
 	logger("opening lsm tree")
-	lsm, err = OpenLSMTree("lsm-testing")
+	lsm, err = OpenLSMTree(conf)
 	if err != nil {
 		t.Errorf("open: %v\n", err)
 	}
 
-	// read data
-	logger("reading data")
+	// read Entries
+	logger("reading Entries")
 	ts1 = time.Now()
 	for i := 0; i < count; i++ {
 		v, err := lsm.Get(makeKey(i))
@@ -118,7 +152,7 @@ func TestLSMTree(t *testing.T) {
 		}
 	}
 	ts2 = time.Now()
-	fmt.Println(util.FormatTime("reading data", ts1, ts2))
+	fmt.Println(util.FormatTime("reading Entries", ts1, ts2))
 
 	// close
 	logger("closing lsm tree")

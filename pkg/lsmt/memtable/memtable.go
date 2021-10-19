@@ -13,8 +13,6 @@ import (
 
 var Tombstone = []byte(nil)
 
-const defaultFlushThreshold = 256 << 10 // 256KB
-
 type MemtableEntry = memtableEntry
 
 type memtableEntry struct {
@@ -34,13 +32,42 @@ func (me memtableEntry) String() string {
 	return fmt.Sprintf("entry.key=%q", me.Key)
 }
 
+const (
+	defaultBasePath       = "log"
+	defaultFlushThreshold = 1 << 20 // 1 MB
+	defaultSyncOnWrite    = false
+)
+
+var defaultMemtableConfig = &MemtableConfig{
+	BasePath:       defaultBasePath,
+	FlushThreshold: defaultFlushThreshold,
+	SyncOnWrite:    defaultSyncOnWrite,
+}
+
+type MemtableConfig struct {
+	BasePath       string // base storage path
+	FlushThreshold int64  // memtable flush threshold in KB
+	SyncOnWrite    bool   // perform sync every time an entry is write
+}
+
+func checkMemtableConfig(conf *MemtableConfig) *MemtableConfig {
+	if conf == nil {
+		return defaultMemtableConfig
+	}
+	if conf.BasePath == *new(string) {
+		conf.BasePath = defaultBasePath
+	}
+	if conf.FlushThreshold < 1 {
+		conf.FlushThreshold = defaultFlushThreshold
+	}
+	return conf
+}
+
 type Memtable struct {
-	lock   sync.RWMutex
-	base   string
-	flush  int64
-	data   *rbtree.RBTree
-	wacl   *wal.WAL
-	doSync bool
+	lock sync.RWMutex
+	conf *MemtableConfig
+	data *rbtree.RBTree
+	wacl *wal.WAL
 }
 
 func (mt *Memtable) Lock() {
@@ -59,21 +86,23 @@ func (mt *Memtable) RUnlock() {
 	mt.lock.RUnlock()
 }
 
-func OpenMemtable(base string, flush int64, doSync bool) (*Memtable, error) {
-	if flush < 1 {
-		flush = defaultFlushThreshold
-	}
+func OpenMemtable(c *MemtableConfig) (*Memtable, error) {
+	// check memtable config
+	conf := checkMemtableConfig(c)
 	// open write-ahead commit log
-	wacl, err := wal.OpenWALWithSync(base, doSync)
+	wacl, err := wal.OpenWAL(&wal.WALConfig{
+		BasePath:    conf.BasePath,
+		MaxFileSize: -1, // use wal defaultMaxFileSize
+		SyncOnWrite: conf.SyncOnWrite,
+	})
 	if err != nil {
 		return nil, err
 	}
 	// create new memtable
 	memt := &Memtable{
-		base:  base,
-		flush: flush << 10, // flush x KB
-		data:  rbtree.NewRBTree(),
-		wacl:  wacl,
+		conf: conf,
+		data: rbtree.NewRBTree(),
+		wacl: wacl,
 	}
 	// load mem-table entries from commit log
 	err = memt.loadDataFromCommitLog()
@@ -92,18 +121,20 @@ func (mt *Memtable) loadDataFromCommitLog() error {
 }
 
 func (mt *Memtable) Reset() error {
+	// grab current configuration
+	walConf := mt.wacl.GetConfig()
 	// close write-ahead commit log
 	err := mt.wacl.Close()
 	if err != nil {
 		return err
 	}
 	// wipe write-ahead commit log
-	err = os.RemoveAll(mt.base)
+	err = os.RemoveAll(mt.conf.BasePath)
 	if err != nil {
 		return err
 	}
 	// open fresh write-ahead commit log
-	mt.wacl, err = wal.OpenWAL(mt.base)
+	mt.wacl, err = wal.OpenWAL(walConf)
 	if err != nil {
 		return err
 	}
@@ -112,36 +143,9 @@ func (mt *Memtable) Reset() error {
 	return nil
 }
 
-/*
-func (mt *Memtable) FlushToSSTable(sstm *sstable.SSTManager) error {
-	// error check
-	if sstm == nil {
-		return binary.ErrFileClosed
-	}
-	// lock tree
-	mt.data.Lock()
-	defer mt.data.Unlock()
-	// make new ss-table batch
-	batch := sstm.NewBatch()
-	// scan the whole tree and write each entry to the batch
-	mt.data.Scan(func(e rbtree.RBEntry) bool {
-		batch.WriteEntry(e.(memtableEntry).Entry)
-		return true
-	})
-	// pass batch to sst-manager
-	err := sstm.WriteBatch(batch)
-	if err != nil {
-		return err
-	}
-	// reset tree
-	mt.data.Reset()
-	return nil
-}
-*/
-
 func (mt *Memtable) insert(e *binary.Entry) error {
 	mt.data.Put(memtableEntry{Key: string(e.Key), Entry: e})
-	if mt.data.Size() > mt.flush {
+	if mt.data.Size() > mt.conf.FlushThreshold {
 		return ErrFlushThreshold
 	}
 	return nil
@@ -157,6 +161,23 @@ func (mt *Memtable) Put(e *binary.Entry) error {
 	err = mt.insert(e)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func (mt *Memtable) PutBatch(batch *binary.Batch) error {
+	// write batch to the write-ahead commit log
+	err := mt.wacl.WriteBatch(batch)
+	if err != nil {
+		return err
+	}
+	// write batch entries to the mem-table
+	for i := range batch.Entries {
+		err = mt.insert(batch.Entries[i])
+		if err != nil {
+			return err
+		}
+		return nil
 	}
 	return nil
 }
@@ -197,6 +218,14 @@ func (mt *Memtable) Scan(iter func(me rbtree.RBEntry) bool) {
 
 func (mt *Memtable) Len() int {
 	return mt.data.Len()
+}
+
+func (mt *Memtable) GetConfig() *MemtableConfig {
+	return mt.conf
+}
+
+func (mt *Memtable) Sync() error {
+	return mt.wacl.Sync()
 }
 
 func (mt *Memtable) Close() error {
