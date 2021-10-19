@@ -3,6 +3,7 @@ package sstable
 import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
+	"github.com/scottcagno/storage/pkg/util"
 	"io"
 	"os"
 	"path/filepath"
@@ -42,18 +43,7 @@ func OpenSSTable(base string, index int64) (*SSTable, error) {
 	}
 	// create new data file path
 	path := filepath.Join(base, DataFileNameFromIndex(index))
-	// file handler
-	//var file *os.File
-	// check to make sure file doesn't exist
-	//_, err = os.Stat(path)
-	//if os.IsNotExist(err) {
-	//	// create new data file
-	//	file, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//}
-	// otherwise, just open new data file
+	// open data file
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		return nil, err
@@ -80,6 +70,7 @@ func (sst *SSTable) errorCheckFileAndIndex() error {
 	}
 	// make sure gindex is open
 	if sst.index == nil {
+		util.DEBUG("DEBUG: [SSTable.Index error]\n")
 		return ErrSSTIndexNotFound
 	}
 	return nil

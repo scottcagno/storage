@@ -2,14 +2,15 @@ package sstable
 
 import (
 	"fmt"
+	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"strings"
 )
 
 type sparseIndexEntry struct {
-	LastKey  string
-	SSTIndex int64
-	//Index *binary.Index
+	LastKey    string
+	SSTIndex   int64
+	IndexEntry *binary.Index
 }
 
 func (r sparseIndexEntry) Compare(that rbtree.RBEntry) int {

@@ -1,11 +1,12 @@
 package lsmt
 
 import (
+	"encoding/binary"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/util"
 	"log"
-	"strconv"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -52,10 +53,37 @@ func TestOpenAndCloseNoWrite(t *testing.T) {
 	}
 }
 
+func TestLSMTreeReadEmptyDir(t *testing.T) {
+	sanitize := func(base string) (string, error) {
+		base, err := filepath.Abs(base)
+		if err != nil {
+			return "", err
+		}
+		base = filepath.ToSlash(base)
+		return base, nil
+	}
+	base, err := sanitize("testing-empty-dir")
+	if err != nil {
+		t.Errorf("sanitize: %v\n", err)
+	}
+	_, err = os.ReadDir(base)
+	if err != nil {
+		t.Errorf("read dir: %T %v\n", err, err)
+	}
+}
+
 func TestLSMTree(t *testing.T) {
 
+	count := 100
 	strt := 0
-	stop := strt + 50000
+	stop := strt + count
+
+	n, err := ReadLastSequenceNumber(conf.BasePath)
+	if n > 0 && err == nil {
+		strt = int(n)
+		stop = strt + count
+	}
+	util.DEBUG("start: %d, stop: %d, count: %d\n", strt, stop, count)
 
 	// open lsm tree
 	logger("opening lsm tree")
@@ -63,24 +91,6 @@ func TestLSMTree(t *testing.T) {
 	if err != nil {
 		t.Errorf("open: %v\n", err)
 	}
-
-	// get last key and update counter
-	k, err := lsm.GetLastKey()
-	if err != nil && err != sstable.ErrSSTIndexNotFound {
-		t.Errorf("get last key: %v\n", err)
-	}
-	if k != "" {
-		keyn, err := strconv.Atoi(k[4:])
-		if err != nil {
-			t.Errorf("get last key and set to count: %v\n", err)
-		}
-		if keyn == stop-1 {
-			strt = stop
-			stop = strt + 50000
-		}
-	}
-	log.Printf("start: %d, stop: %d\n", strt, stop)
-	time.Sleep(3 * time.Second)
 
 	// write Entries
 	logger("writing data")
@@ -113,6 +123,9 @@ func TestLSMTree(t *testing.T) {
 		t.Errorf("open: %v\n", err)
 	}
 
+	doPrintAllReads := true
+	doPrintSomeReads := false
+
 	// read Entries
 	logger("reading data")
 	ts1 = time.Now()
@@ -121,8 +134,12 @@ func TestLSMTree(t *testing.T) {
 		if err != nil {
 			t.Errorf("get: %v\n", err)
 		}
-		if i%1000 == 0 {
+		if doPrintAllReads {
 			fmt.Printf("get(%q) -> %q\n", makeKey(i), v)
+		} else if doPrintSomeReads {
+			if i%1000 == 0 {
+				fmt.Printf("get(%q) -> %q\n", makeKey(i), v)
+			}
 		}
 	}
 	ts2 = time.Now()
@@ -133,7 +150,9 @@ func TestLSMTree(t *testing.T) {
 	ts1 = time.Now()
 	for i := strt; i < stop; i++ {
 		if i%2 != 0 {
-			err = lsm.Del(makeKey(i))
+			key := makeKey(i)
+			util.DEBUG("DELETING KEY %q\n", key)
+			err = lsm.Del(key)
 			if err != nil {
 				t.Errorf("del: %v\n", err)
 			}
@@ -156,6 +175,8 @@ func TestLSMTree(t *testing.T) {
 		t.Errorf("open: %v\n", err)
 	}
 
+	util.DEBUG("LSMTree memtable count: %d\n", lsm.memt.Len())
+
 	// read Entries
 	logger("reading data")
 	ts1 = time.Now()
@@ -163,17 +184,24 @@ func TestLSMTree(t *testing.T) {
 		v, err := lsm.Get(makeKey(i))
 		log.Printf("%T, %v\n", err, err)
 		if err != nil {
-			if err == sstable.ErrSSTIndexNotFound {
+			if err == ErrFoundTombstone {
+				util.DEBUG("FOUND TOMBSTONE ENTRY!\n")
 				continue
 			}
 			t.Errorf("get: %v\n", err)
 		}
-		if i%1000 == 0 {
+		if doPrintAllReads {
 			fmt.Printf("get(%q) -> %q\n", makeKey(i), v)
+		} else if doPrintSomeReads {
+			if i%1000 == 0 {
+				fmt.Printf("get(%q) -> %q\n", makeKey(i), v)
+			}
 		}
 	}
 	ts2 = time.Now()
 	fmt.Println(util.FormatTime("reading data", ts1, ts2))
+
+	_ = WriteLastSequenceNumber(int64(stop-1), conf.BasePath)
 
 	// close
 	logger("closing lsm tree")
@@ -198,4 +226,26 @@ func TestLSMTree_Del(t *testing.T) {
 
 func TestLSMTree_Close(t *testing.T) {
 
+}
+
+func WriteLastSequenceNumber(n int64, base string) error {
+	dat := make([]byte, binary.MaxVarintLen64)
+	binary.PutVarint(dat, n)
+	file := filepath.Join(base, "last-seq.dat")
+	err := os.WriteFile(file, dat, 0666)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func ReadLastSequenceNumber(base string) (int64, error) {
+	file := filepath.Join(base, "last-seq.dat")
+	dat, err := os.ReadFile(file)
+	if err != nil {
+		return -1, err
+	}
+	err = os.RemoveAll(file)
+	n, _ := binary.Varint(dat)
+	return n, nil
 }

@@ -150,6 +150,14 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 		// we found it!
 		return e.Value, nil
 	}
+	// did not find it in the mem-table
+	// need to check error for tombstone
+	if e == nil || e.Value == nil || err == memtable.ErrFoundTombstone {
+		// found tombstone entry (means this entry was
+		// deleted) so we can end our search here; just
+		// MAKE SURE you check for tombstone errors!!!
+		return nil, ErrFoundTombstone
+	}
 	// check sparse index, and ss-tables, young to old
 	de, err := lsm.sstm.Get(k)
 	if err != nil {

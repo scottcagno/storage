@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -171,6 +172,31 @@ func (ssi *SSTIndex) Scan(iter func(k string, off int64) bool) {
 			continue
 		}
 	}
+}
+
+func calculateSparseRatio(n int64) int64 {
+	if n < 1 {
+		return 0
+	}
+	if n == 1 {
+		n++
+	}
+	return int64(math.Log2(float64(n)))
+}
+
+func (ssi *SSTIndex) GenerateSparseIndexSet() ([]*binary.Index, error) {
+	if !ssi.open {
+		return nil, binary.ErrFileClosed
+	}
+	var sparseSet []*binary.Index
+	count := int64(len(ssi.data))
+	ratio := calculateSparseRatio(count)
+	for i := int64(0); i < count; i++ {
+		if i%(count/ratio) == 0 {
+			sparseSet = append(sparseSet, ssi.data[i])
+		}
+	}
+	return sparseSet, nil
 }
 
 func (ssi *SSTIndex) Len() int {
