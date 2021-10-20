@@ -3,6 +3,7 @@ package lsmt
 import (
 	"encoding/binary"
 	"fmt"
+	binary2 "github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/util"
 	"hash/fnv"
 	"log"
@@ -78,7 +79,112 @@ func TestLSMTreeReadEmptyDir(t *testing.T) {
 	}
 }
 
+func testLSMTreeHasAndBatches(t *testing.T) {
+
+	origPath := conf.BasePath
+	tempPath := filepath.Join(conf.BasePath, "batches")
+	conf.BasePath = tempPath
+
+	// open lsm tree
+	logger("opening lsm tree")
+	lsm, err := OpenLSMTree(conf)
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	// batch some entries
+	logger("batching some entries")
+	ts1 := time.Now()
+	batch := binary2.NewBatch()
+	for i := 0; i < 30000; i++ {
+		batch.Write(makeKey(i), makeVal(i))
+	}
+	ts2 := time.Now()
+	fmt.Println(util.FormatTime("batching entries", ts1, ts2))
+
+	// write batch
+	logger("write batch")
+	ts1 = time.Now()
+	err = lsm.PutBatch(batch)
+	if err != nil {
+		t.Errorf("put batch: %v\n", err)
+	}
+	ts2 = time.Now()
+	fmt.Println(util.FormatTime("writing batch", ts1, ts2))
+
+	// manual sync
+	//logger("manual sync")
+	//err = lsm.Sync()
+	//if err != nil {
+	//	t.Errorf("manual sync: %v\n", err)
+	//}
+
+	// close
+	logger("closing lsm tree")
+	err = lsm.Close()
+	if err != nil {
+		t.Errorf("close: %v\n", err)
+	}
+
+	// open lsm tree
+	logger("opening lsm tree")
+	lsm, err = OpenLSMTree(conf)
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	// check has
+	logger("checking has")
+	for _, e := range batch.Entries {
+		// check for valid key
+		if ok := lsm.Has(string(e.Key)); !ok {
+			t.Errorf("has(%q) should be true, got: %v\n", e.Key, ok)
+		}
+		// check invalid key also
+		invalid := string(e.Key) + "_should_not_be_in_db"
+		if ok := lsm.Has(invalid); ok {
+			t.Errorf("has(%q) should be false, got: %v\n", e.Key, ok)
+		}
+	}
+
+	mid := batch.Len() / 2
+	b1 := batch.Entries[:mid]
+	b2 := batch.Entries[mid:]
+
+	// check get batch 1
+	logger("checkin get batch 1")
+	var keys1 []string
+	for _, e := range b1 {
+		keys1 = append(keys1, string(e.Key))
+	}
+	_, err = lsm.GetBatch(keys1...)
+	if err != nil {
+		t.Errorf("(1) getbatch: %v\n", err)
+	}
+
+	// check get batch 2
+	logger("checkin get batch 2")
+	var keys2 []string
+	for _, e := range b2 {
+		keys2 = append(keys2, string(e.Key))
+	}
+	_, err = lsm.GetBatch(keys2...)
+	if err != nil {
+		t.Errorf("(2) getbatch: %v\n", err)
+	}
+
+	// close
+	logger("closing lsm tree")
+	err = lsm.Close()
+	if err != nil {
+		t.Errorf("close: %v\n", err)
+	}
+
+	conf.BasePath = origPath
+}
+
 func TestLSMTree(t *testing.T) {
+	testLSMTreeHasAndBatches(t)
 	max := 100000
 	for i := 10; i <= max; i *= 10 {
 		log.Printf("running tests with count: %d\n", i)
