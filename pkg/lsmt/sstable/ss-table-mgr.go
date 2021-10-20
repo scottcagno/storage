@@ -2,6 +2,7 @@ package sstable
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
@@ -11,16 +12,40 @@ import (
 	"sync"
 )
 
-type SSTManager2 struct {
+const (
+	filePrefix      = "sst-"
+	dataFileSuffix  = ".dat"
+	indexFileSuffix = ".idx"
+)
+
+var Tombstone = []byte(nil)
+
+type spiEntry struct {
+	Key        string
+	SSTIndex   int64
+	IndexEntry *binary.Index
+}
+
+func (r spiEntry) Compare(that rbtree.RBEntry) int {
+	return strings.Compare(r.Key, that.(spiEntry).Key)
+}
+
+func (r spiEntry) Size() int {
+	return len(r.Key) + 16
+}
+
+func (r spiEntry) String() string {
+	return fmt.Sprintf("entry.LastKey=%q", r.Key)
+}
+
+type SSTManager struct {
 	lock        sync.RWMutex
 	base        string
 	sequence    int64
 	sparseIndex *rbtree.RBTree
 }
 
-// go over all the files
-
-func OpenSSTManager2(base string) (*SSTManager2, error) {
+func OpenSSTManager(base string) (*SSTManager, error) {
 	// make sure we are working with absolute paths
 	base, err := filepath.Abs(base)
 	if err != nil {
@@ -28,8 +53,13 @@ func OpenSSTManager2(base string) (*SSTManager2, error) {
 	}
 	// sanitize any path separators
 	base = filepath.ToSlash(base)
+	// create base directory
+	err = os.MkdirAll(base, os.ModeDir)
+	if err != nil {
+		return nil, err
+	}
 	// create ss-table-manager instance
-	sstm := &SSTManager2{
+	sstm := &SSTManager{
 		base:        base,
 		sequence:    0,
 		sparseIndex: rbtree.NewRBTree(),
@@ -58,20 +88,10 @@ func OpenSSTManager2(base string) (*SSTManager2, error) {
 		if err != nil {
 			return nil, err
 		}
-		// generate sparse index set from the ss-index
-		sparseSet, err := ssi.GenerateSparseIndexSet()
+		// generate and populate sparse index
+		err = sstm.AddSparseIndex(ssi)
 		if err != nil {
 			return nil, err
-		}
-		// iterate the sparse set
-		for i := range sparseSet {
-			// create a new sparse index entry
-			ie := sparseIndexEntry{
-				SSTIndex:   index,
-				IndexEntry: sparseSet[i],
-			}
-			// add each entry to the sparse index
-			sstm.sparseIndex.Put(ie)
 		}
 		// close ss-index
 		err = ssi.Close()
@@ -86,29 +106,250 @@ func OpenSSTManager2(base string) (*SSTManager2, error) {
 	return sstm, nil
 }
 
-/*
-func (spi *SparseIndex) Search(k string) (int64, int64) {
-	v, _ := spi.rbt.GetNearMin(sparseIndexEntry{Key: k})
-	return v.(sparseIndexEntry).Path, v.(sparseIndexEntry).Index.Offset
-}
-*/
-
-func (sstm *SSTManager2) FlushMemtableToSSTable(mt *memtable.Memtable) error {
-	// TODO: implement me
+func (sstm *SSTManager) FlushMemtableToSSTable(mt *memtable.Memtable) error {
+	// lock
+	sstm.lock.Lock()
+	defer sstm.lock.Unlock()
+	// make new batch
+	batch := binary.NewBatch()
+	// iterate mem-table entries
+	mt.Scan(func(me rbtree.RBEntry) bool {
+		// and write each entry to the batch
+		batch.WriteEntry(me.(memtable.MemtableEntry).Entry)
+		return true
+	})
+	// reset mem-table asap
+	err := mt.Reset()
+	if err != nil {
+		return err
+	}
+	// open new ss-table
+	sst, err := OpenSSTable(sstm.base, sstm.sequence+1)
+	if err != nil {
+		return err
+	}
+	// write batch to ss-table
+	err = sst.WriteBatch(batch)
+	if err != nil {
+		return err
+	}
+	// add new entries to sparse index
+	err = sstm.AddSparseIndex(sst.index)
+	if err != nil {
+		return err
+	}
+	// flush and close ss-table
+	err = sst.Close()
+	if err != nil {
+		return err
+	}
+	// in the clear, increment sequence number
+	sstm.sequence++
+	// return
 	return nil
 }
 
-func (sstm *SSTManager2) Search(k string) (*binary.Entry, error) {
-	// TODO: implement me
-	return nil, nil
-}
-
-func (sstm *SSTManager2) CompactSSTables(index int64) error {
-	// TODO: implement me
+func (sstm *SSTManager) FlushBatchToSSTable(batch *binary.Batch) error {
+	// lock
+	sstm.lock.Lock()
+	defer sstm.lock.Unlock()
+	// open new ss-table
+	sst, err := OpenSSTable(sstm.base, sstm.sequence+1)
+	if err != nil {
+		return err
+	}
+	// write batch to ss-table
+	err = sst.WriteBatch(batch)
+	if err != nil {
+		return err
+	}
+	// add new entries to sparse index
+	err = sstm.AddSparseIndex(sst.index)
+	if err != nil {
+		return err
+	}
+	// flush and close ss-table
+	err = sst.Close()
+	if err != nil {
+		return err
+	}
+	// in the clear, increment sequence
+	sstm.sequence++
+	// return, dummy
 	return nil
 }
 
-func (sstm *SSTManager2) MergeSSTables(iA, iB int64) error {
+// TODO: depricate this method, i think....
+func (sstm *SSTManager) AddSparseIndex1(ssi *SSTIndex) error {
+	// generate and return sparse index set from the ss-index
+	sparseSet, err := ssi.GenerateAndGetSparseIndex()
+	if err != nil {
+		return err
+	}
+	// get index from ssi filename
+	index, err := ssi.GetIndexNumber()
+	if err != nil {
+		return err
+	}
+	// iterate the sparse set
+	for i := range sparseSet {
+		// create a new sparse index entry
+		ie := spiEntry{
+			Key:        string(sparseSet[i].Key),
+			SSTIndex:   index,
+			IndexEntry: sparseSet[i],
+		}
+		// add each entry to the sparse index
+		sstm.sparseIndex.Put(ie)
+	}
+	return nil
+}
+
+func (sstm *SSTManager) AddSparseIndex(ssi *SSTIndex) error {
+	// generate sparse index and fill out/add to the supplied sparseIndex
+	err := ssi.GenerateAndPutSparseIndex(sstm.sparseIndex)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (sstm *SSTManager) SearchSparseIndex(k string) (int64, error) {
+	e, err := sstm.searchSparseIndex(k)
+	if err != nil {
+		return e.SSTIndex, err
+	}
+	return e.SSTIndex, nil
+}
+
+func (sstm *SSTManager) searchSparseIndex(k string) (spiEntry, error) {
+	// search "sparse index"
+	e, nearMin, nearMax, exact := sstm.sparseIndex.GetApproxPrevNext(spiEntry{Key: k})
+	if exact {
+		// found exact entry
+		return e.(spiEntry), nil
+	}
+	// check to see if key is greater than near max
+	if nearMax == nil || k > nearMax.(spiEntry).Key {
+		// note: nearMax should be nil if the key is out of range
+		// key is greater than the near max, which
+		// means it is not located in this table
+		return spiEntry{SSTIndex: -1}, binary.ErrEntryNotFound
+	}
+	// if we get here, key is less than near max
+	if nearMin != nil && k >= nearMin.(spiEntry).Key {
+		// and key is greater than the near min which
+		// means that it is most likely in this table
+		//util.DEBUG("[nearMin] searchSparseIndex(%q) returning: entry found in near min\n", k)
+		return nearMin.(spiEntry), nil
+	}
+	//util.DEBUG("[weird end stage] searchSparseIndex(%q) returning: error bad entry\n", k)
+	// if we get here something bad happened?? this uaully
+	// means a key was searched for that is less than the near
+	// min or something that just doesn't compute well
+	return spiEntry{SSTIndex: -1}, binary.ErrBadEntry
+}
+
+func (sstm *SSTManager) Search(k string) (*binary.Entry, error) {
+	// read lock
+	sstm.lock.RLock()
+	defer sstm.lock.RUnlock()
+	// search "sparse index"
+	sie, err := sstm.searchSparseIndex(k)
+	if err != nil {
+		return nil, err
+	}
+	// open ss-table
+	sst, err := OpenSSTable(sstm.base, sie.SSTIndex)
+	if err != nil {
+		return nil, err
+	}
+	// create an entry to return if we find a match
+	matchedEntry := new(binary.Entry)
+	// for key match at offset in spiEntry
+	err = sst.ScanAt(sie.IndexEntry.Offset, func(e *binary.Entry) bool {
+		if string(e.Key) == k {
+			// we found our match, write data into matchedEntry
+			matchedEntry = e
+			return false // to stop scanning
+		}
+		return true // to keep scanning
+	})
+	// make sure to error check the scanner
+	if err != nil {
+		return nil, err
+	}
+	// close ss-table
+	err = sst.Close()
+	if err != nil {
+		return nil, err
+	}
+	// double check matched entry
+	if matchedEntry == nil {
+		return nil, binary.ErrBadEntry
+	}
+	// entry might be tombstone?? maybe we should return anyway
+	if matchedEntry.Value == nil {
+		return nil, binary.ErrBadEntry
+	}
+	return matchedEntry, nil
+}
+
+func (sstm *SSTManager) CompactSSTables(index int64) error {
+	// lock
+	sstm.lock.Lock()
+	defer sstm.lock.Unlock()
+	// load sstable
+	sst, err := OpenSSTable(sstm.base, index)
+	if err != nil {
+		return err
+	}
+	// make batch
+	batch := binary.NewBatch()
+	// iterate
+	err = sst.Scan(func(e *binary.Entry) bool {
+		// add any data entries that are not tombstones to batch
+		if e.Value != nil && !bytes.Equal(e.Value, Tombstone) {
+			batch.WriteEntry(e)
+		}
+		return true
+	})
+	if err != nil {
+		return err
+	}
+	// get path
+	tpath, ipath := sst.path, sst.index.path
+	// close sstable
+	err = sst.Close()
+	if err != nil {
+		return err
+	}
+	// remove old ss-table
+	err = os.Remove(tpath)
+	if err != nil {
+		return err
+	}
+	// remove old ss-index
+	err = os.Remove(ipath)
+	if err != nil {
+		return err
+	}
+	// open new ss-table to write to
+	sst, err = OpenSSTable(sstm.base, index)
+	if err != nil {
+		return err
+	}
+	// write batch to table
+	err = sst.WriteBatch(batch)
+	// flush and close sstable
+	err = sst.Close()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (sstm *SSTManager) MergeSSTables(iA, iB int64) error {
 	// lock
 	sstm.lock.Lock()
 	defer sstm.lock.Unlock()
@@ -152,10 +393,9 @@ func (sstm *SSTManager2) MergeSSTables(iA, iB int64) error {
 		return err
 	}
 	return nil
-	return nil
 }
 
-func (sstm *SSTManager2) Close() error {
+func (sstm *SSTManager) Close() error {
 	// TODO: implement me
 	return nil
 }

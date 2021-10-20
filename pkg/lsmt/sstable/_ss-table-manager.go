@@ -14,14 +14,6 @@ import (
 	"sync"
 )
 
-const (
-	filePrefix      = "sst-"
-	dataFileSuffix  = ".dat"
-	indexFileSuffix = ".idx"
-)
-
-var Tombstone = []byte(nil)
-
 type KeyRange struct {
 	index int64
 	first string
@@ -50,7 +42,7 @@ func (krs KeyRangeSlice) Swap(i, j int) {
 	krs[i], krs[j] = krs[j], krs[i]
 }
 
-type SSTManager struct {
+type SSTManager1 struct {
 	lock    sync.RWMutex
 	base    string
 	inrange []*KeyRange
@@ -65,7 +57,7 @@ type SSTManager struct {
 // OpenSSTManager opens and returns a SSTManager, which allows you to
 // perform operations across all the ss-table and ss-table-indexes,
 // hopefully without too much hassle
-func OpenSSTManager(base string) (*SSTManager, error) {
+func OpenSSTManager1(base string) (*SSTManager1, error) {
 	// make sure we are working with absolute paths
 	base, err := filepath.Abs(base)
 	if err != nil {
@@ -79,7 +71,7 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 		return nil, err
 	}
 	// create ss-table-manager instance
-	sstm := &SSTManager{
+	sstm := &SSTManager1{
 		base:    base,
 		inrange: make([]*KeyRange, 0),
 		//sparse:  make(map[int64]*SparseIndex, 0),
@@ -148,7 +140,7 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 	return sstm, nil
 }
 
-func (sstm *SSTManager) GetLastKey() (string, error) {
+func (sstm *SSTManager1) GetLastKey() (string, error) {
 	e, ok := sstm.keyIndex.Max()
 	if !ok {
 		return "", ErrSSTIndexNotFound
@@ -156,20 +148,20 @@ func (sstm *SSTManager) GetLastKey() (string, error) {
 	return e.(sparseIndexEntry).LastKey, nil
 }
 
-func (sstm *SSTManager) getLastGIndex() int64 {
+func (sstm *SSTManager1) getLastGIndex() int64 {
 	if len(sstm.inrange) == 0 {
 		return 0
 	}
 	return sstm.inrange[len(sstm.inrange)-1].index
 }
 
-func (sstm *SSTManager) addKeyRange(first, last string) {
+func (sstm *SSTManager1) addKeyRange(first, last string) {
 	kr := &KeyRange{index: sstm.gindex, first: first, last: last}
 	sstm.inrange = append(sstm.inrange, kr)
 }
 
 // FlushMemtableToSSTable takes a pointer to a memtable and writes it to disk as an ss-table
-func (sstm *SSTManager) FlushMemtableToSSTable(memt *memtable.Memtable) error {
+func (sstm *SSTManager1) FlushMemtableToSSTable(memt *memtable.Memtable) error {
 	// lock
 	sstm.lock.Lock()
 	defer sstm.lock.Unlock()
@@ -211,11 +203,11 @@ func (sstm *SSTManager) FlushMemtableToSSTable(memt *memtable.Memtable) error {
 	return nil
 }
 
-func (sstm *SSTManager) NewBatch() *binary.Batch {
+func (sstm *SSTManager1) NewBatch() *binary.Batch {
 	return new(binary.Batch)
 }
 
-func (sstm *SSTManager) FlushBatchToSSTable(batch *binary.Batch) error {
+func (sstm *SSTManager1) FlushBatchToSSTable(batch *binary.Batch) error {
 	// lock
 	sstm.lock.Lock()
 	defer sstm.lock.Unlock()
@@ -245,7 +237,7 @@ func (sstm *SSTManager) FlushBatchToSSTable(batch *binary.Batch) error {
 	return nil
 }
 
-func (sstm *SSTManager) isInRange(k string) (int64, error) { //(*SparseIndex, error) {
+func (sstm *SSTManager1) isInRange(k string) (int64, error) { //(*SparseIndex, error) {
 	if len(sstm.inrange) == 1 {
 		return sstm.getLastGIndex(), nil
 	}
@@ -281,7 +273,7 @@ func (sstm *SSTManager) isInRange(k string) (int64, error) { //(*SparseIndex, er
 	return int64(n), nil
 }
 
-func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
+func (sstm *SSTManager1) Get(k string) (*binary.Entry, error) {
 	// read lock
 	sstm.lock.RLock()
 	defer sstm.lock.RUnlock()
@@ -314,7 +306,7 @@ func (sstm *SSTManager) Get(k string) (*binary.Entry, error) {
 	return de, nil
 }
 
-func (sstm *SSTManager) GetOLD(k string) (*binary.Entry, error) {
+func (sstm *SSTManager1) GetOLD(k string) (*binary.Entry, error) {
 	// read lock
 	sstm.lock.RLock()
 	defer sstm.lock.RUnlock()
@@ -356,7 +348,7 @@ func (sstm *SSTManager) GetOLD(k string) (*binary.Entry, error) {
 	return de, nil
 }
 
-func (sstm *SSTManager) GetEntryIndex(k string) (*binary.Index, error) {
+func (sstm *SSTManager1) GetEntryIndex(k string) (*binary.Index, error) {
 	// read lock
 	sstm.lock.RLock()
 	defer sstm.lock.RUnlock()
@@ -387,7 +379,7 @@ func (sstm *SSTManager) GetEntryIndex(k string) (*binary.Index, error) {
 	return di, nil
 }
 
-func (sstm *SSTManager) ListSSTables() []string {
+func (sstm *SSTManager1) ListSSTables() []string {
 	// read lock
 	sstm.lock.RLock()
 	defer sstm.lock.RUnlock()
@@ -406,7 +398,7 @@ func (sstm *SSTManager) ListSSTables() []string {
 	return ssts
 }
 
-func (sstm *SSTManager) ListSSTIndexes() []string {
+func (sstm *SSTManager1) ListSSTIndexes() []string {
 	// read lock
 	sstm.lock.RLock()
 	defer sstm.lock.RUnlock()
@@ -424,7 +416,7 @@ func (sstm *SSTManager) ListSSTIndexes() []string {
 	return ssti
 }
 
-func (sstm *SSTManager) CompactSSTables(index int64) error {
+func (sstm *SSTManager1) CompactSSTables(index int64) error {
 	// lock
 	sstm.lock.Lock()
 	defer sstm.lock.Unlock()
@@ -478,7 +470,7 @@ func (sstm *SSTManager) CompactSSTables(index int64) error {
 	return nil
 }
 
-func (sstm *SSTManager) MergeSSTables(iA, iB int64) error {
+func (sstm *SSTManager1) MergeSSTables(iA, iB int64) error {
 	// lock
 	sstm.lock.Lock()
 	defer sstm.lock.Unlock()
@@ -524,7 +516,7 @@ func (sstm *SSTManager) MergeSSTables(iA, iB int64) error {
 	return nil
 }
 
-func (sstm *SSTManager) Close() error {
+func (sstm *SSTManager1) Close() error {
 
 	return nil
 }

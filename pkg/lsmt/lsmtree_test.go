@@ -4,9 +4,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/scottcagno/storage/pkg/util"
+	"hash/fnv"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -73,10 +75,30 @@ func TestLSMTreeReadEmptyDir(t *testing.T) {
 }
 
 func TestLSMTree(t *testing.T) {
+	max := 100000
+	for i := 10; i <= max; i *= 10 {
+		log.Printf("running tests with count: %d\n", i)
+		time.Sleep(5 * time.Second)
+		testingLSMTreeN(i, t)
+	}
 
-	count := 100
+	doClean := false
+	if doClean {
+		err := os.RemoveAll(conf.BasePath)
+		if err != nil {
+			t.Errorf("remove: %s, err: %v\n", conf.BasePath, err)
+		}
+	}
+}
+
+func testingLSMTreeN(count int, t *testing.T) {
+
 	strt := 0
 	stop := strt + count
+
+	origPath := conf.BasePath
+	tempPath := filepath.Join(conf.BasePath, strconv.Itoa(count))
+	conf.BasePath = tempPath
 
 	n, err := ReadLastSequenceNumber(conf.BasePath)
 	if n > 0 && err == nil {
@@ -102,7 +124,7 @@ func TestLSMTree(t *testing.T) {
 		}
 	}
 	ts2 := time.Now()
-	fmt.Println(util.FormatTime("writing Entries", ts1, ts2))
+	fmt.Println(util.FormatTime("writing entries", ts1, ts2))
 
 	err = lsm.Sync()
 	if err != nil {
@@ -123,21 +145,31 @@ func TestLSMTree(t *testing.T) {
 		t.Errorf("open: %v\n", err)
 	}
 
-	doPrintAllReads := true
-	doPrintSomeReads := false
+	doPrintAllReads := false
+	doPrintSomeReads := true
 
 	// read Entries
 	logger("reading data")
 	ts1 = time.Now()
-	for i := strt; i < stop; i++ {
+	var step int
+	if count >= 100 {
+		step = count / 100
+	} else {
+		step = 1
+	}
+	for i := strt; i < stop; i += step {
 		v, err := lsm.Get(makeKey(i))
+		if err != nil && err == ErrNotFound {
+			// skip, we don't care if it's not found
+			continue
+		}
 		if err != nil {
 			t.Errorf("get: %v\n", err)
 		}
 		if doPrintAllReads {
 			fmt.Printf("get(%q) -> %q\n", makeKey(i), v)
 		} else if doPrintSomeReads {
-			if i%1000 == 0 {
+			if i%step == 0 {
 				fmt.Printf("get(%q) -> %q\n", makeKey(i), v)
 			}
 		}
@@ -151,7 +183,6 @@ func TestLSMTree(t *testing.T) {
 	for i := strt; i < stop; i++ {
 		if i%2 != 0 {
 			key := makeKey(i)
-			util.DEBUG("DELETING KEY %q\n", key)
 			err = lsm.Del(key)
 			if err != nil {
 				t.Errorf("del: %v\n", err)
@@ -175,25 +206,22 @@ func TestLSMTree(t *testing.T) {
 		t.Errorf("open: %v\n", err)
 	}
 
-	util.DEBUG("LSMTree memtable count: %d\n", lsm.memt.Len())
-
 	// read Entries
 	logger("reading data")
 	ts1 = time.Now()
-	for i := strt; i < stop; i++ {
+	for i := strt; i < stop; i += step {
 		v, err := lsm.Get(makeKey(i))
-		log.Printf("%T, %v\n", err, err)
+		if err != nil && err == ErrNotFound {
+			// skip, we don't care if it's not found
+			continue
+		}
 		if err != nil {
-			if err == ErrFoundTombstone {
-				util.DEBUG("FOUND TOMBSTONE ENTRY!\n")
-				continue
-			}
 			t.Errorf("get: %v\n", err)
 		}
 		if doPrintAllReads {
 			fmt.Printf("get(%q) -> %q\n", makeKey(i), v)
 		} else if doPrintSomeReads {
-			if i%1000 == 0 {
+			if i%step == 0 {
 				fmt.Printf("get(%q) -> %q\n", makeKey(i), v)
 			}
 		}
@@ -210,10 +238,12 @@ func TestLSMTree(t *testing.T) {
 		t.Errorf("close: %v\n", err)
 	}
 
+	conf.BasePath = origPath
+
 }
 
 func TestLSMTree_Put(t *testing.T) {
-
+	fnv.New32()
 }
 
 func TestLSMTree_Get(t *testing.T) {

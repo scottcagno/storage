@@ -10,8 +10,14 @@ import (
 
 func main() {
 
+	conf := &lsmt.LSMConfig{
+		BasePath:       "cmd/lsmt/data",
+		FlushThreshold: -1,
+		SyncOnWrite:    false,
+	}
+
 	// open LSMTree
-	db, err := lsmt.OpenLSMTree("cmd/lsmt/data")
+	db, err := lsmt.OpenLSMTree(conf)
 	if err != nil {
 		panic(err)
 	}
@@ -59,16 +65,18 @@ func main() {
 
 	// regarding key-spaces: I kinda figured we don't
 	// really need them because of the following...
-	base := "cmd/lsmt/keyspaces"
-
+	usersKeyspace := filepath.Join("cmd/lsmt/keyspaces", "users")
+	conf.BasePath = usersKeyspace
 	// open LSMTree (users keyspace)
-	users, err := lsmt.OpenLSMTree(filepath.Join(base, "users"))
+	users, err := lsmt.OpenLSMTree(conf)
 	if err != nil {
 		panic(err)
 	}
 
+	ordersKeyspace := filepath.Join("cmd/lsmt/keyspaces", "orders")
+	conf.BasePath = ordersKeyspace
 	// open LSMTree (orders keyspace)
-	orders, err := lsmt.OpenLSMTree(filepath.Join(base, "orders"))
+	orders, err := lsmt.OpenLSMTree(conf)
 	if err != nil {
 		panic(err)
 	}

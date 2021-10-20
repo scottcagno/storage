@@ -152,31 +152,28 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 	}
 	// did not find it in the mem-table
 	// need to check error for tombstone
-	if e == nil || e.Value == nil || err == memtable.ErrFoundTombstone {
+	if e == nil && err == memtable.ErrFoundTombstone {
 		// found tombstone entry (means this entry was
 		// deleted) so we can end our search here; just
 		// MAKE SURE you check for tombstone errors!!!
-		return nil, ErrFoundTombstone
+		return nil, ErrNotFound
 	}
 	// check sparse index, and ss-tables, young to old
-	de, err := lsm.sstm.Get(k)
+	de, err := lsm.sstm.Search(k)
 	if err != nil {
+		if err == binary.ErrBadEntry {
+			// we can assume (at this point at least)
+			// that the entry does not exist
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 	// check to make sure entry is not a tombstone
 	if de == nil || de.Value == nil {
-		return nil, ErrFoundTombstone
+		return nil, ErrNotFound
 	}
 	// may have found it
 	return de.Value, nil
-}
-
-func (lsm *LSMTree) GetLastKey() (string, error) {
-	key, err := lsm.sstm.GetLastKey()
-	if err != nil {
-		return "", err
-	}
-	return key, nil
 }
 
 type Iterator struct {

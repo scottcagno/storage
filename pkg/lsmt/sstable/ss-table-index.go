@@ -3,6 +3,7 @@ package sstable
 import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
+	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"io"
 	"math"
 	"os"
@@ -184,7 +185,7 @@ func calculateSparseRatio(n int64) int64 {
 	return int64(math.Log2(float64(n)))
 }
 
-func (ssi *SSTIndex) GenerateSparseIndexSet() ([]*binary.Index, error) {
+func (ssi *SSTIndex) GenerateAndGetSparseIndex() ([]*binary.Index, error) {
 	if !ssi.open {
 		return nil, binary.ErrFileClosed
 	}
@@ -197,6 +198,36 @@ func (ssi *SSTIndex) GenerateSparseIndexSet() ([]*binary.Index, error) {
 		}
 	}
 	return sparseSet, nil
+}
+
+func (ssi *SSTIndex) GenerateAndPutSparseIndex(sparseIndex *rbtree.RBTree) error {
+	if !ssi.open {
+		return binary.ErrFileClosed
+	}
+	index, err := ssi.GetIndexNumber()
+	if err != nil {
+		return err
+	}
+	count := int64(len(ssi.data))
+	ratio := calculateSparseRatio(count)
+	for i := int64(0); i < count; i++ {
+		if i%(count/ratio) == 0 {
+			sparseIndex.Put(spiEntry{
+				Key:        string(ssi.data[i].Key),
+				SSTIndex:   index,
+				IndexEntry: ssi.data[i],
+			})
+		}
+	}
+	return nil
+}
+
+func (ssi *SSTIndex) GetIndexNumber() (int64, error) {
+	index, err := IndexFromIndexFileName(filepath.Base(ssi.file.Name()))
+	if err != nil {
+		return -1, err
+	}
+	return index, nil
 }
 
 func (ssi *SSTIndex) Len() int {
