@@ -1,12 +1,13 @@
 
 # implementation
-[ ] expose has(k) method
+[x] expose has(k) method
 [ ] expose stats() or info() method
 [ ] expose backup() method of some kind
 [ ] add a default keyspace wrapper
+[x] add a getBatch(k...)
 [ ] consider implementing a key prefix search
 [ ] consider implementing a loose regex style raw search
-[ ] update the storage interface
+[x] update the storage interface
 [ ] have the lsmtree clean up any empty files
 [ ] optimize the sparse index searching
 [ ] consider embeddung bloom filter in each ss-table or ss-index

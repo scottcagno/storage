@@ -86,7 +86,7 @@ func TestLSMTree(t *testing.T) {
 		runtime.GC()
 		time.Sleep(3)
 	}
-	doClean := false
+	doClean := true
 	if doClean {
 		err := os.RemoveAll(conf.BasePath)
 		if err != nil {
