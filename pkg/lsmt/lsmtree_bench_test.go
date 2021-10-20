@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-func makeKey(i int) string {
+func _makeKey(i int) string {
 	return fmt.Sprintf("key-%06d", i)
 }
 
-func makeVal(i int) []byte {
+func _makeVal(i int) []byte {
 	return []byte(fmt.Sprintf("value-%08d", i))
 }
 

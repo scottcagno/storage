@@ -8,6 +8,7 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -38,11 +39,18 @@ func (r spiEntry) String() string {
 	return fmt.Sprintf("entry.LastKey=%q", r.Key)
 }
 
+type Int64Slice []int64
+
+func (x Int64Slice) Len() int           { return len(x) }
+func (x Int64Slice) Less(i, j int) bool { return x[i] < x[j] }
+func (x Int64Slice) Swap(i, j int)      { x[i], x[j] = x[j], x[i] }
+
 type SSTManager struct {
 	lock        sync.RWMutex
 	base        string
 	sequence    int64
 	sparseIndex *rbtree.RBTree
+	fileIndexes []int64
 }
 
 func OpenSSTManager(base string) (*SSTManager, error) {
@@ -102,6 +110,8 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 		if index > sstm.sequence {
 			sstm.sequence = index
 		}
+		// add to list of file indexes
+		sstm.fileIndexes = append(sstm.fileIndexes, index)
 	}
 	return sstm, nil
 }
@@ -234,7 +244,7 @@ func (sstm *SSTManager) searchSparseIndex(k string) (spiEntry, error) {
 		// note: nearMax should be nil if the key is out of range
 		// key is greater than the near max, which
 		// means it is not located in this table
-		return spiEntry{SSTIndex: -1}, binary.ErrEntryNotFound
+		return spiEntry{SSTIndex: -1}, binary.ErrBadEntry
 	}
 	// if we get here, key is less than near max
 	if nearMin != nil && k >= nearMin.(spiEntry).Key {
@@ -248,6 +258,53 @@ func (sstm *SSTManager) searchSparseIndex(k string) (spiEntry, error) {
 	// means a key was searched for that is less than the near
 	// min or something that just doesn't compute well
 	return spiEntry{SSTIndex: -1}, binary.ErrBadEntry
+}
+
+func (sstm *SSTManager) LinearSearch(k string) *binary.Entry {
+	// read lock
+	sstm.lock.RLock()
+	defer sstm.lock.RUnlock()
+	// sort the ss-index files so the most recent ones are first
+	sort.Sort(sort.Reverse(Int64Slice(sstm.fileIndexes)))
+	// iterate the ss-index files (backward)
+	for _, index := range sstm.fileIndexes {
+		// open the ss-table
+		sst, err := OpenSSTable(sstm.base, index)
+		if err != nil {
+			return nil
+		}
+		// perform binary search, attempt to
+		// locate a matching entry
+		de, err := sst.Read(k)
+		if err != nil {
+			return nil
+		}
+		// do not forget to close the ss-table
+		err = sst.Close()
+		if err != nil {
+			return nil
+		}
+		// double check entry
+		if de == nil {
+			continue
+		}
+		// otherwise, return
+		return de
+	}
+	return nil
+}
+
+func (sstm *SSTManager) CheckDeleteInSparseIndex(k string) {
+	// lock
+	sstm.lock.Lock()
+	defer sstm.lock.Unlock()
+	// make sparse index entry
+	sie := spiEntry{Key: k}
+	// search for exact key in sparse index
+	if sstm.sparseIndex.Has(sie) {
+		// remove key from sparse index
+		sstm.sparseIndex.Del(sie)
+	}
 }
 
 func (sstm *SSTManager) Search(k string) (*binary.Entry, error) {
@@ -295,7 +352,17 @@ func (sstm *SSTManager) Search(k string) (*binary.Entry, error) {
 	return matchedEntry, nil
 }
 
-func (sstm *SSTManager) CompactSSTables(index int64) error {
+func (sstm *SSTManager) CompactAllSSTables() error {
+	for _, index := range sstm.fileIndexes {
+		err := sstm.CompactSSTable(index)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (sstm *SSTManager) CompactSSTable(index int64) error {
 	// lock
 	sstm.lock.Lock()
 	defer sstm.lock.Unlock()

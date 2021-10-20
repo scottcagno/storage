@@ -4,9 +4,12 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
+	"github.com/scottcagno/storage/pkg/util"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 const (
@@ -99,6 +102,17 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 	return lsmt, nil
 }
 
+func (lsm *LSMTree) checkCompact() {
+	// lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+	// do compact
+	if err := lsm.sstm.CompactAllSSTables(); err != nil {
+		log.Printf("lsmt.checkCompact error: (%T) %v\n", err, err)
+	}
+	time.AfterFunc(5*time.Minute, func() { lsm.checkCompact() })
+}
+
 func (lsm *LSMTree) Put(k string, v []byte) error {
 	// lock
 	lsm.lock.Lock()
@@ -158,14 +172,26 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 		// MAKE SURE you check for tombstone errors!!!
 		return nil, ErrNotFound
 	}
+	doBruteForceSearch := true
 	// check sparse index, and ss-tables, young to old
 	de, err := lsm.sstm.Search(k)
 	if err != nil {
 		if err == binary.ErrBadEntry {
+			if doBruteForceSearch {
+				util.DEBUG("LSMT=> Performing brute force search for key=%q\n", k)
+				// do linear semi-binary-ish search
+				de = lsm.sstm.LinearSearch(k)
+				if de == nil || de.Value == nil {
+					return nil, ErrNotFound
+				}
+				// otherwise, we found it homey!
+				return de.Value, nil
+			}
 			// we can assume (at this point at least)
 			// that the entry does not exist
 			return nil, ErrNotFound
 		}
+		util.DEBUG(">>>>>>>>>>>>>> RIGHT HERE IS THE CULPRIT <<<<<<<<<<<<<<<<<")
 		return nil, err
 	}
 	// check to make sure entry is not a tombstone
@@ -200,6 +226,8 @@ func (lsm *LSMTree) Del(k string) error {
 			return err
 		}
 	}
+	// update sparse index
+	lsm.sstm.CheckDeleteInSparseIndex(k)
 	return nil
 }
 

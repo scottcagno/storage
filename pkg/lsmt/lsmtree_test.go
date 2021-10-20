@@ -8,16 +8,19 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
 )
 
-func _makeKey(i int) string {
-	return fmt.Sprintf("key-%06d", i)
+func makeKey(i int) string {
+	//return fmt.Sprintf("key-%06d", i)
+	hexa := strconv.FormatInt(int64(i), 16)
+	return fmt.Sprintf("%s%06s", "key-", hexa)
 }
 
-func _makeVal(i int) []byte {
+func makeVal(i int) []byte {
 	return []byte(fmt.Sprintf("value-%08d", i))
 }
 
@@ -78,10 +81,10 @@ func TestLSMTree(t *testing.T) {
 	max := 100000
 	for i := 10; i <= max; i *= 10 {
 		log.Printf("running tests with count: %d\n", i)
-		time.Sleep(5 * time.Second)
 		testingLSMTreeN(i, t)
+		runtime.GC()
+		time.Sleep(3)
 	}
-
 	doClean := false
 	if doClean {
 		err := os.RemoveAll(conf.BasePath)
@@ -177,20 +180,23 @@ func testingLSMTreeN(count int, t *testing.T) {
 	ts2 = time.Now()
 	fmt.Println(util.FormatTime("reading Entries", ts1, ts2))
 
-	// remove Entries
-	logger("removing data (only odds)")
-	ts1 = time.Now()
-	for i := strt; i < stop; i++ {
-		if i%2 != 0 {
-			key := makeKey(i)
-			err = lsm.Del(key)
-			if err != nil {
-				t.Errorf("del: %v\n", err)
+	doDelete := true
+	if doDelete {
+		// remove Entries
+		logger("removing data (only odds)")
+		ts1 = time.Now()
+		for i := strt; i < stop; i++ {
+			if i%2 != 0 {
+				key := makeKey(i)
+				err = lsm.Del(key)
+				if err != nil {
+					t.Errorf("del: %v\n", err)
+				}
 			}
 		}
+		ts2 = time.Now()
+		fmt.Println(util.FormatTime("removing Entries", ts1, ts2))
 	}
-	ts2 = time.Now()
-	fmt.Println(util.FormatTime("removing Entries", ts1, ts2))
 
 	// close
 	logger("closing lsm tree")
@@ -230,6 +236,12 @@ func testingLSMTreeN(count int, t *testing.T) {
 	fmt.Println(util.FormatTime("reading data", ts1, ts2))
 
 	_ = WriteLastSequenceNumber(int64(stop-1), conf.BasePath)
+
+	//
+	err = lsm.sstm.CompactAllSSTables()
+	if err != nil {
+		t.Errorf("lsm.compact error: %s\n", err)
+	}
 
 	// close
 	logger("closing lsm tree")
