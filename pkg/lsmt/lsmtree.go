@@ -18,7 +18,7 @@ const (
 	defaultFlushThreshold        = 1 << 20 // 1 MB
 	defaultSyncOnWrite           = false
 	defaultCompactAndMergeOnOpen = false
-	defaultBloomFilterSize       = 1 << 12 // 4 KB
+	defaultBloomFilterSize       = 1 << 16 // 64 KB
 )
 
 var defaultLSMConfig = &LSMConfig{
@@ -99,6 +99,9 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 	if err != nil {
 		return nil, err
 	}
+	// check to see if mem-table needs to flush (this can happen with
+	// large batch inserts sometimes.) should find a better fix maybe.
+	//util.DEBUG("memtable_size: %d, flushthreshold: %d, memtable_size > flushthreshold: %v\n", memt.Size(), memt.GetConfig().FlushThreshold, memt.ShouldFlush())
 	// open sst-manager
 	sstm, err := sstable.OpenSSTManager(sstbase)
 	if err != nil {
@@ -136,6 +139,7 @@ func (lsm *LSMTree) populateBloomFilter() error {
 	// lock
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
+	var count int
 	// add entries from mem-table
 	lsm.memt.Scan(func(me rbtree.RBEntry) bool {
 		// isolate binary entry
@@ -144,6 +148,7 @@ func (lsm *LSMTree) populateBloomFilter() error {
 		if e != nil && e.Value != nil {
 			// add entry to bloom filter
 			lsm.bloom.Set(e.Key)
+			count++
 		}
 		return true
 	})
@@ -153,6 +158,7 @@ func (lsm *LSMTree) populateBloomFilter() error {
 		if e != nil && e.Value != nil {
 			// add entry to bloom filter
 			lsm.bloom.Set(e.Key)
+			count++
 		}
 		return true
 	})
@@ -251,12 +257,17 @@ func (lsm *LSMTree) PutBatch(batch *binary.Batch) error {
 func (lsm *LSMTree) Has(k string) bool {
 	// check bloom filter
 	if ok := lsm.bloom.MayHave([]byte(k)); !ok {
-		// definitely not in the lsm tree
+		// definitely not in the bloom filter
 		return false
 	}
 	// low probability of false positive,
 	// but let's check the mem-table
 	if ok := lsm.memt.Has(k); ok {
+		// definitely in the mem-table, return true.
+		// it should be noted that we cannot return
+		// false from here, because if we do we are
+		// saying that it is not in the mem-table, but
+		// it still could be found on disk....
 		return true
 	}
 	// so I suppose at this point it's really
@@ -264,9 +275,10 @@ func (lsm *LSMTree) Has(k string) bool {
 	// anyway, because well... why not?
 	de := lsm.sstm.LinearSearch(k)
 	if de == nil || de.Value == nil {
+		// definitely not in the ss-table
 		return false
 	}
-	// otherwise, we found it homey!
+	// otherwise, we MAY have found it
 	return true
 }
 

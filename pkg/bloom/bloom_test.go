@@ -52,6 +52,11 @@ func TestBloomFilter(t *testing.T) {
 		if !ok {
 			t.Errorf("error: expected=%v, got=%v\n", true, ok)
 		}
+		key = []byte("key-000000_key_does_not_exist")
+		ok = bf.Has(key)
+		if ok {
+			t.Errorf("error: expected=%v, got=%v\n", false, ok)
+		}
 	}
 	for i := 0; i < len(data); i++ {
 		key := []byte("key-" + strconv.Itoa(i))

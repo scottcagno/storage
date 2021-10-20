@@ -151,6 +151,14 @@ func (mt *Memtable) insert(e *binary.Entry) error {
 	return nil
 }
 
+func (mt *Memtable) Size() int64 {
+	return mt.data.Size()
+}
+
+func (mt *Memtable) ShouldFlush() bool {
+	return mt.data.Size() > mt.conf.FlushThreshold
+}
+
 func (mt *Memtable) Put(e *binary.Entry) error {
 	// write entry to the write-ahead commit log
 	_, err := mt.wacl.Write(e)
@@ -173,11 +181,13 @@ func (mt *Memtable) PutBatch(batch *binary.Batch) error {
 	}
 	// write batch entries to the mem-table
 	for i := range batch.Entries {
-		err = mt.insert(batch.Entries[i])
-		if err != nil {
-			return err
-		}
-		return nil
+		e := batch.Entries[i]
+		mt.data.Put(memtableEntry{Key: string(e.Key), Entry: e})
+	}
+	// after batch writing is finished, check
+	// and return to flush or not to flush
+	if mt.data.Size() > mt.conf.FlushThreshold {
+		return ErrFlushThreshold
 	}
 	return nil
 }
