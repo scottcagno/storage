@@ -260,6 +260,46 @@ func (sstm *SSTManager) searchSparseIndex(k string) (spiEntry, error) {
 	return spiEntry{SSTIndex: -1}, binary.ErrBadEntry
 }
 
+type scanDirection int
+
+const (
+	ScanOldToNew = 0
+	ScanNewToOld = 1
+)
+
+func (sstm *SSTManager) Scan(direction scanDirection, iter func(e *binary.Entry) bool) error {
+	if direction != ScanOldToNew && direction != ScanNewToOld {
+		return ErrInvalidScanDirection
+	}
+	if direction == ScanNewToOld {
+		// sort the ss-index files so the most recent ones are first
+		sort.Sort(sort.Reverse(Int64Slice(sstm.fileIndexes)))
+	}
+	if direction == ScanOldToNew {
+		// sort the ss-index files so the least recent ones are first
+		sort.Sort(Int64Slice(sstm.fileIndexes))
+	}
+	// start iterating
+	for _, index := range sstm.fileIndexes {
+		// open the ss-table
+		sst, err := OpenSSTable(sstm.base, index)
+		if err != nil {
+			return err
+		}
+		// scan the ss-table
+		err = sst.Scan(iter)
+		if err != nil {
+			return err
+		}
+		// close the ss-table
+		err = sst.Close()
+		if err != nil {
+			return nil
+		}
+	}
+	return nil
+}
+
 func (sstm *SSTManager) LinearSearch(k string) *binary.Entry {
 	// read lock
 	sstm.lock.RLock()
@@ -413,6 +453,35 @@ func (sstm *SSTManager) CompactSSTable(index int64) error {
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func (sstm *SSTManager) MergeAllSSTables(mergeThreshold int) error {
+	// ensure there is an even number of tables
+	// before attempting to merge--if not, just
+	// silently return a nil error....
+	if len(sstm.fileIndexes)%2 != 0 {
+		// odd number of tables, difficult to merge
+		return nil
+	}
+	// otherwise, we have an even number of tables
+	// and could merge in theory--check threshold
+	if len(sstm.fileIndexes) < mergeThreshold {
+		// haven't reached the merge threshold
+		// so, silently return a nil error
+		return nil
+	}
+	// otherwise, start by sorting...
+	sort.Sort(Int64Slice(sstm.fileIndexes))
+	// then iterate and attempt to merge...
+	for i := int(sstm.fileIndexes[0]); i < len(sstm.fileIndexes); i += 2 {
+		// merging pair
+		err := sstm.MergeSSTables(int64(i), int64(i+1))
+		if err != nil {
+			return err
+		}
+	}
+	// everything merge successfully
 	return nil
 }
 

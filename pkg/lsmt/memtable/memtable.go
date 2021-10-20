@@ -182,6 +182,10 @@ func (mt *Memtable) PutBatch(batch *binary.Batch) error {
 	return nil
 }
 
+func (mt *Memtable) Has(k string) bool {
+	return mt.data.Has(memtableEntry{Key: k})
+}
+
 func (mt *Memtable) Get(k string) (*binary.Entry, error) {
 	v, ok := mt.data.Get(memtableEntry{Key: k})
 	if !ok {

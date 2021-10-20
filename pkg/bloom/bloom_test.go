@@ -20,7 +20,8 @@ import (
 	"time"
 )
 
-var data = [10][]byte{
+var data = [11][]byte{
+	[]byte("key-000000"),
 	[]byte("Hendrix Avalos"),
 	[]byte("Yasmin Mellor"),
 	[]byte("Coco Mueller"),
@@ -35,7 +36,8 @@ var data = [10][]byte{
 
 func TestBloomFilter(t *testing.T) {
 	// test new filter
-	bf := NewBloomFilter(100)
+	bf := NewBloomFilter(1 << 12)
+	fmt.Println(util.Sizeof(bf))
 
 	// test adding data
 	for i := 0; i < len(data); i++ {

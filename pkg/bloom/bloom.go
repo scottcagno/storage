@@ -102,6 +102,10 @@ func (f *BloomFilter) Set(data []byte) {
 	}
 }
 
+func (f *BloomFilter) MayHave(data []byte) bool {
+	return f.Has(data)
+}
+
 // Has returns true if the data is in the BloomFilter, false otherwise.
 // If true, the result might be a false positive. If false, the data
 // is definitely not in the set.

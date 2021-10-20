@@ -3,7 +3,7 @@ package openaddr
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/scottcagno/leviathan/pkg/bitset"
+	"github.com/scottcagno/storage/pkg/bitset"
 	"math/bits"
 	"runtime"
 	"sync"

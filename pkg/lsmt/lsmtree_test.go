@@ -30,9 +30,10 @@ func logger(s string) {
 }
 
 var conf = &LSMConfig{
-	BasePath:       "lsm-testing",
-	FlushThreshold: -1,
-	SyncOnWrite:    false,
+	BasePath:              "lsm-testing",
+	FlushThreshold:        -1,
+	SyncOnWrite:           false,
+	CompactAndMergeOnOpen: false,
 }
 
 func TestOpenAndCloseNoWrite(t *testing.T) {

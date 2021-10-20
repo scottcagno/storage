@@ -1,35 +1,40 @@
 package lsmt
 
 import (
+	"github.com/scottcagno/storage/pkg/bloom"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
-	"github.com/scottcagno/storage/pkg/util"
-	"log"
+	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 )
 
 const (
-	walPath               = "log"
-	sstPath               = "data"
-	defaultBasePath       = "lsm-db"
-	defaultFlushThreshold = 1 << 20 // 1 MB
-	defaultSyncOnWrite    = false
+	walPath                      = "log"
+	sstPath                      = "data"
+	defaultBasePath              = "lsm-db"
+	defaultFlushThreshold        = 1 << 20 // 1 MB
+	defaultSyncOnWrite           = false
+	defaultCompactAndMergeOnOpen = false
+	defaultBloomFilterSize       = 1 << 12 // 4 KB
 )
 
 var defaultLSMConfig = &LSMConfig{
-	BasePath:       defaultBasePath,
-	FlushThreshold: defaultFlushThreshold,
-	SyncOnWrite:    defaultSyncOnWrite,
+	BasePath:              defaultBasePath,
+	FlushThreshold:        defaultFlushThreshold,
+	SyncOnWrite:           defaultSyncOnWrite,
+	CompactAndMergeOnOpen: defaultCompactAndMergeOnOpen,
+	BloomFilterSize:       defaultBloomFilterSize,
 }
 
 type LSMConfig struct {
-	BasePath       string // base storage path
-	FlushThreshold int64  // memtable flush threshold in KB
-	SyncOnWrite    bool   // perform sync every time an entry is write
+	BasePath              string // base storage path
+	FlushThreshold        int64  // memtable flush threshold in KB
+	SyncOnWrite           bool   // perform sync every time an entry is write
+	CompactAndMergeOnOpen bool
+	BloomFilterSize       uint // specify the bloom filter size
 }
 
 func checkLSMConfig(conf *LSMConfig) *LSMConfig {
@@ -42,6 +47,9 @@ func checkLSMConfig(conf *LSMConfig) *LSMConfig {
 	if conf.FlushThreshold < 1 {
 		conf.FlushThreshold = defaultFlushThreshold
 	}
+	if conf.BloomFilterSize < 1 {
+		conf.BloomFilterSize = defaultBloomFilterSize
+	}
 	return conf
 }
 
@@ -52,6 +60,7 @@ type LSMTree struct {
 	lock    sync.RWMutex        // lock is a mutex that synchronizes access to the data
 	memt    *memtable.Memtable  // memt is the main memtable instance
 	sstm    *sstable.SSTManager // sstm is the sorted-strings table manager
+	bloom   *bloom.BloomFilter  // bloom is a bloom filter
 }
 
 func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
@@ -97,20 +106,71 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 		sstbase: sstbase,
 		memt:    memt,
 		sstm:    sstm,
+		bloom:   bloom.NewBloomFilter(conf.BloomFilterSize),
+	}
+	if conf.CompactAndMergeOnOpen {
+		// attempt to compact and merge
+		err = lsmt.checkCompactAndMerge()
+		if err != nil {
+			return nil, err
+		}
+	}
+	// populate bloom filter
+	err = lsmt.populateBloomFilter()
+	if err != nil {
+		return nil, err
 	}
 	// return lsm-tree
 	return lsmt, nil
 }
 
-func (lsm *LSMTree) checkCompact() {
+func (lsm *LSMTree) populateBloomFilter() error {
+	// lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+	// add entries from mem-table
+	lsm.memt.Scan(func(me rbtree.RBEntry) bool {
+		// isolate binary entry
+		e := me.(memtable.MemtableEntry).Entry
+		// make sure entry is not a tombstone
+		if e != nil && e.Value != nil {
+			// add entry to bloom filter
+			lsm.bloom.Set(e.Key)
+		}
+		return true
+	})
+	// add entries from linear ss-table scan
+	err := lsm.sstm.Scan(sstable.ScanNewToOld, func(e *binary.Entry) bool {
+		// make sure entry is not a tombstone
+		if e != nil && e.Value != nil {
+			// add entry to bloom filter
+			lsm.bloom.Set(e.Key)
+		}
+		return true
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (lsm *LSMTree) checkCompactAndMerge() error {
 	// lock
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
 	// do compact
-	if err := lsm.sstm.CompactAllSSTables(); err != nil {
-		log.Printf("lsmt.checkCompact error: (%T) %v\n", err, err)
+	err := lsm.sstm.CompactAllSSTables()
+	if err != nil {
+		return err
 	}
-	time.AfterFunc(5*time.Minute, func() { lsm.checkCompact() })
+	// set merge threshold
+	mergeThreshold := 16
+	// do merge
+	err = lsm.sstm.MergeAllSSTables(mergeThreshold)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (lsm *LSMTree) Put(k string, v []byte) error {
@@ -133,6 +193,8 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 			return err
 		}
 	}
+	// add to bloom filter
+	lsm.bloom.Set([]byte(k))
 	return nil
 }
 
@@ -154,10 +216,41 @@ func (lsm *LSMTree) PutBatch(batch *binary.Batch) error {
 			return err
 		}
 	}
+	// add to bloom filter
+	for _, e := range batch.Entries {
+		lsm.bloom.Set(e.Key)
+	}
 	return nil
 }
 
+func (lsm *LSMTree) Has(k string) bool {
+	// check bloom filter
+	if ok := lsm.bloom.MayHave([]byte(k)); !ok {
+		// definitely not in the lsm tree
+		return false
+	}
+	// low probability of false positive,
+	// but let's check the mem-table
+	if ok := lsm.memt.Has(k); ok {
+		return true
+	}
+	// so I suppose at this point it's really
+	// unlikely to be found, but let's search
+	// anyway, because well... why not?
+	de := lsm.sstm.LinearSearch(k)
+	if de == nil || de.Value == nil {
+		return false
+	}
+	// otherwise, we found it homey!
+	return true
+}
+
 func (lsm *LSMTree) Get(k string) ([]byte, error) {
+	// check bloom filter
+	if ok := lsm.bloom.MayHave([]byte(k)); !ok {
+		// definitely not in the lsm tree
+		return nil, ErrNotFound
+	}
 	// search memtable
 	e, err := lsm.memt.Get(k)
 	if err == nil {
@@ -172,26 +265,24 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 		// MAKE SURE you check for tombstone errors!!!
 		return nil, ErrNotFound
 	}
-	doBruteForceSearch := true
 	// check sparse index, and ss-tables, young to old
 	de, err := lsm.sstm.Search(k)
 	if err != nil {
+		// if we get a bad entry, it most likely means
+		// that our sparse index couldn't find it, but
+		// there is still a chance it may be on disk
 		if err == binary.ErrBadEntry {
-			if doBruteForceSearch {
-				util.DEBUG("LSMT=> Performing brute force search for key=%q\n", k)
-				// do linear semi-binary-ish search
-				de = lsm.sstm.LinearSearch(k)
-				if de == nil || de.Value == nil {
-					return nil, ErrNotFound
-				}
-				// otherwise, we found it homey!
-				return de.Value, nil
+			// do linear semi-binary-ish search
+			de = lsm.sstm.LinearSearch(k)
+			if de == nil || de.Value == nil {
+				return nil, ErrNotFound
 			}
-			// we can assume (at this point at least)
-			// that the entry does not exist
-			return nil, ErrNotFound
+			// otherwise, we found it homey!
+			return de.Value, nil
 		}
-		util.DEBUG(">>>>>>>>>>>>>> RIGHT HERE IS THE CULPRIT <<<<<<<<<<<<<<<<<")
+		// -> IF YOU ARE HERE...
+		// Then the value may not be here (or you didn't check
+		// all the potential errors that can be returned), dummy
 		return nil, err
 	}
 	// check to make sure entry is not a tombstone
