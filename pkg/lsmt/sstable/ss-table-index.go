@@ -70,8 +70,6 @@ func (ssi *SSTIndex) LoadSSIndexData() error {
 	if err != nil {
 		return err
 	}
-	// make sure we close!
-	defer fd.Close()
 	// read and decode gindex entries
 	for {
 		// decode next gindex entry
@@ -80,10 +78,20 @@ func (ssi *SSTIndex) LoadSSIndexData() error {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				break
 			}
+			// make sure we close!
+			err = fd.Close()
+			if err != nil {
+				return err
+			}
 			return err
 		}
 		// add gindex entry to sst gindex
 		ssi.data = append(ssi.data, i)
+	}
+	// make sure we close!
+	err = fd.Close()
+	if err != nil {
+		return err
 	}
 	// update sst first and last and then return
 	if len(ssi.data) > 0 {

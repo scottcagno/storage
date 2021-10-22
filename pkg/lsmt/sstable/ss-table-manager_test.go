@@ -15,7 +15,7 @@ func TestSSTManager(t *testing.T) {
 	base := "sst-manager-testing"
 
 	// open ss-table-manager
-	sstm, err := OpenSSTManager2(base)
+	sstm, err := OpenSSTManager(base)
 	if err != nil {
 		t.Errorf("opening ss-table-manager: %v\n", err)
 	}
