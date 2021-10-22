@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"unsafe"
 )
 
 const (
@@ -19,6 +21,7 @@ const (
 	defaultMaxFileSize int64 = 16 << 10 // 16 KB
 	defaultBasePath          = "log"
 	defaultSyncOnWrite       = false
+	remainingTrigger         = 64
 )
 
 var (
@@ -169,6 +172,43 @@ func OpenWAL(c *WALConfig) (*WAL, error) {
 	}
 	// return write-ahead log
 	return l, nil
+}
+
+func (l *WAL) Reset() error {
+	// lock
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	// sync and close writer
+	err := l.w.Close()
+	if err != nil {
+		return err
+	}
+	// close reader
+	err = l.r.Close()
+	if err != nil {
+		return err
+	}
+	// erase all files
+	err = os.RemoveAll(l.conf.BasePath)
+	if err != nil {
+		return err
+	}
+	// open a new write-ahead-logger
+	nl, err := OpenWAL(l.conf)
+	if err != nil {
+		return err
+	}
+	// Defining addr unsafe.Pointer
+	var u1 = (*unsafe.Pointer)(unsafe.Pointer(&l))
+	// Old unsafe pointer
+	//var wacl WAL
+	// Defining new unasfe.pointer
+	px := atomic.SwapPointer(u1, unsafe.Pointer(&nl))
+	ok := atomic.CompareAndSwapPointer(u1, unsafe.Pointer(&nl), px)
+	if !ok {
+		return errors.New("wal: compare and swap pointers didnt work right...")
+	}
+	return nil
 }
 
 // loadIndex initializes the segment index. It looks for segment
@@ -438,7 +478,7 @@ func (l *WAL) Write(e *binary.Entry) (int64, error) {
 	// update segment remaining
 	l.active.remaining -= offset2 - offset
 	// check to see if the active segment needs to be cycled
-	if l.active.remaining < 64 {
+	if l.active.remaining < remainingTrigger {
 		err = l.cycleSegment()
 		if err != nil {
 			return 0, err
@@ -483,7 +523,7 @@ func (l *WAL) WriteBatch(batch *binary.Batch) error {
 		// update segment remaining
 		l.active.remaining -= offset2 - offset
 		// check to see if the active segment needs to be cycled
-		if l.active.remaining < 64 {
+		if l.active.remaining < remainingTrigger {
 			err = l.cycleSegment()
 			if err != nil {
 				return err

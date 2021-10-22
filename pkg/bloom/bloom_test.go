@@ -43,12 +43,14 @@ func TestBloomFilter(t *testing.T) {
 	for i := 0; i < len(data); i++ {
 		key := data[i]
 		bf.Set(key)
+		fmt.Printf("bf.Set(%q)\n", key)
 	}
 
 	// test checking data
 	for i := 0; i < len(data); i++ {
 		key := data[i]
 		ok := bf.Has(key)
+		fmt.Printf("bf.Has(%q): %v\n", key, ok)
 		if !ok {
 			t.Errorf("error: expected=%v, got=%v\n", true, ok)
 		}
@@ -58,6 +60,37 @@ func TestBloomFilter(t *testing.T) {
 			t.Errorf("error: expected=%v, got=%v\n", false, ok)
 		}
 	}
+
+	for i := 0; i < len(data); i++ {
+		key := []byte("key-" + strconv.Itoa(i))
+		ok := bf.Has(key)
+		if ok {
+			t.Errorf("error: expected=%v, got=%v\n", false, ok)
+		}
+	}
+
+	// test unseting data
+	for i := 0; i < len(data); i++ {
+		key := data[i]
+		bf.Unset(key)
+		fmt.Printf("bf.Unset(%q)\n", key)
+	}
+
+	// test checking data
+	for i := 0; i < len(data); i++ {
+		key := data[i]
+		ok := bf.Has(key)
+		fmt.Printf("bf.Has(%q): %v\n", key, ok)
+		if ok {
+			t.Errorf("error: expected=%v, got=%v\n", false, ok)
+		}
+		key = []byte("key-000000_key_does_not_exist")
+		ok = bf.Has(key)
+		if ok {
+			t.Errorf("error: expected=%v, got=%v\n", false, ok)
+		}
+	}
+
 	for i := 0; i < len(data); i++ {
 		key := []byte("key-" + strconv.Itoa(i))
 		ok := bf.Has(key)

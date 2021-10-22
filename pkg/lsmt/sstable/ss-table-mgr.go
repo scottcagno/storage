@@ -6,6 +6,7 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -120,6 +121,51 @@ func (sstm *SSTManager) FlushMemtableToSSTable(mt *memtable.Memtable) error {
 	// lock
 	sstm.lock.Lock()
 	defer sstm.lock.Unlock()
+	// open new ss-table
+	sst, err := OpenSSTable(sstm.base, sstm.sequence+1)
+	if err != nil {
+		return err
+	}
+	// iterate mem-table entries
+	mt.Scan(func(me rbtree.RBEntry) bool {
+		// and write each entry to the ss-table
+		err = sst.Write(me.(memtable.MemtableEntry).Entry)
+		if err != nil {
+			log.Println(err)
+			return false
+		}
+		return true
+	})
+	//// sync ss-table writes
+	//err = sst.Sync()
+	//if err != nil {
+	//	return err
+	//}
+	// reset mem-table asap
+	err = mt.Reset()
+	if err != nil {
+		return err
+	}
+	// add new entries to sparse index
+	err = sstm.AddSparseIndex(sst.index)
+	if err != nil {
+		return err
+	}
+	// flush and close ss-table
+	err = sst.Close()
+	if err != nil {
+		return err
+	}
+	// in the clear, increment sequence number
+	sstm.sequence++
+	// return
+	return nil
+}
+
+func (sstm *SSTManager) FlushMemtableToSSTableOLD(mt *memtable.Memtable) error {
+	// lock
+	sstm.lock.Lock()
+	defer sstm.lock.Unlock()
 	// make new batch
 	batch := binary.NewBatch()
 	// iterate mem-table entries
@@ -128,11 +174,6 @@ func (sstm *SSTManager) FlushMemtableToSSTable(mt *memtable.Memtable) error {
 		batch.WriteEntry(me.(memtable.MemtableEntry).Entry)
 		return true
 	})
-	// reset mem-table asap
-	err := mt.Reset()
-	if err != nil {
-		return err
-	}
 	// open new ss-table
 	sst, err := OpenSSTable(sstm.base, sstm.sequence+1)
 	if err != nil {
@@ -153,6 +194,11 @@ func (sstm *SSTManager) FlushMemtableToSSTable(mt *memtable.Memtable) error {
 	if err != nil {
 		return err
 	}
+	// reset mem-table
+	//err = mt.Reset()
+	//if err != nil {
+	//	return err
+	//}
 	// in the clear, increment sequence number
 	sstm.sequence++
 	// return

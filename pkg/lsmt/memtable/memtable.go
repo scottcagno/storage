@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 var Tombstone = []byte(nil)
@@ -70,22 +71,6 @@ type Memtable struct {
 	wacl *wal.WAL
 }
 
-func (mt *Memtable) Lock() {
-	mt.lock.Lock()
-}
-
-func (mt *Memtable) Unlock() {
-	mt.lock.Unlock()
-}
-
-func (mt *Memtable) RLock() {
-	mt.lock.RLock()
-}
-
-func (mt *Memtable) RUnlock() {
-	mt.lock.RUnlock()
-}
-
 func OpenMemtable(c *MemtableConfig) (*Memtable, error) {
 	// check memtable config
 	conf := checkMemtableConfig(c)
@@ -128,7 +113,9 @@ func (mt *Memtable) Reset() error {
 	if err != nil {
 		return err
 	}
-	// wipe write-ahead commit log
+	// putting this in here (for now, fixes this bug) so weird
+	time.Sleep(1 * time.Millisecond)
+	// wipe write-ahead commit log segments
 	err = os.RemoveAll(mt.conf.BasePath)
 	if err != nil {
 		return err

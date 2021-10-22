@@ -1,6 +1,8 @@
 package util
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 )
@@ -18,4 +20,39 @@ func GetFilepath() (string, string) {
 	}
 	// clean and split the filepath
 	return filepath.Split(filepath.Clean(filename))
+}
+
+func CreateBaseDir(base string) error {
+	base, err := filepath.Abs(base)
+	if err != nil {
+		return err
+	}
+	base = filepath.ToSlash(base)
+	err = os.MkdirAll(base, os.ModeDir)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func UpdateBaseDir(base string) (string, error) {
+	base, err := filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	base = filepath.ToSlash(base)
+	files, err := os.ReadDir(base)
+	if err != nil {
+		return "", err
+	}
+	base = filepath.Join(base, fmt.Sprintf("%06d", len(files)))
+	_, err = os.Stat(base)
+	if os.IsExist(err) {
+		return "", nil
+	}
+	err = os.MkdirAll(base, os.ModeDir)
+	if err != nil {
+		return "", err
+	}
+	return base, err
 }

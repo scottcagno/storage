@@ -1,6 +1,7 @@
 package lsmt
 
 import (
+	"bytes"
 	"github.com/scottcagno/storage/pkg/bloom"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
@@ -12,30 +13,27 @@ import (
 )
 
 const (
-	walPath                      = "log"
-	sstPath                      = "data"
-	defaultBasePath              = "lsm-db"
-	defaultFlushThreshold        = 1 << 20 // 1 MB
-	defaultSyncOnWrite           = false
-	defaultCompactAndMergeOnOpen = false
-	defaultBloomFilterSize       = 1 << 16 // 64 KB
+	walPath                = "log"
+	sstPath                = "data"
+	defaultBasePath        = "lsm-db"
+	defaultFlushThreshold  = 1 << 20 // 1 MB
+	defaultSyncOnWrite     = false
+	defaultBloomFilterSize = 1 << 16 // 64 KB
 )
 
 var defaultLSMConfig = &LSMConfig{
-	BasePath:              defaultBasePath,
-	FlushThreshold:        defaultFlushThreshold,
-	SyncOnWrite:           defaultSyncOnWrite,
-	CompactAndMergeOnOpen: defaultCompactAndMergeOnOpen,
-	BloomFilterSize:       defaultBloomFilterSize,
+	BasePath:        defaultBasePath,
+	FlushThreshold:  defaultFlushThreshold,
+	SyncOnWrite:     defaultSyncOnWrite,
+	BloomFilterSize: defaultBloomFilterSize,
 }
 
 // LSMConfig holds configuration settings for an LSMTree instance
 type LSMConfig struct {
-	BasePath              string // base storage path
-	FlushThreshold        int64  // memtable flush threshold in KB
-	SyncOnWrite           bool   // perform sync every time an entry is write
-	CompactAndMergeOnOpen bool   // specify if the tree should attempt to compact and merge on open
-	BloomFilterSize       uint   // specify the bloom filter size
+	BasePath        string // base storage path
+	FlushThreshold  int64  // memtable flush threshold in KB
+	SyncOnWrite     bool   // perform sync every time an entry is write
+	BloomFilterSize uint   // specify the bloom filter size
 }
 
 // checkLSMConfig is a helper to make sure the configuration
@@ -65,6 +63,8 @@ type LSMTree struct {
 	memt    *memtable.Memtable  // memt is the main memtable instance
 	sstm    *sstable.SSTManager // sstm is the sorted-strings table manager
 	bloom   *bloom.BloomFilter  // bloom is a bloom filter
+
+	mtable *rbtree.RBTree
 }
 
 // OpenLSMTree opens or creates an LSMTree instance.
@@ -99,10 +99,7 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 	if err != nil {
 		return nil, err
 	}
-	// check to see if mem-table needs to flush (this can happen with
-	// large batch inserts sometimes.) should find a better fix maybe.
-	//util.DEBUG("memtable_size: %d, flushthreshold: %d, memtable_size > flushthreshold: %v\n", memt.Size(), memt.GetConfig().FlushThreshold, memt.ShouldFlush())
-	// open sst-manager
+	// open ss-table-manager
 	sstm, err := sstable.OpenSSTManager(sstbase)
 	if err != nil {
 		return nil, err
@@ -115,13 +112,8 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 		memt:    memt,
 		sstm:    sstm,
 		bloom:   bloom.NewBloomFilter(conf.BloomFilterSize),
-	}
-	if conf.CompactAndMergeOnOpen {
-		// attempt to compact and merge
-		err = lsmt.checkCompactAndMerge()
-		if err != nil {
-			return nil, err
-		}
+
+		mtable: rbtree.NewRBTree(),
 	}
 	// populate bloom filter
 	err = lsmt.populateBloomFilter()
@@ -145,7 +137,7 @@ func (lsm *LSMTree) populateBloomFilter() error {
 		// isolate binary entry
 		e := me.(memtable.MemtableEntry).Entry
 		// make sure entry is not a tombstone
-		if e != nil && e.Value != nil {
+		if e != nil && e.Value != nil && !bytes.Equal(e.Value, memtable.Tombstone) {
 			// add entry to bloom filter
 			lsm.bloom.Set(e.Key)
 			count++
@@ -155,35 +147,13 @@ func (lsm *LSMTree) populateBloomFilter() error {
 	// add entries from linear ss-table scan
 	err := lsm.sstm.Scan(sstable.ScanNewToOld, func(e *binary.Entry) bool {
 		// make sure entry is not a tombstone
-		if e != nil && e.Value != nil {
+		if e != nil && e.Value != nil && !bytes.Equal(e.Value, sstable.Tombstone) {
 			// add entry to bloom filter
 			lsm.bloom.Set(e.Key)
 			count++
 		}
 		return true
 	})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// checkCompactAndMerge is a helper function that is indented to check
-// and see if any ss-tables require compaction or merging.
-// note: at the moment, I don't believe this is working correctly.
-func (lsm *LSMTree) checkCompactAndMerge() error {
-	// lock
-	lsm.lock.Lock()
-	defer lsm.lock.Unlock()
-	// do compact
-	err := lsm.sstm.CompactAllSSTables()
-	if err != nil {
-		return err
-	}
-	// set merge threshold
-	mergeThreshold := 16
-	// do merge
-	err = lsm.sstm.MergeAllSSTables(mergeThreshold)
 	if err != nil {
 		return err
 	}
@@ -438,6 +408,8 @@ func (lsm *LSMTree) Del(k string) error {
 	}
 	// update sparse index
 	lsm.sstm.CheckDeleteInSparseIndex(k)
+	// remove from bloom filter
+	lsm.bloom.Unset([]byte(k))
 	return nil
 }
 

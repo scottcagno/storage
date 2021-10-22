@@ -102,6 +102,13 @@ func (f *BloomFilter) Set(data []byte) {
 	}
 }
 
+func (f *BloomFilter) Unset(data []byte) {
+	h := hashes(data)
+	for i := uint(0); i < f.k; i++ {
+		f.b.Unset(f.hashAndMask(h, i))
+	}
+}
+
 func (f *BloomFilter) MayHave(data []byte) bool {
 	return f.Has(data)
 }

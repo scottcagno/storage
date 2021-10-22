@@ -137,7 +137,7 @@ func (sst *SSTable) Write(e *binary.Entry) error {
 	if err != nil {
 		return err
 	}
-	// write entry to gindex
+	// write entry to ss-index
 	err = sst.index.Write(e.Key, offset)
 	if err != nil {
 		return err
@@ -231,6 +231,14 @@ func (sst *SSTable) ScanAt(offset int64, iter func(e *binary.Entry) bool) error 
 	}
 	// go back to where the file was at the beginning
 	_, err = sst.file.Seek(cur, io.SeekStart)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (sst *SSTable) Sync() error {
+	err := sst.file.Sync()
 	if err != nil {
 		return err
 	}
