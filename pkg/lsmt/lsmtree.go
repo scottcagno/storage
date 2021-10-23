@@ -1,6 +1,7 @@
 package lsmt
 
 import (
+	"bytes"
 	"github.com/scottcagno/storage/pkg/bloom"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/mtbl"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"sync"
 )
+
+var Tombstone = []byte(nil)
 
 // LSMTree is an LSMTree
 type LSMTree struct {
@@ -107,30 +110,38 @@ func (lsm *LSMTree) populateBloomFilter() error {
 	// lock
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
-	var count int
-	// add entries from mem-table
-	lsm.memt.Scan(func(e *binary.Entry) bool {
-		// make sure entry is not a tombstone
-		if e != nil && e.Value != nil {
-			// add entry to bloom filter
-			lsm.bloom.Set(e.Key)
-			count++
-		}
-		return true
-	})
 	// add entries from linear ss-table scan
 	err := lsm.sstm.Scan(sstable.ScanNewToOld, func(e *binary.Entry) bool {
 		// make sure entry is not a tombstone
-		if e != nil && e.Value != nil {
-			// add entry to bloom filter
-			lsm.bloom.Set(e.Key)
-			count++
+		if e != nil {
+			if e.Value != nil && !bytes.Equal(e.Value, Tombstone) {
+				// add entry to bloom filter
+				lsm.bloom.Set(e.Key)
+			} else if bytes.Equal(e.Value, Tombstone) {
+				// remove entry from bloom filter
+				lsm.bloom.Unset(e.Key)
+			}
 		}
 		return true
 	})
 	if err != nil {
 		return err
 	}
+	// add entries from mem-table
+	lsm.memt.Scan(func(e *binary.Entry) bool {
+		// make sure entry is not a tombstone
+		if e != nil {
+			if e.Value != nil && !bytes.Equal(e.Value, Tombstone) {
+				// add entry to bloom filter
+				lsm.bloom.Set(e.Key)
+			} else if bytes.Equal(e.Value, Tombstone) {
+				// remove entry from bloom filter
+				lsm.bloom.Unset(e.Key)
+			}
+		}
+		return true
+	})
+
 	return nil
 }
 
@@ -174,9 +185,6 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 }
 
 func (lsm *LSMTree) cycleWAL() error {
-	// lock
-	lsm.lock.Lock()
-	defer lsm.lock.Unlock()
 	// let's reset the write-ahead commit log
 	err := lsm.wacl.CloseAndRemove()
 	if err != nil {
@@ -225,10 +233,6 @@ func (lsm *LSMTree) cycleWAL() error {
 //	}
 //	return nil
 //}
-
-func (lsm *LSMTree) BloomHas(k string) bool {
-	return lsm.bloom.Has([]byte(k))
-}
 
 // Has returns a boolean signaling weather or not the key
 // is in the LSMTree. It should be noted that in some cases
