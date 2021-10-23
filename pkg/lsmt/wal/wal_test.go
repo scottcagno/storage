@@ -5,7 +5,6 @@ import (
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"os"
 	"testing"
-	"time"
 )
 
 var conf = &WALConfig{
@@ -110,19 +109,11 @@ func TestLog_Reset(t *testing.T) {
 		t.Fatalf("got error: %v\n", err)
 	}
 
-	fmt.Printf("chillin for a few....")
-	time.Sleep(3 * time.Second)
-
-	err = wal.Reset()
-	if err != nil {
-		t.Fatalf("reset: %v\n", err)
-	}
-
 	//
 	// close log
-	err = wal.Close()
+	err = wal.ResetAndClose()
 	if err != nil {
-		t.Fatalf("got error: %v\n", err)
+		t.Fatalf("reset: %v\n", err)
 	}
 }
 
