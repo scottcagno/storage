@@ -171,7 +171,7 @@ func testSSTableBehavior(t *testing.T) {
 	logger("checking for records [475-512]")
 	for i := 475; i < 512; i++ {
 		key := makeKey(i)
-		ok := lsm.Has(key)
+		ok := lsm.BloomHas(key)
 		log.Printf("[record: %d] has(%s): %v\n", i, key, ok)
 	}
 

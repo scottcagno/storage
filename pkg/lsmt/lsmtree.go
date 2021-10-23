@@ -84,6 +84,22 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 	return lsmt, nil
 }
 
+// loadFromWriteAheadCommitLog loads any entries from the
+// segmented write-ahead commit file back into the mem-table
+func (lsm *LSMTree) loadFromWriteAheadCommitLog() error {
+	// lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+	err := lsm.wacl.Scan(func(e *binary.Entry) bool {
+		lsm.memt.Put(e)
+		return true
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // populateBloomFilter attempts to read through the keys in the
 // mem-table, and then the ss-table(s) and fill out the bloom
 // filter as thoroughly as possible.
@@ -110,19 +126,6 @@ func (lsm *LSMTree) populateBloomFilter() error {
 			lsm.bloom.Set(e.Key)
 			count++
 		}
-		return true
-	})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// loadFromWriteAheadCommitLog loads any entries from the
-// segmented write-ahead commit file back into the mem-table
-func (lsm *LSMTree) loadFromWriteAheadCommitLog() error {
-	err := lsm.wacl.Scan(func(e *binary.Entry) bool {
-		lsm.memt.Put(e)
 		return true
 	})
 	if err != nil {
@@ -171,20 +174,22 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 }
 
 func (lsm *LSMTree) cycleWAL() error {
+	// lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
 	// let's reset the write-ahead commit log
-	err := lsm.wacl.TruncateFront(lsm.wacl.FirstIndex())
-	//err := lsm.wacl.CloseAndRemove()
+	err := lsm.wacl.CloseAndRemove()
 	if err != nil {
 		return err
 	}
-	//lsm.wacl, err = wal.OpenWAL(&wal.WALConfig{
-	//	BasePath:    lsm.walbase,
-	//	MaxFileSize: lsm.conf.FlushThreshold,
-	//	SyncOnWrite: lsm.conf.SyncOnWrite,
-	//})
-	//if err != nil {
-	//	return err
-	//}
+	lsm.wacl, err = wal.OpenWAL(&wal.WALConfig{
+		BasePath:    lsm.walbase,
+		MaxFileSize: lsm.conf.FlushThreshold,
+		SyncOnWrite: lsm.conf.SyncOnWrite,
+	})
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -220,6 +225,10 @@ func (lsm *LSMTree) cycleWAL() error {
 //	}
 //	return nil
 //}
+
+func (lsm *LSMTree) BloomHas(k string) bool {
+	return lsm.bloom.Has([]byte(k))
+}
 
 // Has returns a boolean signaling weather or not the key
 // is in the LSMTree. It should be noted that in some cases
