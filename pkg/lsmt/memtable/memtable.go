@@ -99,6 +99,9 @@ func OpenMemtable(c *MemtableConfig) (*Memtable, error) {
 
 // loadEntries loads any entries from the supplied segmented file back into the memtable
 func (mt *Memtable) loadDataFromCommitLog() error {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
 	return mt.wacl.Scan(func(e *binary.Entry) bool {
 		mt.data.Put(memtableEntry{Key: string(e.Key), Entry: e})
 		return true
@@ -106,6 +109,32 @@ func (mt *Memtable) loadDataFromCommitLog() error {
 }
 
 func (mt *Memtable) Reset() error {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
+	// grab current configuration
+	walConf := mt.wacl.GetConfig()
+	// reset and close
+	err := mt.wacl.ResetAndClose()
+	if err != nil {
+		return err
+	}
+	// open fresh write-ahead commit log
+	mt.wacl, err = wal.OpenWAL(walConf)
+	if err != nil {
+		return err
+	}
+	//// truncate all the log files
+	//err := mt.wacl.TruncateFront(mt.wacl.LastIndex())
+	//if err != nil {
+	//	return err
+	//}
+	// reset tree data in the mem-table
+	mt.data.Reset()
+	return nil
+}
+
+func (mt *Memtable) ResetWorksWithTimer() error {
 	// grab current configuration
 	walConf := mt.wacl.GetConfig()
 	// close write-ahead commit log
@@ -139,14 +168,23 @@ func (mt *Memtable) insert(e *binary.Entry) error {
 }
 
 func (mt *Memtable) Size() int64 {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
 	return mt.data.Size()
 }
 
 func (mt *Memtable) ShouldFlush() bool {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
 	return mt.data.Size() > mt.conf.FlushThreshold
 }
 
 func (mt *Memtable) Put(e *binary.Entry) error {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
 	// write entry to the write-ahead commit log
 	_, err := mt.wacl.Write(e)
 	if err != nil {
@@ -161,6 +199,9 @@ func (mt *Memtable) Put(e *binary.Entry) error {
 }
 
 func (mt *Memtable) PutBatch(batch *binary.Batch) error {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
 	// write batch to the write-ahead commit log
 	err := mt.wacl.WriteBatch(batch)
 	if err != nil {
@@ -180,10 +221,16 @@ func (mt *Memtable) PutBatch(batch *binary.Batch) error {
 }
 
 func (mt *Memtable) Has(k string) bool {
+	// read lock
+	mt.lock.RLock()
+	defer mt.lock.RUnlock()
 	return mt.data.Has(memtableEntry{Key: k})
 }
 
 func (mt *Memtable) Get(k string) (*binary.Entry, error) {
+	// read lock
+	mt.lock.RLock()
+	defer mt.lock.RUnlock()
 	v, ok := mt.data.Get(memtableEntry{Key: k})
 	if !ok {
 		return nil, ErrKeyNotFound
@@ -195,6 +242,9 @@ func (mt *Memtable) Get(k string) (*binary.Entry, error) {
 }
 
 func (mt *Memtable) Del(k string) error {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
 	// create delete entry
 	e := &binary.Entry{Key: []byte(k), Value: Tombstone}
 	// write entry to the write-ahead commit log
@@ -211,6 +261,9 @@ func (mt *Memtable) Del(k string) error {
 }
 
 func (mt *Memtable) Scan(iter func(me rbtree.RBEntry) bool) {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
 	if mt.data.Len() < 1 {
 		return
 	}
@@ -218,18 +271,42 @@ func (mt *Memtable) Scan(iter func(me rbtree.RBEntry) bool) {
 }
 
 func (mt *Memtable) Len() int {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
 	return mt.data.Len()
 }
 
 func (mt *Memtable) GetConfig() *MemtableConfig {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
 	return mt.conf
 }
 
 func (mt *Memtable) Sync() error {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
 	return mt.wacl.Sync()
 }
 
 func (mt *Memtable) Close() error {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
+	mt.data.Close()
+	err := mt.wacl.Close()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (mt *Memtable) CloseAndRemove() error {
+	// lock
+	mt.lock.Lock()
+	defer mt.lock.Unlock()
 	mt.data.Close()
 	err := mt.wacl.Close()
 	if err != nil {
