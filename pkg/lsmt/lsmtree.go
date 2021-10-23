@@ -166,6 +166,30 @@ func (lsm *LSMTree) cycleWAL() error {
 	return nil
 }
 
+// BloomSet "sets" (aka, adds) the key mapping to
+// the current bloom filter located in the lsm-tree
+func (lsm *LSMTree) BloomSet(k string) {
+	lsm.bloom.Set([]byte(k))
+}
+
+// BloomHas takes a key, and returns a boolean value
+// specifying weather or not the key exists int the tree.
+// note: there is a probabilistic chance of returning a false positive
+// note: but never a false negative. In other words, if you say get("foo")
+// note: and it returns "true", it might not *actually* be the case. However,
+// note: it will NEVER report a false negative, so it's a really good data-structure
+// note: for determining weather or not a given key DOES NOT exists in the take.
+// note: anyway, that is all for now. ta-ta!
+func (lsm *LSMTree) BloomHas(k string) bool {
+	return lsm.bloom.Has([]byte(k))
+}
+
+// BloomUnset "unset's" (aka, removes) the key mapping
+// from the current bloom filter located in the lsm-tree
+func (lsm *LSMTree) BloomUnset(k string) {
+	lsm.bloom.Unset([]byte(k))
+}
+
 // Has returns a boolean signaling weather or not the key
 // is in the LSMTree. It should be noted that in some cases
 // this may return a false positive, but it should never
