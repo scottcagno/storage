@@ -1,19 +1,19 @@
 
 # implementation
 [x] expose has(k) method
-[ ] expose stats() or info() method
+[x] expose stats() or info() method
 [ ] expose backup() method of some kind
 [ ] add a default keyspace wrapper
 [x] add a getBatch(k...)
 [ ] consider implementing a key prefix search
 [ ] consider implementing a loose regex style raw search
 [x] update the storage interface
-[ ] have the lsmtree clean up any empty files
-[ ] optimize the sparse index searching
-[ ] consider embeddung bloom filter in each ss-table or ss-index
+[ ] have the lsm-tree clean up any empty files
+[x] optimize the sparse index searching
+[x] consider embedding bloom filter in each ss-table or ss-index
 [ ] get ss-table compacting working properly
 [ ] get ss-table merge working properly *leveled merging
 [ ] expose merge and compacting methods
 
 # testing
-[ ] add tests for young and old ss-table values or ss-tables with different values and the same key. make sure the correct table is being chosen.
+[x] add tests for young and old ss-table values or ss-tables with different values and the same key. make sure the correct table is being chosen.

@@ -1,8 +1,10 @@
 package lsmt
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	binary2 "github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/util"
 	"log"
 	"os"
@@ -115,6 +117,18 @@ func testSSTableBehavior(t *testing.T) {
 	ts2 := time.Now()
 	fmt.Println(util.FormatTime("writing entries", ts1, ts2))
 
+	// get lsm-tree status
+	logger("getting lsm-tree stats")
+	st, err := lsm.Stats()
+	if err != nil {
+		t.Errorf("stats [text]: %v\n", err)
+	}
+	dat, err := st.JSON()
+	if err != nil {
+		t.Errorf("stats [json]: %v\n", err)
+	}
+	fmt.Printf("stats:\n%s\n\njson:\n%s\n", st, dat)
+
 	// close
 	logger("closing lsm tree")
 	err = lsm.Close()
@@ -171,7 +185,7 @@ func testSSTableBehavior(t *testing.T) {
 	logger("checking for records [475-512]")
 	for i := 475; i < 512; i++ {
 		key := makeKey(i)
-		ok := lsm.BloomHas(key)
+		ok := lsm.Has(key)
 		log.Printf("[record: %d] has(%s): %v\n", i, key, ok)
 	}
 
@@ -185,7 +199,6 @@ func testSSTableBehavior(t *testing.T) {
 	conf.BasePath = origPath
 }
 
-/*
 func testLSMTreeHasAndBatches(t *testing.T) {
 
 	origPath := conf.BasePath
@@ -223,12 +236,12 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 	ts2 = time.Now()
 	fmt.Println(util.FormatTime("writing batch", ts1, ts2))
 
-	// manual sync
-	logger("manual sync")
-	err = lsm.Sync()
-	if err != nil {
-		t.Errorf("manual sync: %v\n", err)
-	}
+	//// manual sync
+	//logger("manual sync")
+	//err = lsm.Sync()
+	//if err != nil {
+	//	t.Errorf("manual sync: %v\n", err)
+	//}
 
 	// close
 	logger("closing lsm tree")
@@ -324,7 +337,6 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 
 	conf.BasePath = origPath
 }
-*/
 
 func TestLSMTree(t *testing.T) {
 
@@ -332,8 +344,7 @@ func TestLSMTree(t *testing.T) {
 	testSSTableBehavior(t)
 
 	// test has and batching
-	//testLSMTreeHasAndBatches(t)
-	return
+	testLSMTreeHasAndBatches(t)
 
 	max := 100000
 	for i := 10; i <= max; i *= 10 {

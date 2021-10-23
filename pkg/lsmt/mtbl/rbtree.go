@@ -3,7 +3,6 @@ package mtbl
 import (
 	"bytes"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
-	"github.com/scottcagno/storage/pkg/util"
 	"runtime"
 	"strings"
 )
@@ -59,6 +58,10 @@ func newRBTree() *rbTree {
 	}
 }
 
+func (t *rbTree) Count() int {
+	return t.count
+}
+
 // Has tests and returns a boolean value if the
 // provided key exists in the tree
 func (t *rbTree) Has(entry *binary.Entry) bool {
@@ -70,7 +73,6 @@ func (t *rbTree) Has(entry *binary.Entry) bool {
 // provided key exists in the tree
 func (t *rbTree) HasKey(k string) bool {
 	e, ok := t.getInternal(&binary.Entry{Key: []byte(k)})
-	util.DEBUG(">>>>>>> memt.HAS(%q)=%v (%v)\n", k, e, ok)
 	return ok && e != nil && e.Value != nil
 }
 
@@ -90,6 +92,12 @@ func (t *rbTree) Add(entry *binary.Entry) bool {
 
 func (t *rbTree) Put(entry *binary.Entry) (*binary.Entry, bool) {
 	return t.putInternal(entry)
+}
+
+func (t *rbTree) PutBatch(batch *binary.Batch) {
+	for _, entry := range batch.Entries {
+		t.putInternal(entry)
+	}
 }
 
 func (t *rbTree) putInternal(entry *binary.Entry) (*binary.Entry, bool) {

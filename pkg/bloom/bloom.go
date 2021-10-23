@@ -31,11 +31,12 @@ const (
 
 // BloomFilter is a basic bloom filter implementation
 type BloomFilter struct {
-	m    uint // m is the number of bits allocated for the filter
-	k    uint // k is the number of hash functions for the filter
-	n    uint // n is the number of items "in" the filter
-	b    *bitset.BitSet
-	mask uint64
+	m     uint // m is the number of bits allocated for the filter
+	k     uint // k is the number of hash functions for the filter
+	n     uint // n is the number of items "in" the filter
+	b     *bitset.BitSet
+	count int
+	mask  uint64
 }
 
 // NewBloomFilter returns a new filter with m number of bits available and hints to use k hash functions
@@ -100,6 +101,7 @@ func (f *BloomFilter) Set(data []byte) {
 	for i := uint(0); i < f.k; i++ {
 		f.b.Set(f.hashAndMask(h, i))
 	}
+	f.count++
 }
 
 func (f *BloomFilter) Unset(data []byte) {
@@ -107,6 +109,11 @@ func (f *BloomFilter) Unset(data []byte) {
 	for i := uint(0); i < f.k; i++ {
 		f.b.Unset(f.hashAndMask(h, i))
 	}
+	f.count--
+}
+
+func (f *BloomFilter) Count() int {
+	return f.count
 }
 
 func (f *BloomFilter) MayHave(data []byte) bool {
