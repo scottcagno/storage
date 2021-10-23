@@ -34,12 +34,15 @@ func main() {
 		panic(err)
 	}
 
+	// isolate key
+	key := "key-01"
+
 	// read data (get first entry)
-	val, err := db.Get("key-01")
+	val, err := db.Get(key)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("get(%q): %s\n", "key-01", val)
+	fmt.Printf("get(%q): %s\n", key, val)
 
 	// read data (from "int" key, aka the second entry)
 	val, err = db.Get(strconv.Itoa(2))
@@ -49,13 +52,23 @@ func main() {
 	fmt.Printf("get(%d): %s\n", 2, val)
 
 	// delete first entry
-	err = db.Del("key-01")
+	err = db.Del(key)
+	fmt.Printf("del(%q) (error=%v)\n", key, err)
+
+	// check the "bloom-has"
+	ok := db.BloomHas(key)
+	fmt.Printf("bloomHas(%q)=%v\n", key, ok)
+
+	// check the "has"
+	ok = db.Has(key)
+	fmt.Printf("has(%q)=%v\n", key, ok)
+
 	// try to find deleted entry
-	val, err = db.Get("key-01")
+	val, err = db.Get(key)
 	if err == nil {
 		panic(err)
 	}
-	fmt.Printf("get(%q): %v\n", "key-01", val)
+	fmt.Printf("get(%q): %v\n", key, val)
 
 	// close LSMTree
 	err = db.Close()
