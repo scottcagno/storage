@@ -1,12 +1,11 @@
 package lsmt
 
 import (
-	"bytes"
 	"github.com/scottcagno/storage/pkg/bloom"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
-	"github.com/scottcagno/storage/pkg/lsmt/memtable"
+	"github.com/scottcagno/storage/pkg/lsmt/mtbl"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
-	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
+	"github.com/scottcagno/storage/pkg/lsmt/wal"
 	"os"
 	"path/filepath"
 	"sync"
@@ -16,13 +15,12 @@ import (
 type LSMTree struct {
 	conf    *LSMConfig
 	walbase string              // walbase is the write-ahead commit log base filepath
-	sstbase string              // sstbase is the sstable and index base filepath where data resides
+	sstbase string              // sstbase is the ss-table and index base filepath where data resides
 	lock    sync.RWMutex        // lock is a mutex that synchronizes access to the data
-	memt    *memtable.Memtable  // memt is the main memtable instance
+	wacl    *wal.WAL            // wacl is the write-ahead commit log
+	memt    *mtbl.RBTree        // memt is the main mem-table (red-black tree) instance
 	sstm    *sstable.SSTManager // sstm is the sorted-strings table manager
 	bloom   *bloom.BloomFilter  // bloom is a bloom filter
-
-	mtable *rbtree.RBTree
 }
 
 // OpenLSMTree opens or creates an LSMTree instance.
@@ -48,11 +46,11 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 	if err != nil {
 		return nil, err
 	}
-	// open mem-table
-	memt, err := memtable.OpenMemtable(&memtable.MemtableConfig{
-		BasePath:       walbase,
-		FlushThreshold: conf.FlushThreshold,
-		SyncOnWrite:    conf.SyncOnWrite,
+	// open write-ahead commit log
+	wacl, err := wal.OpenWAL(&wal.WALConfig{
+		BasePath:    walbase,
+		MaxFileSize: conf.FlushThreshold,
+		SyncOnWrite: conf.SyncOnWrite,
 	})
 	if err != nil {
 		return nil, err
@@ -67,11 +65,15 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 		conf:    conf,
 		walbase: walbase,
 		sstbase: sstbase,
-		memt:    memt,
+		wacl:    wacl,
+		memt:    mtbl.NewRBTree(),
 		sstm:    sstm,
 		bloom:   bloom.NewBloomFilter(conf.BloomFilterSize),
-
-		mtable: rbtree.NewRBTree(),
+	}
+	// load mem-table with commit log data
+	err = lsmt.loadFromWriteAheadCommitLog()
+	if err != nil {
+		return nil, err
 	}
 	// populate bloom filter
 	err = lsmt.populateBloomFilter()
@@ -91,11 +93,9 @@ func (lsm *LSMTree) populateBloomFilter() error {
 	defer lsm.lock.Unlock()
 	var count int
 	// add entries from mem-table
-	lsm.memt.Scan(func(me rbtree.RBEntry) bool {
-		// isolate binary entry
-		e := me.(memtable.MemtableEntry).Entry
+	lsm.memt.Scan(func(e *binary.Entry) bool {
 		// make sure entry is not a tombstone
-		if e != nil && e.Value != nil && !bytes.Equal(e.Value, memtable.Tombstone) {
+		if e != nil && e.Value != nil {
 			// add entry to bloom filter
 			lsm.bloom.Set(e.Key)
 			count++
@@ -105,11 +105,24 @@ func (lsm *LSMTree) populateBloomFilter() error {
 	// add entries from linear ss-table scan
 	err := lsm.sstm.Scan(sstable.ScanNewToOld, func(e *binary.Entry) bool {
 		// make sure entry is not a tombstone
-		if e != nil && e.Value != nil && !bytes.Equal(e.Value, sstable.Tombstone) {
+		if e != nil && e.Value != nil {
 			// add entry to bloom filter
 			lsm.bloom.Set(e.Key)
 			count++
 		}
+		return true
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// loadFromWriteAheadCommitLog loads any entries from the
+// segmented write-ahead commit file back into the mem-table
+func (lsm *LSMTree) loadFromWriteAheadCommitLog() error {
+	err := lsm.wacl.Scan(func(e *binary.Entry) bool {
+		lsm.memt.Put(e)
 		return true
 	})
 	if err != nil {
@@ -126,16 +139,28 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 	defer lsm.lock.Unlock()
 	// create binary entry
 	e := &binary.Entry{Key: []byte(k), Value: v}
+	// write entry to the write-ahead commit log
+	_, err := lsm.wacl.Write(e)
+	if err != nil {
+		return err
+	}
 	// write entry to mem-table
-	err := lsm.memt.Put(e)
+	lsm.memt.Put(e)
+	// check mem-table size
+	err = lsm.checkMemtableSize(lsm.memt.Size())
 	// check err properly
 	if err != nil {
 		// make sure it's the mem-table doesn't need flushing
-		if err != memtable.ErrFlushThreshold {
+		if err != ErrFlushThreshold {
 			return err
 		}
 		// looks like it needs a flush
 		err = lsm.sstm.FlushMemtableToSSTable(lsm.memt)
+		if err != nil {
+			return err
+		}
+		// let's reset the write-ahead commit log
+		err = lsm.cycleWAL()
 		if err != nil {
 			return err
 		}
@@ -145,38 +170,56 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 	return nil
 }
 
-// PutBatch takes a batch of entries and adds all of them at
-// one time. It acts a bit like a transaction. If you have a
-// configuration option of SyncOnWrite: true it will be disabled
-// temporarily and the batch will sync at the end of all the
-// writes. This is to give a slight performance advantage. It
-// should be worth noting that very large batches may have an
-// impact on performance and may also cause frequent ss-table
-// flushes which may result in fragmentation.
-func (lsm *LSMTree) PutBatch(batch *binary.Batch) error {
-	// lock
-	lsm.lock.Lock()
-	defer lsm.lock.Unlock()
-	// write batch to mem-table
-	err := lsm.memt.PutBatch(batch)
-	// check err properly
+func (lsm *LSMTree) cycleWAL() error {
+	// let's reset the write-ahead commit log
+	err := lsm.wacl.TruncateFront(lsm.wacl.FirstIndex())
+	//err := lsm.wacl.CloseAndRemove()
 	if err != nil {
-		// make sure it's the mem-table doesn't need flushing
-		if err != memtable.ErrFlushThreshold {
-			return err
-		}
-		// looks like it needs a flush
-		err = lsm.sstm.FlushMemtableToSSTable(lsm.memt)
-		if err != nil {
-			return err
-		}
+		return err
 	}
-	// add to bloom filter
-	for _, e := range batch.Entries {
-		lsm.bloom.Set(e.Key)
-	}
+	//lsm.wacl, err = wal.OpenWAL(&wal.WALConfig{
+	//	BasePath:    lsm.walbase,
+	//	MaxFileSize: lsm.conf.FlushThreshold,
+	//	SyncOnWrite: lsm.conf.SyncOnWrite,
+	//})
+	//if err != nil {
+	//	return err
+	//}
 	return nil
 }
+
+//// PutBatch takes a batch of entries and adds all of them at
+//// one time. It acts a bit like a transaction. If you have a
+//// configuration option of SyncOnWrite: true it will be disabled
+//// temporarily and the batch will sync at the end of all the
+//// writes. This is to give a slight performance advantage. It
+//// should be worth noting that very large batches may have an
+//// impact on performance and may also cause frequent ss-table
+//// flushes which may result in fragmentation.
+//func (lsm *LSMTree) PutBatch(batch *binary.Batch) error {
+//	// lock
+//	lsm.lock.Lock()
+//	defer lsm.lock.Unlock()
+//	// write batch to mem-table
+//	err := lsm.memt.PutBatch(batch)
+//	// check err properly
+//	if err != nil {
+//		// make sure it's the mem-table doesn't need flushing
+//		if err != memtable.ErrFlushThreshold {
+//			return err
+//		}
+//		// looks like it needs a flush
+//		err = lsm.sstm.FlushMemtableToSSTable(lsm.memt)
+//		if err != nil {
+//			return err
+//		}
+//	}
+//	// add to bloom filter
+//	for _, e := range batch.Entries {
+//		lsm.bloom.Set(e.Key)
+//	}
+//	return nil
+//}
 
 // Has returns a boolean signaling weather or not the key
 // is in the LSMTree. It should be noted that in some cases
@@ -190,7 +233,7 @@ func (lsm *LSMTree) Has(k string) bool {
 	}
 	// low probability of false positive,
 	// but let's check the mem-table
-	if ok := lsm.memt.Has(k); ok {
+	if ok := lsm.memt.HasKey(k); ok {
 		// definitely in the mem-table, return true.
 		// it should be noted that we cannot return
 		// false from here, because if we do we are
@@ -224,14 +267,14 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 	}
 	// according to the bloom filter, it "may" be in
 	// tree, so lets start by searching the mem-table
-	e, err := lsm.memt.Get(k)
-	if err == nil {
+	e, found := lsm.memt.Get(&binary.Entry{Key: []byte(k)})
+	if found && e.Value != nil {
 		// we found it!
 		return e.Value, nil
 	}
 	// we did not find it in the mem-table
 	// need to check error for tombstone
-	if e == nil && err == memtable.ErrFoundTombstone {
+	if e != nil && e.Value == nil {
 		// found tombstone entry (means this entry was
 		// deleted) so we can end our search here; just
 		// MAKE SURE you check for tombstone errors!!!
@@ -265,101 +308,106 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 	return de.Value, nil
 }
 
-// GetBatch attempts to find entries matching the keys provided. If a matching
-// entry is found, it is added to the batch that is returned. If a matching
-// entry cannot be found it is simply skipped and not added to the batch. GetBatch
-// will return a nil error if all the matching entries were found. If it found
-// some but not all, GetBatch will return ErrIncompleteSet along with the batch
-// of entries that it could find. If it could not find any matches at all, the
-// batch will be nil and GetBatch will return an ErrNotFound
-func (lsm *LSMTree) GetBatch(keys ...string) (*binary.Batch, error) {
-	// create batch to return
-	batch := binary.NewBatch()
-	// iterate over keys
-	for _, key := range keys {
-		// check bloom filter
-		if ok := lsm.bloom.MayHave([]byte(key)); !ok {
-			// definitely not in the lsm tree
-			continue // skip and look for next key
-		}
-		// according to the bloom filter, it "may" be in
-		// tree, so lets start by searching the mem-table
-		e, err := lsm.memt.Get(key)
-		if err == nil {
-			// we found a match! add match to batch, and...
-			batch.WriteEntry(e)
-			continue // skip and lok for next key
-		}
-		// we did not find it in the mem-table
-		// need to check error for tombstone
-		if e == nil && err == memtable.ErrFoundTombstone {
-			// found tombstone entry (means this entry was
-			// deleted) so we can end our search here
-			continue // skip and look for the next key
-		}
-		// boom filter says maybe, checked the mem-table with
-		// no luck apparently, so now let us check the sparse
-		// index and see what we come up with
-		de, err := lsm.sstm.Search(key)
-		if err != nil {
-			// if we get a bad entry, it most likely means
-			// that our sparse index couldn't find it, but
-			// there is still a chance it may be on disk
-			if err == binary.ErrBadEntry {
-				// do linear semi-binary-ish search
-				de = lsm.sstm.LinearSearch(key)
-				if de == nil || de.Value == nil {
-					continue // skip and look for the next key
-				}
-				// otherwise, we found it homey! add match to batch, and...
-				batch.WriteEntry(de)
-				continue // skip and lok for next key
-			}
-			// -> IF YOU ARE HERE...
-			// Then the value may not be here (or you didn't check
-			// all the potential errors that can be returned), dummy
-			continue // skip and lok for next key
-		}
-		// check to make sure entry is not a tombstone
-		if de == nil || de.Value == nil {
-			continue // skip and lok for next key
-		}
-		// may have found it; add match to batch, and...
-		batch.WriteEntry(de)
-		continue // skip and lok for next key
-	}
-	// check the batch
-	if batch.Len() == 0 {
-		// nothing at all was found
-		return nil, ErrNotFound
-	}
-	if batch.Len() == len(keys) {
-		// we found all the potential matches!
-		return batch, nil
-	}
-	return batch, ErrIncompleteSet
-}
-
-type Iterator struct {
-	entry *binary.Entry
-}
-
-func (lsm *LSMTree) GetIteratorAt(k string) (*Iterator, error) {
-	// TODO: finish this...
-	return nil, nil
-}
+//// GetBatch attempts to find entries matching the keys provided. If a matching
+//// entry is found, it is added to the batch that is returned. If a matching
+//// entry cannot be found it is simply skipped and not added to the batch. GetBatch
+//// will return a nil error if all the matching entries were found. If it found
+//// some but not all, GetBatch will return ErrIncompleteSet along with the batch
+//// of entries that it could find. If it could not find any matches at all, the
+//// batch will be nil and GetBatch will return an ErrNotFound
+//func (lsm *LSMTree) GetBatch(keys ...string) (*binary.Batch, error) {
+//	// create batch to return
+//	batch := binary.NewBatch()
+//	// iterate over keys
+//	for _, key := range keys {
+//		// check bloom filter
+//		if ok := lsm.bloom.MayHave([]byte(key)); !ok {
+//			// definitely not in the lsm tree
+//			continue // skip and look for next key
+//		}
+//		// according to the bloom filter, it "may" be in
+//		// tree, so lets start by searching the mem-table
+//		e, err := lsm.memt.Get(key)
+//		if err == nil {
+//			// we found a match! add match to batch, and...
+//			batch.WriteEntry(e)
+//			continue // skip and lok for next key
+//		}
+//		// we did not find it in the mem-table
+//		// need to check error for tombstone
+//		if e == nil && err == memtable.ErrFoundTombstone {
+//			// found tombstone entry (means this entry was
+//			// deleted) so we can end our search here
+//			continue // skip and look for the next key
+//		}
+//		// boom filter says maybe, checked the mem-table with
+//		// no luck apparently, so now let us check the sparse
+//		// index and see what we come up with
+//		de, err := lsm.sstm.Search(key)
+//		if err != nil {
+//			// if we get a bad entry, it most likely means
+//			// that our sparse index couldn't find it, but
+//			// there is still a chance it may be on disk
+//			if err == binary.ErrBadEntry {
+//				// do linear semi-binary-ish search
+//				de = lsm.sstm.LinearSearch(key)
+//				if de == nil || de.Value == nil {
+//					continue // skip and look for the next key
+//				}
+//				// otherwise, we found it homey! add match to batch, and...
+//				batch.WriteEntry(de)
+//				continue // skip and lok for next key
+//			}
+//			// -> IF YOU ARE HERE...
+//			// Then the value may not be here (or you didn't check
+//			// all the potential errors that can be returned), dummy
+//			continue // skip and lok for next key
+//		}
+//		// check to make sure entry is not a tombstone
+//		if de == nil || de.Value == nil {
+//			continue // skip and lok for next key
+//		}
+//		// may have found it; add match to batch, and...
+//		batch.WriteEntry(de)
+//		continue // skip and lok for next key
+//	}
+//	// check the batch
+//	if batch.Len() == 0 {
+//		// nothing at all was found
+//		return nil, ErrNotFound
+//	}
+//	if batch.Len() == len(keys) {
+//		// we found all the potential matches!
+//		return batch, nil
+//	}
+//	return batch, ErrIncompleteSet
+//}
 
 func (lsm *LSMTree) Del(k string) error {
-	// write entry to memtable
-	err := lsm.memt.Del(k)
+	// create binary entry
+	e := &binary.Entry{Key: []byte(k), Value: nil}
+	// write entry to the write-ahead commit log
+	_, err := lsm.wacl.Write(e)
+	if err != nil {
+		return err
+	}
+	// write entry to mem-table
+	lsm.memt.Put(e)
+	// check mem-table size
+	err = lsm.checkMemtableSize(lsm.memt.Size())
 	// check err properly
 	if err != nil {
 		// make sure it's the mem-table doesn't need flushing
-		if err != memtable.ErrFlushThreshold {
+		if err != ErrFlushThreshold {
 			return err
 		}
 		// looks like it needs a flush
 		err = lsm.sstm.FlushMemtableToSSTable(lsm.memt)
+		if err != nil {
+			return err
+		}
+		// let's reset the write-ahead commit log
+		err = lsm.cycleWAL()
 		if err != nil {
 			return err
 		}
@@ -371,18 +419,9 @@ func (lsm *LSMTree) Del(k string) error {
 	return nil
 }
 
-func (lsm *LSMTree) Sync() error {
-	// sync memtable
-	err := lsm.memt.Sync()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func (lsm *LSMTree) Close() error {
-	// close memtable
-	err := lsm.memt.Close()
+	// close write-ahead commit log
+	err := lsm.wacl.Close()
 	if err != nil {
 		return err
 	}

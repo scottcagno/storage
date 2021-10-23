@@ -113,17 +113,17 @@ func (mt *Memtable) Reset() error {
 	mt.lock.Lock()
 	defer mt.lock.Unlock()
 	// grab current configuration
-	walConf := mt.wacl.GetConfig()
+	//walConf := mt.wacl.GetConfig()
 	// reset and close
-	err := mt.wacl.ResetAndClose()
-	if err != nil {
-		return err
-	}
+	//err := mt.wacl.ResetAndClose()
+	//if err != nil {
+	//	return err
+	//}
 	// open fresh write-ahead commit log
-	mt.wacl, err = wal.OpenWAL(walConf)
-	if err != nil {
-		return err
-	}
+	//mt.wacl, err = wal.OpenWAL(walConf)
+	//if err != nil {
+	//	return err
+	//}
 	//// truncate all the log files
 	//err := mt.wacl.TruncateFront(mt.wacl.LastIndex())
 	//if err != nil {

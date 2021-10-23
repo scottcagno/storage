@@ -1,5 +1,12 @@
 package lsmt
 
+import (
+	"fmt"
+	"github.com/scottcagno/storage/pkg/lsmt/binary"
+	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
+	"strings"
+)
+
 const (
 	walPath                = "log"
 	sstPath                = "data"
@@ -40,4 +47,21 @@ func checkLSMConfig(conf *LSMConfig) *LSMConfig {
 		conf.BloomFilterSize = defaultBloomFilterSize
 	}
 	return conf
+}
+
+type memtableEntry struct {
+	Key   string
+	Entry *binary.Entry
+}
+
+func (m memtableEntry) Compare(that rbtree.RBEntry) int {
+	return strings.Compare(m.Key, that.(memtableEntry).Key)
+}
+
+func (m memtableEntry) Size() int {
+	return len(m.Key) + len(m.Entry.Key) + len(m.Entry.Value)
+}
+
+func (m memtableEntry) String() string {
+	return fmt.Sprintf("entry.key=%q", m.Key)
 }

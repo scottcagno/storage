@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/memtable"
+	"github.com/scottcagno/storage/pkg/lsmt/mtbl"
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"log"
 	"os"
@@ -117,7 +118,44 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 	return sstm, nil
 }
 
-func (sstm *SSTManager) FlushMemtableToSSTable(mt *memtable.Memtable) error {
+func (sstm *SSTManager) FlushMemtableToSSTable(mt *mtbl.RBTree) error {
+	// lock
+	sstm.lock.Lock()
+	defer sstm.lock.Unlock()
+	// open new ss-table
+	sst, err := OpenSSTable(sstm.base, sstm.sequence+1)
+	if err != nil {
+		return err
+	}
+	// iterate mem-table entries
+	mt.Scan(func(e *binary.Entry) bool {
+		// and write each entry to the ss-table
+		err = sst.Write(e)
+		if err != nil {
+			log.Println(err)
+			return false
+		}
+		return true
+	})
+	// reset mem-table
+	mt.Reset()
+	// add new entries to sparse index
+	err = sstm.AddSparseIndex(sst.index)
+	if err != nil {
+		return err
+	}
+	// flush and close ss-table
+	err = sst.Close()
+	if err != nil {
+		return err
+	}
+	// in the clear, increment sequence number
+	sstm.sequence++
+	// return
+	return nil
+}
+
+func (sstm *SSTManager) _FlushMemtableToSSTable(mt *memtable.Memtable) error {
 	// lock
 	sstm.lock.Lock()
 	defer sstm.lock.Unlock()

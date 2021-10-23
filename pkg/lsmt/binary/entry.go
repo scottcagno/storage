@@ -17,6 +17,12 @@ func (de *Entry) String() string {
 	return fmt.Sprintf("entry.key=%q, entry.value=%q", de.Key, de.Value)
 }
 
+// Size returns the approxamite size of the entry in bytes
+func (de *Entry) Size() int {
+	return len(de.Key) + len(de.Value) + 24
+
+}
+
 // EncodeEntry writes the provided entry to the writer provided
 func EncodeEntry(w io.WriteSeeker, e *Entry) (int64, error) {
 	// error check

@@ -1,10 +1,8 @@
 package lsmt
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
-	binary2 "github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/util"
 	"log"
 	"os"
@@ -108,7 +106,7 @@ func testSSTableBehavior(t *testing.T) {
 	// write data
 	logger("writing data")
 	ts1 := time.Now()
-	for i := 0; i < 512; i++ {
+	for i := 0; i < 1024; i++ {
 		err = lsm.Put(makeKey(i), makeCustomVal(i, lgVal))
 		if err != nil {
 			t.Errorf("error type: %T, put: %v\n", err, err)
@@ -116,16 +114,6 @@ func testSSTableBehavior(t *testing.T) {
 	}
 	ts2 := time.Now()
 	fmt.Println(util.FormatTime("writing entries", ts1, ts2))
-
-	doSync := false
-	if doSync {
-		// manual sync
-		logger("manual sync")
-		err = lsm.Sync()
-		if err != nil {
-			t.Errorf("manual sync: %v\n", err)
-		}
-	}
 
 	// close
 	logger("closing lsm tree")
@@ -197,6 +185,7 @@ func testSSTableBehavior(t *testing.T) {
 	conf.BasePath = origPath
 }
 
+/*
 func testLSMTreeHasAndBatches(t *testing.T) {
 
 	origPath := conf.BasePath
@@ -335,6 +324,7 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 
 	conf.BasePath = origPath
 }
+*/
 
 func TestLSMTree(t *testing.T) {
 
@@ -395,11 +385,6 @@ func testingLSMTreeN(count int, t *testing.T) {
 	}
 	ts2 := time.Now()
 	fmt.Println(util.FormatTime("writing entries", ts1, ts2))
-
-	err = lsm.Sync()
-	if err != nil {
-		t.Errorf(">>> syncing: %v\n", err)
-	}
 
 	// close
 	logger("closing lsm tree")

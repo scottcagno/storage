@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"unsafe"
 )
 
 const (
@@ -174,7 +172,7 @@ func OpenWAL(c *WALConfig) (*WAL, error) {
 	return l, nil
 }
 
-func (l *WAL) Reset() error {
+func (l *WAL) CloseAndRemove() error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -188,25 +186,15 @@ func (l *WAL) Reset() error {
 	if err != nil {
 		return err
 	}
+	// reset the segments
+	l.segments = make([]*segment, 0)
+	// reset first and last index
+	l.firstIndex = 0
+	l.lastIndex = 1
 	// erase all files
 	err = os.RemoveAll(l.conf.BasePath)
 	if err != nil {
 		return err
-	}
-	// open a new write-ahead-logger
-	nl, err := OpenWAL(l.conf)
-	if err != nil {
-		return err
-	}
-	// Defining addr unsafe.Pointer
-	var u1 = (*unsafe.Pointer)(unsafe.Pointer(&l))
-	// Old unsafe pointer
-	//var wacl WAL
-	// Defining new unasfe.pointer
-	px := atomic.SwapPointer(u1, unsafe.Pointer(&nl))
-	ok := atomic.CompareAndSwapPointer(u1, unsafe.Pointer(&nl), px)
-	if !ok {
-		return errors.New("wal: compare and swap pointers didnt work right...")
 	}
 	return nil
 }
