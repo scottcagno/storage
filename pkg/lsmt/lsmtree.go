@@ -364,7 +364,7 @@ func (lsm *LSMTree) GetBatch(keys ...string) (*binary.Batch, error) {
 		}
 		// we did not find it in the mem-table
 		// need to check error for tombstone
-		if e == nil && (e.Value == nil || bytes.Equal(e.Value, Tombstone)) {
+		if e == nil || (e.Value == nil || bytes.Equal(e.Value, Tombstone)) {
 			// found tombstone entry (means this entry was
 			// deleted) so we can end our search here
 			continue // skip and look for the next key

@@ -290,7 +290,7 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 		}
 	}
 	_, err = lsm.GetBatch(keys...)
-	if err != nil {
+	if err != nil && err != ErrNotFound {
 		t.Errorf("getbatch: %v\n", err)
 	}
 
