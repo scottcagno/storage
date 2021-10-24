@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 )
 
 // Entry is a key-value data entry
@@ -12,12 +13,26 @@ type Entry struct {
 	Value []byte
 }
 
+// CheckSize take a maximum key and maximum value size and
+// checks to ensure the entry key and value do not exceed
+// the specified max sizes. It returns a nil error if all
+// is okay, otherwise ErrKeyTooLarge or ErrValueTooLarge
+func (de *Entry) CheckSize(maxKeySize, maxValueSize uint) error {
+	if ks := uint(len(de.Key)); ks > maxKeySize || ks > math.MaxUint64 {
+		return ErrKeyTooLarge
+	}
+	if vs := uint(len(de.Value)); vs > maxValueSize || vs > math.MaxUint64 {
+		return ErrValueTooLarge
+	}
+	return nil
+}
+
 // String is the stringer method for a *Entry
 func (de *Entry) String() string {
 	return fmt.Sprintf("entry.key=%q, entry.value=%q", de.Key, de.Value)
 }
 
-// Size returns the approxamite size of the entry in bytes
+// Size returns the approximate size of the entry in bytes
 func (de *Entry) Size() int {
 	return len(de.Key) + len(de.Value) + 24
 

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"github.com/scottcagno/storage/pkg/bitset"
 	"github.com/scottcagno/storage/pkg/hash/cityhash"
+	"math"
 )
 
 const (
@@ -39,8 +40,14 @@ type BloomFilter struct {
 	mask  uint64
 }
 
+// minimum item count, aka default
+const minItemCount = math.MaxUint8
+
 // NewBloomFilter returns a new filter with m number of bits available and hints to use k hash functions
 func NewBloomFilter(n uint) *BloomFilter {
+	if n < minItemCount {
+		n = minItemCount
+	}
 	// using k=8 and maintaining a bitset m=n*24 provides a fairly
 	// constant p=0.00004 (1 in 25,000) false positive ratio which
 	// is probably acceptable in almost all cases I can think of
@@ -114,6 +121,10 @@ func (f *BloomFilter) Unset(data []byte) {
 
 func (f *BloomFilter) Count() int {
 	return f.count
+}
+
+func (f *BloomFilter) Size() int {
+	return int(f.m)
 }
 
 func (f *BloomFilter) MayHave(data []byte) bool {

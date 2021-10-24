@@ -40,13 +40,13 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 	// sanitize any path separators
 	base = filepath.ToSlash(base)
 	// create log base directory
-	walbase := filepath.Join(base, walPath)
+	walbase := filepath.Join(base, defaultWalPath)
 	err = os.MkdirAll(walbase, os.ModeDir)
 	if err != nil {
 		return nil, err
 	}
 	// create data base directory
-	sstbase := filepath.Join(base, sstPath)
+	sstbase := filepath.Join(base, defaultSstPath)
 	err = os.MkdirAll(sstbase, os.ModeDir)
 	if err != nil {
 		return nil, err

@@ -3,10 +3,12 @@ package lsmt
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	binary2 "github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/util"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,6 +46,163 @@ var conf = &LSMConfig{
 	BloomFilterSize: 1 << 16,
 }
 
+func TestLSMTreeKeyOverride(t *testing.T) {
+
+	db, err := OpenLSMTree(conf)
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	err = db.Put("Hi!", []byte("Hello world, LSMTree!"))
+	if err != nil {
+		panic(fmt.Errorf("failed to put: %w", err))
+	}
+
+	err = db.Put("Does it override key?", []byte("No!"))
+	if err != nil {
+		panic(fmt.Errorf("failed to put: %w", err))
+	}
+
+	err = db.Put("Does it override key?", []byte("Yes, absolutely! The key has been overridden."))
+	if err != nil {
+		panic(fmt.Errorf("failed to put: %w", err))
+	}
+
+	err = db.Close()
+	if err != nil {
+		t.Errorf("close: %v\n", err)
+	}
+
+	db, err = OpenLSMTree(conf)
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	key := "Hi!"
+	val, err := db.Get(key)
+	if err != nil {
+		panic(fmt.Errorf("failed to get value: %w", err))
+	}
+	fmt.Printf("get(%q)=%q\n", key, val)
+
+	key = "Does it override key?"
+	val, err = db.Get(key)
+	if err != nil {
+		panic(fmt.Errorf("failed to get value: %w", err))
+	}
+	fmt.Printf("get(%q)=%q\n", key, val)
+
+	err = db.Close()
+	if err != nil {
+		t.Errorf("close: %v\n", err)
+	}
+
+	// Expected output:
+	// Hello world, LSMTree!
+	// Yes, absolutely! The key has been overridden.
+}
+
+var (
+	ErrKeyRequired   = errors.New("")
+	ErrValueRequired = errors.New("")
+	ErrKeyTooLarge   = errors.New("")
+	ErrValueTooLarge = errors.New("")
+)
+
+func TestPrintMaxSizes(t *testing.T) {
+
+	getSize := func(s string, size uint) string {
+		out := fmt.Sprintf("%s: %d B", s, size)
+		if size >= 1<<10 {
+			out += fmt.Sprintf(", %d KB", size/1000)
+		}
+		if size >= 1<<20 {
+			out += fmt.Sprintf(", %d MB", size/1000/1000)
+		}
+		if size >= 1<<30 {
+			out += fmt.Sprintf(", %d GB", size/1000/1000/1000)
+		}
+		if size >= 1<<40 {
+			out += fmt.Sprintf(", %d TB", size/1000/1000/1000/1000)
+		}
+		if size >= 1<<50 {
+			out += fmt.Sprintf(", %d PB", size/1000/1000/1000/1000/1000)
+		}
+		return out
+	}
+
+	fmt.Println(util.Sizeof(len([]byte{})))
+	var s0 string
+	fmt.Println(util.Sizeof(s0))
+
+	var s1 string = "xxxxxxxx"
+	fmt.Println(util.Sizeof(s1))
+
+	fmt.Printf("%s\n", getSize("MaxUint8", math.MaxUint8))
+	fmt.Printf("%s\n", getSize("MaxUint16", math.MaxUint16))
+	fmt.Printf("%s\n", getSize("MaxUint32", math.MaxUint32))
+	fmt.Printf("%s\n", getSize("MaxUint64", math.MaxUint64))
+
+}
+
+func TestPutForErrors(t *testing.T) {
+
+	origPath := conf.BasePath
+	tempPath := filepath.Join(conf.BasePath, "put-for-errors")
+	conf.BasePath = tempPath
+
+	defer func() {
+		if err := os.RemoveAll(conf.BasePath); err != nil {
+			panic(fmt.Errorf("failed to remove %s: %w", conf.BasePath, err))
+		}
+		conf.BasePath = origPath
+	}()
+
+	logger("opening")
+	db, err := OpenLSMTree(conf)
+	if err != nil {
+		panic(fmt.Errorf("failed to open LSM tree %s: %w", conf.BasePath, err))
+	}
+
+	logger("checking put empty key")
+	err = db.Put("", []byte("some value"))
+	if err != nil {
+		t.Errorf("empty key: %v\n", err)
+	}
+
+	logger("checking put nil value")
+	err = db.Put("some key", nil)
+	if err != nil {
+		t.Errorf("nil val: %v\n", err)
+	}
+
+	logger("checking put empty value")
+	err = db.Put("some key", []byte{})
+	if err != nil {
+		t.Errorf("empty val slice: %v\n", err)
+	}
+
+	logger("checking put large key (65,536 bytes)")
+	var largeKey [65536]byte
+	err = db.Put(string(largeKey[:]), []byte("some value"))
+	if err != nil {
+		t.Errorf("large key: %v\n", err)
+	}
+
+	logger("checking put large value (4,294,967,296 bytes)")
+	var largeValue [4294967296]byte
+	err = db.Put("some key", largeValue[:])
+	if err != nil {
+		t.Errorf("large val: %v\n", err)
+	}
+
+	logger("close")
+	err = db.Close()
+	if err != nil {
+		t.Errorf("close: %v\n", err)
+	}
+}
+
 func TestOpenAndCloseNoWrite(t *testing.T) {
 
 	db, err := OpenLSMTree(conf)
@@ -53,7 +212,7 @@ func TestOpenAndCloseNoWrite(t *testing.T) {
 
 	err = db.Close()
 	if err != nil {
-		t.Errorf("open: %v\n", err)
+		t.Errorf("close: %v\n", err)
 	}
 
 	db, err = OpenLSMTree(conf)

@@ -1,34 +1,60 @@
 package lsmt
 
 import (
-	"fmt"
-	"github.com/scottcagno/storage/pkg/lsmt/binary"
-	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
-	"strings"
+	"math"
 )
 
 const (
-	walPath                = "log"
-	sstPath                = "data"
-	defaultBasePath        = "lsm-db"
-	defaultFlushThreshold  = 1 << 20 // 1 MB
-	defaultBloomFilterSize = 1 << 16 // 64 KB
-	defaultSyncOnWrite     = false
+	SizeKB   = 1<<10 - 1
+	SizeMB   = 1<<20 - 1
+	Size64KB = math.MaxUint16
+	Size4GB  = math.MaxUint32
+)
+
+const (
+
+	// path defaults
+	defaultWalPath  = "log"
+	defaultSstPath  = "data"
+	defaultBasePath = "lsm-db"
+
+	// syncing
+	defaultSyncOnWrite = false
+
+	// default sizes
+	defaultFlushThreshold   = 2 * SizeMB  //   2 MB
+	defaultBloomFilterSize  = 8 * SizeMB  //   8 MB
+	defaultKeySizeAllowed   = 256         // 256 B
+	defaultValueSizeAllowed = 64 * SizeKB //  64 KB
+
+	// min and max sizes
+	minFlushThresholdAllowed  = 1 * SizeMB  //   1 MB
+	maxFlushThresholdAllowed  = 32 * SizeMB //  32 MB
+	minBloomFilterSizeAllowed = 1 * SizeMB  //   1 MB
+	maxBloomFilterSizeAllowed = 16 * SizeMB //  16 MB
+	minKeySizeAllowed         = 8           //   8 B
+	maxKeySizeAllowed         = 2 * SizeMB  //   2 MB
+	minValueSizeAllowed       = 8           //   8 B
+	maxValueSizeAllowed       = 16 * SizeMB //  16 MB
 )
 
 var defaultLSMConfig = &LSMConfig{
 	BasePath:        defaultBasePath,
-	FlushThreshold:  defaultFlushThreshold,
 	SyncOnWrite:     defaultSyncOnWrite,
+	FlushThreshold:  defaultFlushThreshold,
 	BloomFilterSize: defaultBloomFilterSize,
+	KeySize:         defaultKeySizeAllowed,
+	ValueSize:       defaultValueSizeAllowed,
 }
 
 // LSMConfig holds configuration settings for an LSMTree instance
 type LSMConfig struct {
 	BasePath        string // base storage path
-	FlushThreshold  int64  // memtable flush threshold in KB
-	SyncOnWrite     bool   // perform sync every time an entry is write
+	SyncOnWrite     bool   // perform sync every time an entry is written
+	FlushThreshold  int64  // mem-table flush threshold
 	BloomFilterSize uint   // specify the bloom filter size
+	KeySize         int64  // the max allowed key size
+	ValueSize       int64  // the maximum allowed value size
 }
 
 // checkLSMConfig is a helper to make sure the configuration
@@ -40,28 +66,44 @@ func checkLSMConfig(conf *LSMConfig) *LSMConfig {
 	if conf.BasePath == *new(string) {
 		conf.BasePath = defaultBasePath
 	}
-	if conf.FlushThreshold < 1 {
-		conf.FlushThreshold = defaultFlushThreshold
+	if conf.FlushThreshold <= 0 {
+		conf.FlushThreshold = defaultFlushThreshold // 2 MB
 	}
-	if conf.BloomFilterSize < 1 {
-		conf.BloomFilterSize = defaultBloomFilterSize
+	if conf.FlushThreshold < minFlushThresholdAllowed {
+		conf.FlushThreshold = minFlushThresholdAllowed // 1 MB
+	}
+	if conf.FlushThreshold > maxFlushThresholdAllowed {
+		conf.FlushThreshold = maxFlushThresholdAllowed // 32 MB
+	}
+	if conf.BloomFilterSize <= 0 {
+		conf.BloomFilterSize = defaultBloomFilterSize // 8 MB
+	}
+	if conf.BloomFilterSize < minBloomFilterSizeAllowed {
+		conf.BloomFilterSize = minBloomFilterSizeAllowed // 1 MB
+	}
+	if conf.BloomFilterSize > maxBloomFilterSizeAllowed {
+		conf.BloomFilterSize = maxBloomFilterSizeAllowed // 16 MB
+	}
+	if conf.KeySize <= 0 {
+		conf.KeySize = defaultKeySizeAllowed // 256 B
+	}
+	if conf.ValueSize <= 0 {
+		conf.ValueSize = defaultValueSizeAllowed // 64 KB
+	}
+	if conf.KeySize < minKeySizeAllowed {
+		conf.KeySize = minKeySizeAllowed // 8 B
+	}
+	if conf.KeySize > maxKeySizeAllowed {
+		conf.KeySize = maxKeySizeAllowed // 2 MB
+	}
+	if conf.ValueSize < minValueSizeAllowed {
+		conf.ValueSize = minValueSizeAllowed // 8
+	}
+	if conf.ValueSize > maxValueSizeAllowed {
+		conf.ValueSize = maxValueSizeAllowed // 16 MB
+	}
+	if conf.ValueSize+conf.KeySize > conf.FlushThreshold {
+		conf.FlushThreshold = maxFlushThresholdAllowed // 32 MB
 	}
 	return conf
-}
-
-type memtableEntry struct {
-	Key   string
-	Entry *binary.Entry
-}
-
-func (m memtableEntry) Compare(that rbtree.RBEntry) int {
-	return strings.Compare(m.Key, that.(memtableEntry).Key)
-}
-
-func (m memtableEntry) Size() int {
-	return len(m.Key) + len(m.Entry.Key) + len(m.Entry.Value)
-}
-
-func (m memtableEntry) String() string {
-	return fmt.Sprintf("entry.key=%q", m.Key)
 }

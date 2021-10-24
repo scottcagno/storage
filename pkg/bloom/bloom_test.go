@@ -34,6 +34,26 @@ var data = [11][]byte{
 	[]byte("Emma Guest"),
 }
 
+var sizeMB = 1<<20 - 1
+
+func TestBoomFilterSize(t *testing.T) {
+	n := uint(1 * sizeMB)
+	bf := NewBloomFilter(n)
+
+	fmt.Printf("opening a bloom filter of size: %d\n", n)
+	fmt.Println("bloom filter:", util.Sizeof(bf))
+	fmt.Println("bloom count:", bf.Count())
+	fmt.Println("bloom size:", bf.Size())
+	fmt.Println("put foo")
+	bf.Set([]byte("foo"))
+	fmt.Println("has foo", bf.Has([]byte("foo")))
+	fmt.Println("has foo1", bf.Has([]byte("foo1")))
+	fmt.Println("has bar", bf.Has([]byte("bar")))
+	fmt.Println("del foo")
+	bf.Unset([]byte("foo"))
+	fmt.Println("has foo", bf.Has([]byte("foo")))
+}
+
 func TestBloomFilter(t *testing.T) {
 	// test new filter
 	bf := NewBloomFilter(1 << 12)
