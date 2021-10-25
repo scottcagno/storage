@@ -34,13 +34,13 @@ func makeCustomVal(i int, suffix string) []byte {
 	return []byte(fmt.Sprintf("value-%08d-%s", i, suffix))
 }
 
-func logger(s string) {
+func logit(s string) {
 	log.SetPrefix("[INFO] ")
 	log.Printf("%s\n", s)
 }
 
 var conf = &LSMConfig{
-	BasePath:        "lsm-testing",
+	BaseDir:         "lsm-testing",
 	FlushThreshold:  -1,
 	SyncOnWrite:     false,
 	BloomFilterSize: 1 << 16,
@@ -145,58 +145,89 @@ func TestPrintMaxSizes(t *testing.T) {
 
 }
 
-func TestPutForErrors(t *testing.T) {
+type dbdb struct {
+	db *LSMTree
+}
 
-	origPath := conf.BasePath
-	tempPath := filepath.Join(conf.BasePath, "put-for-errors")
-	conf.BasePath = tempPath
+func (d dbdb) YO(k string) bool {
+	return d.db.BloomHas(k)
+}
 
-	defer func() {
-		if err := os.RemoveAll(conf.BasePath); err != nil {
-			panic(fmt.Errorf("failed to remove %s: %w", conf.BasePath, err))
-		}
-		conf.BasePath = origPath
-	}()
+func TestLSMTreeLogger(t *testing.T) {
 
-	logger("opening")
+	var mydb dbdb
 	db, err := OpenLSMTree(conf)
 	if err != nil {
-		panic(fmt.Errorf("failed to open LSM tree %s: %w", conf.BasePath, err))
+		t.Fatalf("open: %v", err)
+	}
+	mydb.db = db
+
+	mydb.YO("foo bar")
+
+	var someLargeValue [1 << 30]byte
+	err = db.Put("jkldafdsa", someLargeValue[:])
+	if err != nil {
+		t.Fatalf("put: %v", err)
 	}
 
-	logger("checking put empty key")
+	err = db.Close()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+}
+
+func TestPutForErrors(t *testing.T) {
+
+	origPath := conf.BaseDir
+	tempPath := filepath.Join(conf.BaseDir, "put-for-errors")
+	conf.BaseDir = tempPath
+
+	defer func() {
+		if err := os.RemoveAll(conf.BaseDir); err != nil {
+			panic(fmt.Errorf("failed to remove %s: %w", conf.BaseDir, err))
+		}
+		conf.BaseDir = origPath
+	}()
+
+	logit("opening")
+	db, err := OpenLSMTree(conf)
+	if err != nil {
+		panic(fmt.Errorf("failed to open LSM tree %s: %w", conf.BaseDir, err))
+	}
+
+	logit("checking put empty key")
 	err = db.Put("", []byte("some value"))
 	if err != nil {
 		t.Errorf("empty key: %v\n", err)
 	}
 
-	logger("checking put nil value")
+	logit("checking put nil value")
 	err = db.Put("some key", nil)
 	if err != nil {
 		t.Errorf("nil val: %v\n", err)
 	}
 
-	logger("checking put empty value")
+	logit("checking put empty value")
 	err = db.Put("some key", []byte{})
 	if err != nil {
 		t.Errorf("empty val slice: %v\n", err)
 	}
 
-	logger("checking put large key (65,536 bytes)")
+	logit("checking put large key (65,536 bytes)")
 	var largeKey [65536]byte
 	err = db.Put(string(largeKey[:]), []byte("some value"))
 	if err != nil {
 		t.Errorf("large key: %v\n", err)
 	}
 
-	logger("checking put large value (4,294,967,296 bytes)")
+	logit("checking put large value (4,294,967,296 bytes)")
 	var largeValue [4294967296]byte
 	err = db.Put("some key", largeValue[:])
 	if err != nil {
 		t.Errorf("large val: %v\n", err)
 	}
 
-	logger("close")
+	logit("close")
 	err = db.Close()
 	if err != nil {
 		t.Errorf("close: %v\n", err)
@@ -247,12 +278,12 @@ func TestLSMTreeReadEmptyDir(t *testing.T) {
 
 func testSSTableBehavior(t *testing.T) {
 
-	origPath := conf.BasePath
-	tempPath := filepath.Join(conf.BasePath, "sstables")
-	conf.BasePath = tempPath
+	origPath := conf.BaseDir
+	tempPath := filepath.Join(conf.BaseDir, "sstables")
+	conf.BaseDir = tempPath
 
 	// open lsm tree
-	logger("opening lsm tree")
+	logit("opening lsm tree")
 	lsm, err := OpenLSMTree(conf)
 	if err != nil {
 		t.Errorf("open: %v\n", err)
@@ -265,7 +296,7 @@ func testSSTableBehavior(t *testing.T) {
 	// note: over the one on disk.
 
 	// write data
-	logger("writing data")
+	logit("writing data")
 	ts1 := time.Now()
 	for i := 0; i < 1024; i++ {
 		err = lsm.Put(makeKey(i), makeCustomVal(i, lgVal))
@@ -277,7 +308,7 @@ func testSSTableBehavior(t *testing.T) {
 	fmt.Println(util.FormatTime("writing entries", ts1, ts2))
 
 	// get lsm-tree status
-	logger("getting lsm-tree stats")
+	logit("getting lsm-tree stats")
 	st, err := lsm.Stats()
 	if err != nil {
 		t.Errorf("stats [text]: %v\n", err)
@@ -289,14 +320,14 @@ func testSSTableBehavior(t *testing.T) {
 	fmt.Printf("stats:\n%s\n\njson:\n%s\n", st, dat)
 
 	// close
-	logger("closing lsm tree")
+	logit("closing lsm tree")
 	err = lsm.Close()
 	if err != nil {
 		t.Errorf("close: %v\n", err)
 	}
 
 	// open lsm tree
-	logger("opening lsm tree")
+	logit("opening lsm tree")
 	lsm, err = OpenLSMTree(conf)
 	if err != nil {
 		t.Errorf("open: %v\n", err)
@@ -304,7 +335,7 @@ func testSSTableBehavior(t *testing.T) {
 	util.DEBUG(">>>>>>>>> has 500: %v\n", lsm.Has(makeKey(500)))
 
 	// delete record(s)
-	logger("deleting record(s) [500,501,502,503 and 505]")
+	logit("deleting record(s) [500,501,502,503 and 505]")
 	err = lsm.Del(makeKey(500))
 	if err != nil {
 		t.Errorf("delete: %v\n", err)
@@ -327,21 +358,21 @@ func testSSTableBehavior(t *testing.T) {
 	}
 
 	// close
-	logger("closing lsm tree")
+	logit("closing lsm tree")
 	err = lsm.Close()
 	if err != nil {
 		t.Errorf("close: %v\n", err)
 	}
 
 	// open lsm tree
-	logger("opening lsm tree")
+	logit("opening lsm tree")
 	lsm, err = OpenLSMTree(conf)
 	if err != nil {
 		t.Errorf("open: %v\n", err)
 	}
 
 	// checking for records
-	logger("checking for records [475-512]")
+	logit("checking for records [475-512]")
 	for i := 475; i < 512; i++ {
 		key := makeKey(i)
 		ok := lsm.Has(key)
@@ -349,25 +380,25 @@ func testSSTableBehavior(t *testing.T) {
 	}
 
 	// close
-	logger("closing lsm tree")
+	logit("closing lsm tree")
 	err = lsm.Close()
 	if err != nil {
 		t.Errorf("close: %v\n", err)
 	}
 
-	conf.BasePath = origPath
+	conf.BaseDir = origPath
 }
 
 func testLSMTreeHasAndBatches(t *testing.T) {
 
-	origPath := conf.BasePath
-	tempPath := filepath.Join(conf.BasePath, "batches")
-	conf.BasePath = tempPath
+	origPath := conf.BaseDir
+	tempPath := filepath.Join(conf.BaseDir, "batches")
+	conf.BaseDir = tempPath
 
-	logger(fmt.Sprintf("bloom fileter size: %d\n", conf.BloomFilterSize))
+	logit(fmt.Sprintf("bloom fileter size: %d\n", conf.BloomFilterSize))
 
 	// open lsm tree
-	logger("opening lsm tree")
+	logit("opening lsm tree")
 	lsm, err := OpenLSMTree(conf)
 	if err != nil {
 		t.Errorf("open: %v\n", err)
@@ -376,7 +407,7 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 	count := 32500
 
 	// batch some entries
-	logger("batching some entries")
+	logit("batching some entries")
 	ts1 := time.Now()
 	batch := binary2.NewBatch()
 	for i := 0; i < count; i++ {
@@ -386,7 +417,7 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 	fmt.Println(util.FormatTime("batching entries", ts1, ts2))
 
 	// write batch
-	logger("write batch")
+	logit("write batch")
 	ts1 = time.Now()
 	err = lsm.PutBatch(batch)
 	if err != nil {
@@ -396,31 +427,31 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 	fmt.Println(util.FormatTime("writing batch", ts1, ts2))
 
 	//// manual sync
-	//logger("manual sync")
+	//logit("manual sync")
 	//err = lsm.Sync()
 	//if err != nil {
 	//	t.Errorf("manual sync: %v\n", err)
 	//}
 
 	// close
-	logger("closing lsm tree")
+	logit("closing lsm tree")
 	err = lsm.Close()
 	if err != nil {
 		t.Errorf("close: %v\n", err)
 	}
 
 	// open lsm tree
-	logger("opening lsm tree")
+	logit("opening lsm tree")
 	lsm, err = OpenLSMTree(conf)
 	if err != nil {
 		t.Errorf("open: %v\n", err)
 	}
 
 	// check has
-	logger("checking has")
+	logit("checking has")
 	for i := range batch.Entries {
 		if i%500 == 0 {
-			logger(fmt.Sprintf("checking entry: %d", i))
+			logit(fmt.Sprintf("checking entry: %d", i))
 			// get entry
 			entry := batch.Entries[i]
 			// check for valid key
@@ -439,7 +470,7 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 	}
 
 	// check get batch
-	logger("checkin get batch")
+	logit("checkin get batch")
 	var keys []string
 	for i := range batch.Entries {
 		if i%500 == 0 {
@@ -488,13 +519,13 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 	}
 
 	// close
-	logger("closing lsm tree")
+	logit("closing lsm tree")
 	err = lsm.Close()
 	if err != nil {
 		t.Errorf("close: %v\n", err)
 	}
 
-	conf.BasePath = origPath
+	conf.BaseDir = origPath
 }
 
 func TestLSMTree(t *testing.T) {
@@ -514,9 +545,9 @@ func TestLSMTree(t *testing.T) {
 	}
 	doClean := false
 	if doClean {
-		err := os.RemoveAll(conf.BasePath)
+		err := os.RemoveAll(conf.BaseDir)
 		if err != nil {
-			t.Errorf("remove: %s, err: %v\n", conf.BasePath, err)
+			t.Errorf("remove: %s, err: %v\n", conf.BaseDir, err)
 		}
 	}
 }
@@ -526,11 +557,11 @@ func testingLSMTreeN(count int, t *testing.T) {
 	strt := 0
 	stop := strt + count
 
-	origPath := conf.BasePath
-	tempPath := filepath.Join(conf.BasePath, strconv.Itoa(count))
-	conf.BasePath = tempPath
+	origPath := conf.BaseDir
+	tempPath := filepath.Join(conf.BaseDir, strconv.Itoa(count))
+	conf.BaseDir = tempPath
 
-	n, err := ReadLastSequenceNumber(conf.BasePath)
+	n, err := ReadLastSequenceNumber(conf.BaseDir)
 	if n > 0 && err == nil {
 		strt = int(n)
 		stop = strt + count
@@ -538,14 +569,14 @@ func testingLSMTreeN(count int, t *testing.T) {
 	util.DEBUG("start: %d, stop: %d, count: %d\n", strt, stop, count)
 
 	// open lsm tree
-	logger("opening lsm tree")
+	logit("opening lsm tree")
 	lsm, err := OpenLSMTree(conf)
 	if err != nil {
 		t.Errorf("open: %v\n", err)
 	}
 
 	// write Entries
-	logger("writing data")
+	logit("writing data")
 	ts1 := time.Now()
 	for i := strt; i < stop; i++ {
 		err := lsm.Put(makeKey(i), makeVal(i))
@@ -557,14 +588,14 @@ func testingLSMTreeN(count int, t *testing.T) {
 	fmt.Println(util.FormatTime("writing entries", ts1, ts2))
 
 	// close
-	logger("closing lsm tree")
+	logit("closing lsm tree")
 	err = lsm.Close()
 	if err != nil {
 		t.Errorf("close: %v\n", err)
 	}
 
 	// open
-	logger("opening lsm tree")
+	logit("opening lsm tree")
 	lsm, err = OpenLSMTree(conf)
 	if err != nil {
 		t.Errorf("open: %v\n", err)
@@ -574,7 +605,7 @@ func testingLSMTreeN(count int, t *testing.T) {
 	doPrintSomeReads := true
 
 	// read Entries
-	logger("reading data")
+	logit("reading data")
 	ts1 = time.Now()
 	var step int
 	if count >= 100 {
@@ -605,7 +636,7 @@ func testingLSMTreeN(count int, t *testing.T) {
 	doDelete := true
 	if doDelete {
 		// remove Entries
-		logger("removing data (only odds)")
+		logit("removing data (only odds)")
 		ts1 = time.Now()
 		for i := strt; i < stop; i++ {
 			if i%2 != 0 {
@@ -621,21 +652,21 @@ func testingLSMTreeN(count int, t *testing.T) {
 	}
 
 	// close
-	logger("closing lsm tree")
+	logit("closing lsm tree")
 	err = lsm.Close()
 	if err != nil {
 		t.Errorf("close: %v\n", err)
 	}
 
 	// open
-	logger("opening lsm tree")
+	logit("opening lsm tree")
 	lsm, err = OpenLSMTree(conf)
 	if err != nil {
 		t.Errorf("open: %v\n", err)
 	}
 
 	// read Entries
-	logger("reading data")
+	logit("reading data")
 	ts1 = time.Now()
 	for i := strt; i < stop; i += step {
 		v, err := lsm.Get(makeKey(i))
@@ -657,7 +688,7 @@ func testingLSMTreeN(count int, t *testing.T) {
 	ts2 = time.Now()
 	fmt.Println(util.FormatTime("reading data", ts1, ts2))
 
-	_ = WriteLastSequenceNumber(int64(stop-1), conf.BasePath)
+	_ = WriteLastSequenceNumber(int64(stop-1), conf.BaseDir)
 
 	//
 	err = lsm.sstm.CompactAllSSTables()
@@ -666,13 +697,13 @@ func testingLSMTreeN(count int, t *testing.T) {
 	}
 
 	// close
-	logger("closing lsm tree")
+	logit("closing lsm tree")
 	err = lsm.Close()
 	if err != nil {
 		t.Errorf("close: %v\n", err)
 	}
 
-	conf.BasePath = origPath
+	conf.BaseDir = origPath
 
 }
 

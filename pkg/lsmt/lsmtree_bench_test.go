@@ -78,7 +78,7 @@ func teardown(b *testing.B, db *LSMTree, shouldClean bool) {
 
 	// check cleanup
 	if shouldClean {
-		err = os.RemoveAll(db.conf.BasePath)
+		err = os.RemoveAll(db.conf.BaseDir)
 		if err != nil {
 			b.Fatalf("got error: %v\n", err)
 		}
