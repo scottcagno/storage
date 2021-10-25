@@ -2,7 +2,6 @@ package lsmt
 
 import (
 	"bytes"
-	"errors"
 	"github.com/scottcagno/storage/pkg/bloom"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/mtbl"
@@ -33,55 +32,40 @@ type LSMTree struct {
 func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 	// check lsm config
 	conf := checkLSMConfig(c)
-	conf.Logger.Info("opening lsm-tree...")
 	// make sure we are working with absolute paths
 	base, err := filepath.Abs(conf.BaseDir)
 	if err != nil {
-		// log error
-		conf.Logger.Error(err.Error())
 		return nil, err
 	}
 	// sanitize any path separators
 	base = filepath.ToSlash(base)
 	// create log base directory
-
 	walbase := filepath.Join(base, defaultWalPath)
 	err = os.MkdirAll(walbase, os.ModeDir)
 	if err != nil {
-		// log error
-		conf.Logger.Error(err.Error())
 		return nil, err
 	}
 	// create data base directory
 	sstbase := filepath.Join(base, defaultSstPath)
 	err = os.MkdirAll(sstbase, os.ModeDir)
 	if err != nil {
-		// log error
-		conf.Logger.Error(err.Error())
 		return nil, err
 	}
 	// open write-ahead commit log
-	conf.Logger.Info("opening write-ahead commit log")
 	wacl, err := wal.OpenWAL(&wal.WALConfig{
 		BasePath:    walbase,
 		MaxFileSize: conf.FlushThreshold,
 		SyncOnWrite: conf.SyncOnWrite,
 	})
 	if err != nil {
-		// log error
-		conf.Logger.Error(err.Error())
 		return nil, err
 	}
 	// open ss-table-manager
-	conf.Logger.Info("opening ss-table manager")
 	sstm, err := sstable.OpenSSTManager(sstbase)
 	if err != nil {
-		// log error
-		conf.Logger.Error(err.Error())
 		return nil, err
 	}
 	// create lsm-tree instance and return
-	conf.Logger.Info("creating lsm-tree instance")
 	lsmt := &LSMTree{
 		conf:    conf,
 		walbase: walbase,
@@ -95,59 +79,15 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 	// load mem-table with commit log data
 	err = lsmt.loadFromWriteAheadCommitLog()
 	if err != nil {
-		// log error
-		conf.Logger.Error(err.Error())
 		return nil, err
 	}
 	// populate bloom filter
 	err = lsmt.populateBloomFilter()
 	if err != nil {
-		// log error
-		conf.Logger.Error(err.Error())
 		return nil, err
 	}
 	// return lsm-tree
 	return lsmt, nil
-}
-
-func (lsm *LSMTree) checkKey(k string) bool {
-	if k == "" {
-		lsm.conf.Logger.Error("key is empty, key cannot be empty")
-		return false
-	}
-	if len(k) < minKeySizeAllowed {
-		lsm.conf.Logger.Errorf("key size is too small (minimum=%d)", minKeySizeAllowed)
-		return false
-	}
-	if len(k) > int(lsm.conf.KeySize) {
-		lsm.conf.Logger.Errorf("key size exceeds max configured (allowed=%d)", lsm.conf.KeySize)
-		return false
-	}
-	if len(k) > maxKeySizeAllowed {
-		lsm.conf.Logger.Errorf("key size is too large (maximum=%d)", maxKeySizeAllowed)
-		return false
-	}
-	return true
-}
-
-func (lsm *LSMTree) checkValue(v []byte) bool {
-	if v == nil {
-		lsm.conf.Logger.Error("value is nil, value cannot be nil")
-		return false
-	}
-	if len(v) < minValueSizeAllowed {
-		lsm.conf.Logger.Errorf("value size is too small (minimum=%d)", minValueSizeAllowed)
-		return false
-	}
-	if len(v) > int(lsm.conf.ValueSize) {
-		lsm.conf.Logger.Errorf("value size exceeds max configured (allowed=%d)", lsm.conf.ValueSize)
-		return false
-	}
-	if len(v) > maxValueSizeAllowed {
-		lsm.conf.Logger.Errorf("value size is too large (maximum=%d)", maxValueSizeAllowed)
-		return false
-	}
-	return true
 }
 
 // loadFromWriteAheadCommitLog loads any entries from the
@@ -242,9 +182,7 @@ func (lsm *LSMTree) BloomSet(k string) {
 // note: for determining weather or not a given key DOES NOT exists in the take.
 // note: anyway, that is all for now. ta-ta!
 func (lsm *LSMTree) BloomHas(k string) bool {
-	ok := lsm.bloom.Has([]byte(k))
-	lsm.conf.Logger.Infof("checking bloom filter for key=%q (result=%v)", k, ok)
-	return ok
+	return lsm.bloom.Has([]byte(k))
 }
 
 // BloomUnset "unset's" (aka, removes) the key mapping
@@ -291,15 +229,6 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 	// lock
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
-	//
-	//
-	if ok := lsm.checkKey(k); !ok {
-		return errors.New("key error")
-	}
-	if ok := lsm.checkValue(v); !ok {
-		return errors.New("value error")
-	}
-	//
 	// create binary entry
 	e := &binary.Entry{Key: []byte(k), Value: v}
 	// write entry to the write-ahead commit log

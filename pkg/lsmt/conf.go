@@ -97,9 +97,6 @@ func checkLSMConfig(conf *LSMConfig) *LSMConfig {
 	if conf == nil {
 		return defaultLSMConfig
 	}
-	if conf.Logger == nil {
-		conf.Logger = logger.DefaultLogger
-	}
 	if conf.BaseDir == *new(string) {
 		conf.BaseDir = defaultBasePath
 	}

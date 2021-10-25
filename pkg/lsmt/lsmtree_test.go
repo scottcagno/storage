@@ -164,8 +164,7 @@ func TestLSMTreeLogger(t *testing.T) {
 
 	mydb.YO("foo bar")
 
-	var someLargeValue [1 << 30]byte
-	err = db.Put("jkldafdsa", someLargeValue[:])
+	err = db.Put("jkldafdsa", nil)
 	if err != nil {
 		t.Fatalf("put: %v", err)
 	}
