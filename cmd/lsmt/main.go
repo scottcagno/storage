@@ -10,11 +10,7 @@ import (
 
 func main() {
 
-	conf := &lsmt.LSMConfig{
-		BaseDir:        "cmd/lsmt/data",
-		FlushThreshold: -1,
-		SyncOnWrite:    false,
-	}
+	conf := lsmt.DefaultConfig("cmd/lsmt/data")
 
 	// open LSMTree
 	db, err := lsmt.OpenLSMTree(conf)

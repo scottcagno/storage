@@ -1,9 +1,8 @@
 package lsmt
 
 import (
+	"encoding/json"
 	"math"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -54,6 +53,11 @@ var defaultLSMConfig = &LSMConfig{
 	MaxValueSize:    defaultMaxValueSize,
 }
 
+func DefaultConfig(path string) *LSMConfig {
+	defaultLSMConfig.BaseDir = path
+	return defaultLSMConfig
+}
+
 // LSMConfig holds configuration settings for an LSMTree instance
 type LSMConfig struct {
 	BaseDir         string // base directory
@@ -66,29 +70,11 @@ type LSMConfig struct {
 }
 
 func (conf *LSMConfig) String() string {
-	var sb strings.Builder
-	sb.WriteString("BaseDir: ")
-	sb.WriteString(conf.BaseDir)
-	sb.WriteString("\n")
-	sb.WriteString("SyncOnWrite: ")
-	if conf.SyncOnWrite {
-		sb.WriteString("true")
-	} else {
-		sb.WriteString("false")
+	data, err := json.MarshalIndent(conf, "", "\t")
+	if err != nil {
+		return err.Error()
 	}
-	sb.WriteString("\n")
-	sb.WriteString("FlushThreshold: ")
-	sb.WriteString(strconv.Itoa(int(conf.FlushThreshold)))
-	sb.WriteString("\n")
-	sb.WriteString("BloomFilterSize: ")
-	sb.WriteString(strconv.Itoa(int(conf.BloomFilterSize)))
-	sb.WriteString("\n")
-	sb.WriteString("KeySize: ")
-	sb.WriteString(strconv.Itoa(int(conf.MaxKeySize)))
-	sb.WriteString("\n")
-	sb.WriteString("ValueSize: ")
-	sb.WriteString(strconv.Itoa(int(conf.MaxValueSize)))
-	return sb.String()
+	return string(data)
 }
 
 // checkLSMConfig is a helper to make sure the configuration
