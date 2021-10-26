@@ -7,18 +7,16 @@ import (
 )
 
 const (
-	LevelOff logLevel = iota
-	LevelDebug
+	LevelDebug logLevel = iota
 	LevelInfo
 	LevelWarn
 	LevelError
 	LevelFatal
+	LevelOff
 )
 
 func LevelText(level logLevel) string {
 	switch level {
-	case LevelOff:
-		return "Level=Off"
 	case LevelDebug:
 		return "Level=Debug"
 	case LevelInfo:
@@ -29,6 +27,8 @@ func LevelText(level logLevel) string {
 		return "Level=Error"
 	case LevelFatal:
 		return "Level=Fatal"
+	case LevelOff:
+		return "Level=Off"
 	default:
 		return "Level=Unknown"
 	}
@@ -49,7 +49,7 @@ func NewLogger(level logLevel) *Logger {
 }
 
 func (l *Logger) Debug(s string, a ...interface{}) {
-	if l.level < LevelDebug {
+	if l.level > LevelDebug {
 		return
 	}
 	ls := fmt.Sprintf("| DEBUG | %s", s)
@@ -61,7 +61,7 @@ func (l *Logger) Debug(s string, a ...interface{}) {
 }
 
 func (l *Logger) Info(s string, a ...interface{}) {
-	if l.level < LevelInfo {
+	if l.level > LevelInfo {
 		return
 	}
 	ls := fmt.Sprintf("|  INFO | %s", s)
@@ -73,7 +73,7 @@ func (l *Logger) Info(s string, a ...interface{}) {
 }
 
 func (l *Logger) Warn(s string, a ...interface{}) {
-	if l.level < LevelWarn {
+	if l.level > LevelWarn {
 		return
 	}
 	ls := fmt.Sprintf("|  WARN | %s", s)
@@ -85,7 +85,7 @@ func (l *Logger) Warn(s string, a ...interface{}) {
 }
 
 func (l *Logger) Error(s string, a ...interface{}) {
-	if l.level < LevelError {
+	if l.level > LevelError {
 		return
 	}
 	ls := fmt.Sprintf("| ERROR | %s", s)
@@ -97,7 +97,7 @@ func (l *Logger) Error(s string, a ...interface{}) {
 }
 
 func (l *Logger) Fatal(s string, a ...interface{}) {
-	if l.level < LevelFatal {
+	if l.level > LevelFatal {
 		return
 	}
 	ls := fmt.Sprintf("| FATAL | %s", s)

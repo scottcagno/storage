@@ -48,17 +48,19 @@ var conf = &LSMConfig{
 
 func TestLSMTLogging(t *testing.T) {
 
+	level := LevelInfo
+	l := NewLogger(level)
+	fmt.Println(LevelText(level))
+	l.Debug("foo")
+	l.Debug("foo with args: %d\n", 4)
+	l.Info("foo")
+	l.Info("foo with args: %d\n", 4)
+	l.Warn("foo")
+	l.Warn("foo with args: %d\n", 4)
+	l.Error("foo")
+	l.Error("foo with args: %d\n", 4)
 	for i := LevelOff; i < LevelFatal; i++ {
-		l := NewLogger(i)
-		fmt.Println(LevelText(i))
-		l.Debug("foo")
-		l.Debug("foo with args: %d\n", 4)
-		l.Info("foo")
-		l.Info("foo with args: %d\n", 4)
-		l.Warn("foo")
-		l.Warn("foo with args: %d\n", 4)
-		l.Error("foo")
-		l.Error("foo with args: %d\n", 4)
+
 	}
 
 }
