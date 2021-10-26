@@ -274,12 +274,19 @@ func (lsm *LSMTree) Has(k string) bool {
 	// so I suppose at this point it's really
 	// unlikely to be found, but let's search
 	// anyway, because well... why not?
-	de := lsm.sstm.LinearSearch(k)
+	// do linear semi-binary-ish search
+	de, err := lsm.sstm.LinearSearch(k)
+	// check err
+	if err != nil && err == binary.ErrEntryNotFound {
+		// definitely not in the ss-table
+		return false
+	}
+	// otherwise, check value (in case of tombstone)
 	if de == nil || de.Value == nil {
 		// definitely not in the ss-table
 		return false
 	}
-	// otherwise, we MAY have found it
+	// otherwise, we found it homey!
 	return true
 }
 
@@ -359,7 +366,12 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 		// there is still a chance it may be on disk
 		if err == binary.ErrBadEntry {
 			// do linear semi-binary-ish search
-			de = lsm.sstm.LinearSearch(k)
+			de, err = lsm.sstm.LinearSearch(k)
+			// check err
+			if err != nil && err == binary.ErrEntryNotFound {
+				return nil, ErrNotFound
+			}
+			// otherwise, check value (in case of tombstone)
 			if de == nil || de.Value == nil {
 				return nil, ErrNotFound
 			}
@@ -376,6 +388,49 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 		return nil, ErrNotFound
 	}
 	// may have found it
+	return de.Value, nil
+}
+
+func (lsm *LSMTree) Get2(k string) ([]byte, error) {
+	// read lock
+	lsm.lock.RLock()
+	defer lsm.lock.RUnlock()
+	// check key
+	err := checkKey([]byte(k), lsm.conf.MaxKeySize)
+	if err != nil {
+		return nil, err
+	}
+	// check bloom filter
+	if ok := lsm.bloom.MayHave([]byte(k)); !ok {
+		// definitely not in the lsm tree
+		return nil, ErrNotFound
+	}
+	// according to the bloom filter, it "may" be in
+	// tree, so lets start by searching the mem-table
+	e, found := lsm.memt.Get(&binary.Entry{Key: []byte(k)})
+	if found && e.Value != nil {
+		// we found it!
+		return e.Value, nil
+	}
+	// we did not find it in the mem-table
+	// need to check error for tombstone
+	if e != nil && e.Value == nil {
+		// found tombstone entry (means this entry was
+		// deleted) so we can end our search here; just
+		// MAKE SURE you check for tombstone errors!!!
+		return nil, ErrNotFound
+	}
+	// do linear semi-binary-ish search
+	de, err := lsm.sstm.LinearSearch(k)
+	// check err
+	if err != nil && err == binary.ErrEntryNotFound {
+		return nil, ErrNotFound
+	}
+	// otherwise, check value (in case of tombstone)
+	if de == nil || de.Value == nil {
+		return nil, ErrNotFound
+	}
+	// otherwise, we found it homey!
 	return de.Value, nil
 }
 
@@ -410,6 +465,21 @@ func (lsm *LSMTree) Del(k string) error {
 	// remove from bloom filter
 	lsm.bloom.Unset([]byte(k))
 	return nil
+}
+
+const (
+	ScanNewToOld int = sstable.ScanNewToOld
+	ScanOldToNew int = sstable.ScanOldToNew
+)
+
+type ScanDirection = sstable.ScanDirection
+
+func (lsm *LSMTree) Scan(direction int, iter func(e *binary.Entry) bool) error {
+	// lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+	// ss-table-manager scan method
+	return lsm.sstm.Scan(sstable.ScanDirection(direction), iter)
 }
 
 // Sync forces a synb

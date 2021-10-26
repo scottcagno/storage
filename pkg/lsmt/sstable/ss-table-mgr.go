@@ -229,14 +229,14 @@ func (sstm *SSTManager) searchSparseIndex(k string) (spiEntry, error) {
 	return spiEntry{SSTIndex: -1}, binary.ErrBadEntry
 }
 
-type scanDirection int
+type ScanDirection int
 
 const (
 	ScanOldToNew = 0
 	ScanNewToOld = 1
 )
 
-func (sstm *SSTManager) Scan(direction scanDirection, iter func(e *binary.Entry) bool) error {
+func (sstm *SSTManager) Scan(direction ScanDirection, iter func(e *binary.Entry) bool) error {
 	if direction != ScanOldToNew && direction != ScanNewToOld {
 		return ErrInvalidScanDirection
 	}
@@ -269,7 +269,7 @@ func (sstm *SSTManager) Scan(direction scanDirection, iter func(e *binary.Entry)
 	return nil
 }
 
-func (sstm *SSTManager) LinearSearch(k string) *binary.Entry {
+func (sstm *SSTManager) LinearSearch(k string) (*binary.Entry, error) {
 	// read lock
 	sstm.lock.RLock()
 	defer sstm.lock.RUnlock()
@@ -280,27 +280,27 @@ func (sstm *SSTManager) LinearSearch(k string) *binary.Entry {
 		// open the ss-table
 		sst, err := OpenSSTable(sstm.base, index)
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		// perform binary search, attempt to
 		// locate a matching entry
 		de, err := sst.Read(k)
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		// do not forget to close the ss-table
 		err = sst.Close()
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		// double check entry
 		if de == nil {
 			continue
 		}
 		// otherwise, return
-		return de
+		return de, nil
 	}
-	return nil
+	return nil, binary.ErrEntryNotFound
 }
 
 func (sstm *SSTManager) CheckDeleteInSparseIndex(k string) {

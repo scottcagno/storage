@@ -532,6 +532,121 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 	conf.BaseDir = origPath
 }
 
+func TestLSMTree_Search_vs_LinearSearch(t *testing.T) {
+
+	count := 50000
+
+	// open lsm tree
+	logit("opening lsm tree")
+	lsm, err := OpenLSMTree(conf)
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	// write Entries
+	logit("writing data")
+	for i := 0; i < count; i++ {
+		err := lsm.Put(makeKey(i), makeVal(i))
+		if err != nil {
+			t.Errorf("put: %v\n", err)
+		}
+	}
+
+	// close
+	logit("closing lsm tree")
+	err = lsm.Close()
+	if err != nil {
+		t.Errorf("close: %v\n", err)
+	}
+
+	// open lsm tree
+	logit("opening lsm tree")
+	lsm, err = OpenLSMTree(conf)
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	// reading entries linear scanner
+	logit("reading entries [scanner]")
+	err = lsm.Scan(0, func(e *binary2.Entry) bool {
+		if e.Key != nil && e.Value != nil {
+			fmt.Printf("--> %s\n", e)
+			return true
+		}
+		return false
+	})
+	if err != nil {
+		t.Errorf("scanning: %v\n", err)
+	}
+
+	// close
+	logit("closing lsm tree")
+	err = lsm.Close()
+	if err != nil {
+		t.Errorf("close: %v\n", err)
+	}
+
+	// open lsm tree
+	logit("opening lsm tree")
+	lsm, err = OpenLSMTree(conf)
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	// reading entries search
+	logit("reading entries [search]")
+	for i := 0; i < count; i += 1000 {
+		ts1 := time.Now()
+		k := makeKey(i)
+		v, err := lsm.Get(k)
+		if err != nil || v == nil {
+			t.Errorf("reading: %v\n", err)
+		}
+		ts2 := time.Now()
+		fmt.Println(util.FormatTime("reading entries [search]", ts1, ts2))
+		if i%1000 == 0 {
+			fmt.Printf("get(%q) -> %q\n", k, v)
+		}
+	}
+
+	// close
+	logit("closing lsm tree")
+	err = lsm.Close()
+	if err != nil {
+		t.Errorf("close: %v\n", err)
+	}
+
+	// open lsm tree
+	logit("opening lsm tree")
+	lsm, err = OpenLSMTree(conf)
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	// reading entries linear search
+	logit("reading entries [linear search]")
+	for i := 0; i < count; i += 1000 {
+		ts1 := time.Now()
+		k := makeKey(i)
+		v, err := lsm.Get2(k)
+		if err != nil || v == nil {
+			t.Errorf("reading: %v\n", err)
+		}
+		ts2 := time.Now()
+		fmt.Println(util.FormatTime("reading entries [linear search]", ts1, ts2))
+		if i%1000 == 0 {
+			fmt.Printf("get(%q) -> %q\n", k, v)
+		}
+	}
+
+	// close
+	logit("closing lsm tree")
+	err = lsm.Close()
+	if err != nil {
+		t.Errorf("close: %v\n", err)
+	}
+}
+
 func TestLSMTree(t *testing.T) {
 
 	// sstable tests
