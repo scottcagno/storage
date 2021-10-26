@@ -1,6 +1,8 @@
 package logger
 
 import (
+	"log"
+	"os"
 	"testing"
 )
 
@@ -8,6 +10,13 @@ var multiLine = `this is going to be a multi line log. It will show
 you what will happen when the logger
 encounters a multi level log message.
 Here you go!`
+
+func TestStdLog(t *testing.T) {
+	l := log.New(os.Stderr, "", log.LstdFlags)
+	l.Printf("this is my log: %s\n", "logging something")
+
+	l.Printf("this is my log: %s\n", "logging something")
+}
 
 func TestPrintColors(t *testing.T) {
 

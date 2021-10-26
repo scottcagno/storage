@@ -156,6 +156,7 @@ func (lsm *LSMTree) cycleWAL() error {
 	if err != nil {
 		return err
 	}
+	// open a fresh write-ahead commit log
 	lsm.wacl, err = wal.OpenWAL(&wal.WALConfig{
 		BasePath:    lsm.walbase,
 		MaxFileSize: lsm.conf.FlushThreshold,

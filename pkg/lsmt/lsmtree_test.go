@@ -46,6 +46,23 @@ var conf = &LSMConfig{
 	BloomFilterSize: 1 << 16,
 }
 
+func TestLSMTLogging(t *testing.T) {
+
+	for i := LevelOff; i < LevelFatal; i++ {
+		l := NewLogger(i)
+		fmt.Println(LevelText(i))
+		l.Debug("foo")
+		l.Debug("foo with args: %d\n", 4)
+		l.Info("foo")
+		l.Info("foo with args: %d\n", 4)
+		l.Warn("foo")
+		l.Warn("foo with args: %d\n", 4)
+		l.Error("foo")
+		l.Error("foo with args: %d\n", 4)
+	}
+
+}
+
 func TestLSMTreeKeyOverride(t *testing.T) {
 
 	db, err := OpenLSMTree(conf)
