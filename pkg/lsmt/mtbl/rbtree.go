@@ -33,7 +33,6 @@ type rbTree struct {
 	NIL   *rbNode
 	root  *rbNode
 	count int
-	full  int64
 	size  int64
 }
 
@@ -94,6 +93,26 @@ func (t *rbTree) Put(entry *binary.Entry) (*binary.Entry, bool) {
 	return t.putInternal(entry)
 }
 
+// UpsertAndCheckIfFull updates the provided entry if it already
+// exists or inserts the supplied entry as a new entry if it
+// does not exist. UpsertAndCheckIfFull returns the current size
+// in bytes after performing the insert or update. It also returns
+// a boolean reporting true if the tree has met or exceeded the
+// provided threshold, and false if the current size is less than
+// the provided threshold.
+func (t *rbTree) UpsertAndCheckIfFull(entry *binary.Entry, threshold int64) (int64, bool) {
+	// perform pre-check??
+	t.putInternal(entry)
+	if t.size >= threshold {
+		// size is greater or equal to supplied threshold
+		// return size along with a true value (need flush)
+		return t.size, true
+	}
+	// size has not met or exceeded supplied threshold
+	// simply return the current size, and a false value
+	return t.size, false
+}
+
 func (t *rbTree) PutBatch(batch *binary.Batch) {
 	for _, entry := range batch.Entries {
 		t.putInternal(entry)
@@ -104,9 +123,10 @@ func (t *rbTree) putInternal(entry *binary.Entry) (*binary.Entry, bool) {
 	if entry == nil {
 		return nil, false
 	}
-	// insert returns the node inserted
-	// and if the node returned already
-	// existed and/or was updated
+	// insert return the node along with
+	// a boolean value signaling true if
+	// the node was updated, and false if
+	// the node was newly added.
 	ret, ok := t.insert(&rbNode{
 		left:   t.NIL,
 		right:  t.NIL,

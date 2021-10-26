@@ -12,11 +12,9 @@ var (
 	ErrNotFound       = errors.New("lsmt: not found")
 	ErrIncompleteSet  = errors.New("lsmt: incomplete batch or set")
 	ErrFlushThreshold = errors.New("lsmt: flush threshold has been reached")
-)
 
-func (lsm *LSMTree) checkMemtableSize(memTableSize int64) error {
-	if memTableSize > lsm.conf.FlushThreshold {
-		return ErrFlushThreshold
-	}
-	return nil
-}
+	ErrBadKey        = errors.New("lsmt: bad key")
+	ErrKeyTooLarge   = errors.New("lsmt: key too large")
+	ErrBadValue      = errors.New("lsmt: bad value")
+	ErrValueTooLarge = errors.New("lsmt: value too large")
+)

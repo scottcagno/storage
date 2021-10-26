@@ -3,7 +3,6 @@ package sstable
 import (
 	"bytes"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/lsmt/_memtable"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/mtbl"
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
@@ -118,7 +117,7 @@ func OpenSSTManager(base string) (*SSTManager, error) {
 	return sstm, nil
 }
 
-func (sstm *SSTManager) FlushMemtableToSSTable(mt *mtbl.RBTree) error {
+func (sstm *SSTManager) FlushToSSTable(mt *mtbl.RBTree) error {
 	// lock
 	sstm.lock.Lock()
 	defer sstm.lock.Unlock()
@@ -155,95 +154,7 @@ func (sstm *SSTManager) FlushMemtableToSSTable(mt *mtbl.RBTree) error {
 	return nil
 }
 
-func (sstm *SSTManager) _FlushMemtableToSSTable(mt *memtable.Memtable) error {
-	// lock
-	sstm.lock.Lock()
-	defer sstm.lock.Unlock()
-	// open new ss-table
-	sst, err := OpenSSTable(sstm.base, sstm.sequence+1)
-	if err != nil {
-		return err
-	}
-	// iterate mem-table entries
-	mt.Scan(func(me rbtree.RBEntry) bool {
-		// and write each entry to the ss-table
-		err = sst.Write(me.(memtable.MemtableEntry).Entry)
-		if err != nil {
-			log.Println(err)
-			return false
-		}
-		return true
-	})
-	//// sync ss-table writes
-	//err = sst.Sync()
-	//if err != nil {
-	//	return err
-	//}
-	// reset mem-table asap
-	err = mt.Reset()
-	if err != nil {
-		return err
-	}
-	// add new entries to sparse index
-	err = sstm.AddSparseIndex(sst.index)
-	if err != nil {
-		return err
-	}
-	// flush and close ss-table
-	err = sst.Close()
-	if err != nil {
-		return err
-	}
-	// in the clear, increment sequence number
-	sstm.sequence++
-	// return
-	return nil
-}
-
-func (sstm *SSTManager) FlushMemtableToSSTableOLD(mt *memtable.Memtable) error {
-	// lock
-	sstm.lock.Lock()
-	defer sstm.lock.Unlock()
-	// make new batch
-	batch := binary.NewBatch()
-	// iterate mem-table entries
-	mt.Scan(func(me rbtree.RBEntry) bool {
-		// and write each entry to the batch
-		batch.WriteEntry(me.(memtable.MemtableEntry).Entry)
-		return true
-	})
-	// open new ss-table
-	sst, err := OpenSSTable(sstm.base, sstm.sequence+1)
-	if err != nil {
-		return err
-	}
-	// write batch to ss-table
-	err = sst.WriteBatch(batch)
-	if err != nil {
-		return err
-	}
-	// add new entries to sparse index
-	err = sstm.AddSparseIndex(sst.index)
-	if err != nil {
-		return err
-	}
-	// flush and close ss-table
-	err = sst.Close()
-	if err != nil {
-		return err
-	}
-	// reset mem-table
-	//err = mt.Reset()
-	//if err != nil {
-	//	return err
-	//}
-	// in the clear, increment sequence number
-	sstm.sequence++
-	// return
-	return nil
-}
-
-func (sstm *SSTManager) FlushBatchToSSTable(batch *binary.Batch) error {
+func (sstm *SSTManager) flushBatchToSSTable(batch *binary.Batch) error {
 	// lock
 	sstm.lock.Lock()
 	defer sstm.lock.Unlock()
@@ -270,32 +181,6 @@ func (sstm *SSTManager) FlushBatchToSSTable(batch *binary.Batch) error {
 	// in the clear, increment sequence
 	sstm.sequence++
 	// return, dummy
-	return nil
-}
-
-// TODO: depricate this method, i think....
-func (sstm *SSTManager) AddSparseIndex1(ssi *SSTIndex) error {
-	// generate and return sparse index set from the ss-index
-	sparseSet, err := ssi.GenerateAndGetSparseIndex()
-	if err != nil {
-		return err
-	}
-	// get index from ssi filename
-	index, err := ssi.GetIndexNumber()
-	if err != nil {
-		return err
-	}
-	// iterate the sparse set
-	for i := range sparseSet {
-		// create a new sparse index entry
-		ie := spiEntry{
-			Key:        string(sparseSet[i].Key),
-			SSTIndex:   index,
-			IndexEntry: sparseSet[i],
-		}
-		// add each entry to the sparse index
-		sstm.sparseIndex.Put(ie)
-	}
 	return nil
 }
 

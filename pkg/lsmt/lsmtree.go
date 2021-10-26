@@ -40,13 +40,13 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 	// sanitize any path separators
 	base = filepath.ToSlash(base)
 	// create log base directory
-	walbase := filepath.Join(base, defaultWalPath)
+	walbase := filepath.Join(base, defaultWalDir)
 	err = os.MkdirAll(walbase, os.ModeDir)
 	if err != nil {
 		return nil, err
 	}
 	// create data base directory
-	sstbase := filepath.Join(base, defaultSstPath)
+	sstbase := filepath.Join(base, defaultSstDir)
 	err = os.MkdirAll(sstbase, os.ModeDir)
 	if err != nil {
 		return nil, err
@@ -167,28 +167,82 @@ func (lsm *LSMTree) cycleWAL() error {
 	return nil
 }
 
-// BloomSet "sets" (aka, adds) the key mapping to
-// the current bloom filter located in the lsm-tree
-func (lsm *LSMTree) BloomSet(k string) {
-	lsm.bloom.Set([]byte(k))
+func (lsm *LSMTree) needFlush(memTableSize int64) error {
+	if memTableSize > lsm.conf.FlushThreshold {
+		return ErrFlushThreshold
+	}
+	return nil
 }
 
-// BloomHas takes a key, and returns a boolean value
-// specifying weather or not the key exists int the tree.
-// note: there is a probabilistic chance of returning a false positive
-// note: but never a false negative. In other words, if you say get("foo")
-// note: and it returns "true", it might not *actually* be the case. However,
-// note: it will NEVER report a false negative, so it's a really good data-structure
-// note: for determining weather or not a given key DOES NOT exists in the take.
-// note: anyway, that is all for now. ta-ta!
-func (lsm *LSMTree) BloomHas(k string) bool {
-	return lsm.bloom.Has([]byte(k))
+func (lsm *LSMTree) FlushToSSTableAndCycleWAL(memt *mtbl.RBTree) error {
+	/*
+		// check err properly
+		if err != nil {
+			// make sure it's the mem-table doesn't need flushing
+			if err != ErrFlushThreshold {
+				return err
+			}
+			// looks like it needs a flush
+			err = lsm.sstm.FlushToSSTable(lsm.memt)
+			if err != nil {
+				return err
+			}
+			// let's reset the write-ahead commit log
+			err = lsm.cycleWAL()
+			if err != nil {
+				return err
+			}
+		}
+	*/
+	// attempt to flush
+	err := lsm.sstm.FlushToSSTable(memt)
+	if err != nil {
+		return err
+	}
+	// let's reset the write-ahead commit log
+	err = lsm.cycleWAL()
+	if err != nil {
+		return err
+	}
+	// no error, simply return
+	return nil
 }
 
-// BloomUnset "unset's" (aka, removes) the key mapping
-// from the current bloom filter located in the lsm-tree
-func (lsm *LSMTree) BloomUnset(k string) {
-	lsm.bloom.Unset([]byte(k))
+// checkEntry ensures the entry does not violate the max key and value config
+func (lsm *LSMTree) checkEntry(e *binary.Entry) error {
+	// init err
+	var err error
+	// key checks
+	err = checkKey(e.Key, lsm.conf.MaxKeySize)
+	if err != nil {
+		return err
+	}
+	// value checks
+	err = checkValue(e.Value, lsm.conf.MaxValueSize)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func checkKey(k []byte, max int64) error {
+	if k == nil || len(k) < minKeySizeAllowed {
+		return ErrBadKey
+	}
+	if int64(len(k)) > max {
+		return ErrKeyTooLarge
+	}
+	return nil
+}
+
+func checkValue(v []byte, max int64) error {
+	if v == nil || len(v) < minValueSizeAllowed {
+		return ErrBadValue
+	}
+	if int64(len(v)) > max {
+		return ErrValueTooLarge
+	}
+	return nil
 }
 
 // Has returns a boolean signaling weather or not the key
@@ -196,6 +250,11 @@ func (lsm *LSMTree) BloomUnset(k string) {
 // this may return a false positive, but it should never
 // return a false negative.
 func (lsm *LSMTree) Has(k string) bool {
+	// check key
+	err := checkKey([]byte(k), lsm.conf.MaxKeySize)
+	if err != nil {
+		return false
+	}
 	// check bloom filter
 	if ok := lsm.bloom.MayHave([]byte(k)); !ok {
 		// definitely not in the bloom filter
@@ -231,79 +290,28 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 	defer lsm.lock.Unlock()
 	// create binary entry
 	e := &binary.Entry{Key: []byte(k), Value: v}
+	// check entry
+	err := lsm.checkEntry(e)
+	if err != nil {
+		return err
+	}
 	// write entry to the write-ahead commit log
-	_, err := lsm.wacl.Write(e)
+	_, err = lsm.wacl.Write(e)
 	if err != nil {
 		return err
 	}
 	// write entry to mem-table
-	lsm.memt.Put(e)
-	// check mem-table size
-	err = lsm.checkMemtableSize(lsm.memt.Size())
-	// check err properly
-	if err != nil {
-		// make sure it's the mem-table doesn't need flushing
-		if err != ErrFlushThreshold {
-			return err
-		}
-		// looks like it needs a flush
-		err = lsm.sstm.FlushMemtableToSSTable(lsm.memt)
-		if err != nil {
-			return err
-		}
-		// let's reset the write-ahead commit log
-		err = lsm.cycleWAL()
+	_, needFlush := lsm.memt.UpsertAndCheckIfFull(e, lsm.conf.FlushThreshold)
+	// check if we should do a flush
+	if needFlush {
+		// attempt to flush
+		err = lsm.FlushToSSTableAndCycleWAL(lsm.memt)
 		if err != nil {
 			return err
 		}
 	}
 	// add to bloom filter
 	lsm.bloom.Set([]byte(k))
-	return nil
-}
-
-// PutBatch takes a batch of entries and adds all of them at
-// one time. It acts a bit like a transaction. If you have a
-// configuration option of SyncOnWrite: true it will be disabled
-// temporarily and the batch will sync at the end of all the
-// writes. This is to give a slight performance advantage. It
-// should be worth noting that very large batches may have an
-// impact on performance and may also cause frequent ss-table
-// flushes which may result in fragmentation.
-func (lsm *LSMTree) PutBatch(batch *binary.Batch) error {
-	// lock
-	lsm.lock.Lock()
-	defer lsm.lock.Unlock()
-	// write batch to the write-ahead commit log
-	err := lsm.wacl.WriteBatch(batch)
-	if err != nil {
-		return err
-	}
-	// write batch to mem-table
-	lsm.memt.PutBatch(batch)
-	// check mem-table size
-	err = lsm.checkMemtableSize(lsm.memt.Size())
-	// check err properly
-	if err != nil {
-		// make sure it's the mem-table doesn't need flushing
-		if err != ErrFlushThreshold {
-			return err
-		}
-		// looks like it needs a flush
-		err = lsm.sstm.FlushMemtableToSSTable(lsm.memt)
-		if err != nil {
-			return err
-		}
-		// let's reset the write-ahead commit log
-		err = lsm.cycleWAL()
-		if err != nil {
-			return err
-		}
-	}
-	// add to bloom filter
-	for _, e := range batch.Entries {
-		lsm.bloom.Set(e.Key)
-	}
 	return nil
 }
 
@@ -314,6 +322,14 @@ func (lsm *LSMTree) PutBatch(batch *binary.Batch) error {
 // key in the ss-index and if that yields no result it will try to
 // find the entry by doing a linear search of the ss-table itself.
 func (lsm *LSMTree) Get(k string) ([]byte, error) {
+	// read lock
+	lsm.lock.RLock()
+	defer lsm.lock.RUnlock()
+	// check key
+	err := checkKey([]byte(k), lsm.conf.MaxKeySize)
+	if err != nil {
+		return nil, err
+	}
 	// check bloom filter
 	if ok := lsm.bloom.MayHave([]byte(k)); !ok {
 		// definitely not in the lsm tree
@@ -360,6 +376,98 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 	}
 	// may have found it
 	return de.Value, nil
+}
+
+func (lsm *LSMTree) Del(k string) error {
+	// lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+	// check key
+	err := checkKey([]byte(k), lsm.conf.MaxKeySize)
+	if err != nil {
+		return err
+	}
+	// create binary entry
+	e := &binary.Entry{Key: []byte(k), Value: nil}
+	// write entry to the write-ahead commit log
+	_, err = lsm.wacl.Write(e)
+	if err != nil {
+		return err
+	}
+	// write entry to mem-table
+	_, needFlush := lsm.memt.UpsertAndCheckIfFull(e, lsm.conf.FlushThreshold)
+	// check if we should do a flush
+	if needFlush {
+		// attempt to flush
+		err = lsm.FlushToSSTableAndCycleWAL(lsm.memt)
+		if err != nil {
+			return err
+		}
+	}
+	// update sparse index
+	lsm.sstm.CheckDeleteInSparseIndex(k)
+	// remove from bloom filter
+	lsm.bloom.Unset([]byte(k))
+	return nil
+}
+
+// Sync forces a synb
+func (lsm *LSMTree) Sync() error {
+	// lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+	// sync write-ahead commit log
+	err := lsm.wacl.Sync()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+/*
+// PutBatch takes a batch of entries and adds all of them at
+// one time. It acts a bit like a transaction. If you have a
+// configuration option of SyncOnWrite: true it will be disabled
+// temporarily and the batch will sync at the end of all the
+// writes. This is to give a slight performance advantage. It
+// should be worth noting that very large batches may have an
+// impact on performance and may also cause frequent ss-table
+// flushes which may result in fragmentation.
+func (lsm *LSMTree) PutBatch(batch *binary.Batch) error {
+	// lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+	// write batch to the write-ahead commit log
+	err := lsm.wacl.WriteBatch(batch)
+	if err != nil {
+		return err
+	}
+	// write batch to mem-table
+	lsm.memt.PutBatch(batch)
+	// check mem-table size
+	err = lsm.checkMemtableSize(lsm.memt.Size())
+	// check err properly
+	if err != nil {
+		// make sure it's the mem-table doesn't need flushing
+		if err != ErrFlushThreshold {
+			return err
+		}
+		// looks like it needs a flush
+		err = lsm.sstm.FlushMemtableToSSTable(lsm.memt)
+		if err != nil {
+			return err
+		}
+		// let's reset the write-ahead commit log
+		err = lsm.cycleWAL()
+		if err != nil {
+			return err
+		}
+	}
+	// add to bloom filter
+	for _, e := range batch.Entries {
+		lsm.bloom.Set(e.Key)
+	}
+	return nil
 }
 
 // GetBatch attempts to find entries matching the keys provided. If a matching
@@ -436,42 +544,7 @@ func (lsm *LSMTree) GetBatch(keys ...string) (*binary.Batch, error) {
 	}
 	return batch, ErrIncompleteSet
 }
-
-func (lsm *LSMTree) Del(k string) error {
-	// create binary entry
-	e := &binary.Entry{Key: []byte(k), Value: nil}
-	// write entry to the write-ahead commit log
-	_, err := lsm.wacl.Write(e)
-	if err != nil {
-		return err
-	}
-	// write entry to mem-table
-	lsm.memt.Put(e)
-	// check mem-table size
-	err = lsm.checkMemtableSize(lsm.memt.Size())
-	// check err properly
-	if err != nil {
-		// make sure it's the mem-table doesn't need flushing
-		if err != ErrFlushThreshold {
-			return err
-		}
-		// looks like it needs a flush
-		err = lsm.sstm.FlushMemtableToSSTable(lsm.memt)
-		if err != nil {
-			return err
-		}
-		// let's reset the write-ahead commit log
-		err = lsm.cycleWAL()
-		if err != nil {
-			return err
-		}
-	}
-	// update sparse index
-	lsm.sstm.CheckDeleteInSparseIndex(k)
-	// remove from bloom filter
-	lsm.bloom.Unset([]byte(k))
-	return nil
-}
+*/
 
 func (lsm *LSMTree) Stats() (*LSMTreeStats, error) {
 	return &LSMTreeStats{

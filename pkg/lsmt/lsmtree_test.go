@@ -105,8 +105,6 @@ func TestLSMTreeKeyOverride(t *testing.T) {
 var (
 	ErrKeyRequired   = errors.New("")
 	ErrValueRequired = errors.New("")
-	ErrKeyTooLarge   = errors.New("")
-	ErrValueTooLarge = errors.New("")
 )
 
 func TestPrintMaxSizes(t *testing.T) {
@@ -145,24 +143,12 @@ func TestPrintMaxSizes(t *testing.T) {
 
 }
 
-type dbdb struct {
-	db *LSMTree
-}
-
-func (d dbdb) YO(k string) bool {
-	return d.db.BloomHas(k)
-}
-
 func TestLSMTreeLogger(t *testing.T) {
 
-	var mydb dbdb
 	db, err := OpenLSMTree(conf)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	mydb.db = db
-
-	mydb.YO("foo bar")
 
 	err = db.Put("jkldafdsa", nil)
 	if err != nil {
@@ -415,15 +401,15 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 	ts2 := time.Now()
 	fmt.Println(util.FormatTime("batching entries", ts1, ts2))
 
-	// write batch
-	logit("write batch")
-	ts1 = time.Now()
-	err = lsm.PutBatch(batch)
-	if err != nil {
-		t.Errorf("put batch: %v\n", err)
-	}
-	ts2 = time.Now()
-	fmt.Println(util.FormatTime("writing batch", ts1, ts2))
+	//// write batch
+	//logit("write batch")
+	//ts1 = time.Now()
+	//err = lsm.PutBatch(batch)
+	//if err != nil {
+	//	t.Errorf("put batch: %v\n", err)
+	//}
+	//ts2 = time.Now()
+	//fmt.Println(util.FormatTime("writing batch", ts1, ts2))
 
 	//// manual sync
 	//logit("manual sync")
@@ -468,20 +454,20 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 		}
 	}
 
-	// check get batch
-	logit("checkin get batch")
-	var keys []string
-	for i := range batch.Entries {
-		if i%500 == 0 {
-			keys = append(keys, string(batch.Entries[i].Key))
-		} else {
-			continue
-		}
-	}
-	_, err = lsm.GetBatch(keys...)
-	if err != nil && err != ErrNotFound {
-		t.Errorf("getbatch: %v\n", err)
-	}
+	//// check get batch
+	//logit("checkin get batch")
+	//var keys []string
+	//for i := range batch.Entries {
+	//	if i%500 == 0 {
+	//		keys = append(keys, string(batch.Entries[i].Key))
+	//	} else {
+	//		continue
+	//	}
+	//}
+	//_, err = lsm.GetBatch(keys...)
+	//if err != nil && err != ErrNotFound {
+	//	t.Errorf("getbatch: %v\n", err)
+	//}
 
 	// add a few more records just to ensure the segment file is working properly
 	err = lsm.Put("foo-1", []byte("bar-1"))

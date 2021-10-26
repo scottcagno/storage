@@ -1,7 +1,6 @@
 package lsmt
 
 import (
-	"github.com/scottcagno/storage/pkg/lsmt/logger"
 	"math"
 	"strconv"
 	"strings"
@@ -17,52 +16,53 @@ const (
 const (
 
 	// path defaults
-	defaultWalPath  = "log"
-	defaultSstPath  = "data"
-	defaultBasePath = "lsm-db"
+	defaultBaseDir = "data"
+	defaultWalDir  = "log"
+	defaultSstDir  = "sst"
 
 	// syncing
-	defaultSyncOnWrite = false
+	defaultSyncOnWrite   = false
+	defaultEnableLogging = false
 
 	// default sizes
-	defaultFlushThreshold   = 2 * SizeMB  //   2 MB
-	defaultBloomFilterSize  = 8 * SizeMB  //   8 MB
-	defaultKeySizeAllowed   = 1 * SizeKB  //   1 KB
-	defaultValueSizeAllowed = 64 * SizeKB //  64 KB
+	defaultFlushThreshold  = 2 * SizeMB
+	defaultBloomFilterSize = 4 * SizeMB
+	defaultMaxKeySize      = maxKeySizeAllowed
+	defaultMaxValueSize    = maxValueSizeAllowed
 
 	// minimum size bounds
-	minFlushThresholdAllowed  = 1 * SizeMB //   1 MB
-	minBloomFilterSizeAllowed = 1 * SizeMB //   1 MB
-	minKeySizeAllowed         = 1          //   1 B
-	minValueSizeAllowed       = 1          //   1 B
+	minFlushThresholdAllowed  = maxValueSizeAllowed * 16
+	minBloomFilterSizeAllowed = minFlushThresholdAllowed
+	minKeySizeAllowed         = 1
+	minValueSizeAllowed       = 1
 
 	// maximum size bounds
-	maxFlushThresholdAllowed  = 32 * SizeMB //  32 MB
-	maxBloomFilterSizeAllowed = 16 * SizeMB //  16 MB
-	maxKeySizeAllowed         = 2 * SizeMB  //   2 MB
-	maxValueSizeAllowed       = 16 * SizeMB //  16 MB
+	maxFlushThresholdAllowed  = 8 * SizeMB
+	maxBloomFilterSizeAllowed = 8 * SizeMB
+	maxKeySizeAllowed         = math.MaxUint8  //    255 B
+	maxValueSizeAllowed       = math.MaxUint16 // 65,535 B
 )
 
 // default config
 var defaultLSMConfig = &LSMConfig{
-	BaseDir:         defaultBasePath,
-	Logger:          logger.DefaultLogger,
+	BaseDir:         defaultBaseDir,
 	SyncOnWrite:     defaultSyncOnWrite,
+	EnableLogging:   defaultEnableLogging,
 	FlushThreshold:  defaultFlushThreshold,
 	BloomFilterSize: defaultBloomFilterSize,
-	KeySize:         defaultKeySizeAllowed,
-	ValueSize:       defaultValueSizeAllowed,
+	MaxKeySize:      defaultMaxKeySize,
+	MaxValueSize:    defaultMaxValueSize,
 }
 
 // LSMConfig holds configuration settings for an LSMTree instance
 type LSMConfig struct {
-	BaseDir         string         // base directory
-	Logger          *logger.Logger // logger
-	SyncOnWrite     bool           // perform sync every time an entry is written
-	FlushThreshold  int64          // mem-table flush threshold
-	BloomFilterSize uint           // specify the bloom filter size
-	KeySize         int64          // the max allowed key size
-	ValueSize       int64          // the maximum allowed value size
+	BaseDir         string // base directory
+	SyncOnWrite     bool   // perform sync every time an entry is written
+	EnableLogging   bool   // enable logging
+	FlushThreshold  int64  // mem-table flush threshold
+	BloomFilterSize uint   // specify the bloom filter size
+	MaxKeySize      int64  // the max allowed key size
+	MaxValueSize    int64  // the maximum allowed value size
 }
 
 func (conf *LSMConfig) String() string {
@@ -84,10 +84,10 @@ func (conf *LSMConfig) String() string {
 	sb.WriteString(strconv.Itoa(int(conf.BloomFilterSize)))
 	sb.WriteString("\n")
 	sb.WriteString("KeySize: ")
-	sb.WriteString(strconv.Itoa(int(conf.KeySize)))
+	sb.WriteString(strconv.Itoa(int(conf.MaxKeySize)))
 	sb.WriteString("\n")
 	sb.WriteString("ValueSize: ")
-	sb.WriteString(strconv.Itoa(int(conf.ValueSize)))
+	sb.WriteString(strconv.Itoa(int(conf.MaxValueSize)))
 	return sb.String()
 }
 
@@ -98,46 +98,46 @@ func checkLSMConfig(conf *LSMConfig) *LSMConfig {
 		return defaultLSMConfig
 	}
 	if conf.BaseDir == *new(string) {
-		conf.BaseDir = defaultBasePath
+		conf.BaseDir = defaultBaseDir
 	}
 	if conf.FlushThreshold <= 0 {
-		conf.FlushThreshold = defaultFlushThreshold // 2 MB
+		conf.FlushThreshold = defaultFlushThreshold
 	}
 	if conf.FlushThreshold < minFlushThresholdAllowed {
-		conf.FlushThreshold = minFlushThresholdAllowed // 1 MB
+		conf.FlushThreshold = minFlushThresholdAllowed
 	}
 	if conf.FlushThreshold > maxFlushThresholdAllowed {
-		conf.FlushThreshold = maxFlushThresholdAllowed // 32 MB
+		conf.FlushThreshold = maxFlushThresholdAllowed
 	}
 	if conf.BloomFilterSize <= 0 {
-		conf.BloomFilterSize = defaultBloomFilterSize // 8 MB
+		conf.BloomFilterSize = defaultBloomFilterSize
 	}
 	if conf.BloomFilterSize < minBloomFilterSizeAllowed {
-		conf.BloomFilterSize = minBloomFilterSizeAllowed // 1 MB
+		conf.BloomFilterSize = minBloomFilterSizeAllowed
 	}
 	if conf.BloomFilterSize > maxBloomFilterSizeAllowed {
-		conf.BloomFilterSize = maxBloomFilterSizeAllowed // 16 MB
+		conf.BloomFilterSize = maxBloomFilterSizeAllowed
 	}
-	if conf.KeySize <= 0 {
-		conf.KeySize = defaultKeySizeAllowed // 256 B
+	if conf.MaxKeySize <= 0 {
+		conf.MaxKeySize = defaultMaxKeySize
 	}
-	if conf.ValueSize <= 0 {
-		conf.ValueSize = defaultValueSizeAllowed // 64 KB
+	if conf.MaxKeySize < minKeySizeAllowed {
+		conf.MaxKeySize = minKeySizeAllowed
 	}
-	if conf.KeySize < minKeySizeAllowed {
-		conf.KeySize = minKeySizeAllowed // 8 B
+	if conf.MaxKeySize > maxKeySizeAllowed {
+		conf.MaxKeySize = maxKeySizeAllowed
 	}
-	if conf.KeySize > maxKeySizeAllowed {
-		conf.KeySize = maxKeySizeAllowed // 2 MB
+	if conf.MaxValueSize <= 0 {
+		conf.MaxValueSize = defaultMaxValueSize
 	}
-	if conf.ValueSize < minValueSizeAllowed {
-		conf.ValueSize = minValueSizeAllowed // 8
+	if conf.MaxValueSize < minValueSizeAllowed {
+		conf.MaxValueSize = minValueSizeAllowed
 	}
-	if conf.ValueSize > maxValueSizeAllowed {
-		conf.ValueSize = maxValueSizeAllowed // 16 MB
+	if conf.MaxValueSize > maxValueSizeAllowed {
+		conf.MaxValueSize = maxValueSizeAllowed
 	}
-	if conf.ValueSize+conf.KeySize > conf.FlushThreshold {
-		conf.FlushThreshold = maxFlushThresholdAllowed // 32 MB
+	if conf.MaxValueSize+conf.MaxKeySize >= conf.FlushThreshold {
+		conf.FlushThreshold = maxFlushThresholdAllowed
 	}
 	return conf
 }

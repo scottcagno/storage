@@ -11,14 +11,24 @@ type Config interface {
 
 // Storage is an interface for this package
 type Storage interface {
+
+	// basic operations
 	Has(key string) bool
 	Put(key string, value []byte) error
-	PutBatch(batch *binary.Batch) error
 	Get(key string) ([]byte, error)
-	GetBatch(keys ...string) (*binary.Batch, error)
 	Del(key string) error
-	Stats() (StorageStats, error)
+	Sync() error
 	Close() error
+
+	// batch operations
+	PutBatch(batch *binary.Batch) error
+	GetBatch(keys ...string) (*binary.Batch, error)
+
+	//Backup(w io.Writer, it Iterator) error
+	//Drop(re *regexp.Regexp) error
+
+	// stats
+	Stats() (StorageStats, error)
 }
 
 // StorageStats is an interface for this package

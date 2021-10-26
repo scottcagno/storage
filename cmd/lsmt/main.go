@@ -55,12 +55,8 @@ func main() {
 	err = db.Del(key)
 	fmt.Printf("del(%q) (error=%v)\n", key, err)
 
-	// check the "bloom-has"
-	ok := db.BloomHas(key)
-	fmt.Printf("bloomHas(%q)=%v\n", key, ok)
-
 	// check the "has"
-	ok = db.Has(key)
+	ok := db.Has(key)
 	fmt.Printf("has(%q)=%v\n", key, ok)
 
 	// try to find deleted entry
