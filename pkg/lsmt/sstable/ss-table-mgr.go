@@ -269,6 +269,52 @@ func (sstm *SSTManager) Scan(direction ScanDirection, iter func(e *binary.Entry)
 	return nil
 }
 
+func (sstm *SSTManager) Search0(k string) (*binary.Entry, error) {
+	// read lock
+	sstm.lock.RLock()
+	defer sstm.lock.RUnlock()
+	// sort the ss-index files so the most recent ones are first
+	sort.Sort(sort.Reverse(Int64Slice(sstm.fileIndexes)))
+	// start iterating
+	for _, index := range sstm.fileIndexes {
+		// open the ss-table
+		sst, err := OpenSSTable(sstm.base, index)
+		if err != nil {
+			return nil, err
+		}
+		// check to see if the key is most likely
+		// located in the range of this table...
+		ok := sst.KeyInTableRange(k)
+		if !ok {
+			// close the ss-table
+			err = sst.Close()
+			if err != nil {
+				return nil, nil
+			}
+			continue // skip to next table...
+		}
+		// key is most likely in range of this table...
+		// perform binary search, attempt to
+		// locate a matching entry
+		de, err := sst.Read(k)
+		if err != nil {
+			return nil, err
+		}
+		// close the ss-table
+		err = sst.Close()
+		if err != nil {
+			return nil, nil
+		}
+		// double check entry
+		if de == nil {
+			continue
+		}
+		// otherwise, return
+		return de, nil
+	}
+	return nil, binary.ErrEntryNotFound
+}
+
 func (sstm *SSTManager) LinearSearch(k string) (*binary.Entry, error) {
 	// read lock
 	sstm.lock.RLock()

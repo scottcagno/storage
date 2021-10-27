@@ -265,3 +265,11 @@ func (sst *SSTable) Close() error {
 	sst.open = false
 	return nil
 }
+
+func between(data, first, last string) bool {
+	return first <= data && data <= last
+}
+
+func (sst *SSTable) KeyInTableRange(k string) bool {
+	return between(k, sst.index.first, sst.index.last)
+}
