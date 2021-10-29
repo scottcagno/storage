@@ -17,4 +17,6 @@ var (
 	ErrKeyTooLarge   = errors.New("lsmt: key too large")
 	ErrBadValue      = errors.New("lsmt: bad value")
 	ErrValueTooLarge = errors.New("lsmt: value too large")
+
+	ErrBadChecksum = errors.New("lsmt: bad checksum")
 )

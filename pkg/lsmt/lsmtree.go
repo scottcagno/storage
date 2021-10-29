@@ -2,16 +2,20 @@ package lsmt
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/scottcagno/storage/pkg/bloom"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/mtbl"
 	"github.com/scottcagno/storage/pkg/lsmt/sstable"
 	"github.com/scottcagno/storage/pkg/lsmt/wal"
 	"github.com/scottcagno/storage/pkg/util"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"sync"
 )
+
+const version = "v1.7.0"
 
 var Tombstone = []byte(nil)
 
@@ -25,7 +29,6 @@ type LSMTree struct {
 	memt    *mtbl.RBTree        // memt is the main mem-table (red-black tree) instance
 	sstm    *sstable.SSTManager // sstm is the sorted-strings table manager
 	bloom   *bloom.BloomFilter  // bloom is a bloom filter
-	version float32             // version is the lsm-tree version id
 }
 
 // OpenLSMTree opens or creates an LSMTree instance.
@@ -39,6 +42,11 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 	}
 	// sanitize any path separators
 	base = filepath.ToSlash(base)
+	// check for checksum file
+	err = checkChecksum(version, base)
+	if err != nil {
+		return nil, err
+	}
 	// create log base directory
 	walbase := filepath.Join(base, defaultWalDir)
 	err = os.MkdirAll(walbase, os.ModeDir)
@@ -88,6 +96,47 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 	}
 	// return lsm-tree
 	return lsmt, nil
+}
+
+func calculateChecksum(against string) (uint32, string) {
+	// calculate checksum
+	const d = `Reality is only a Rorschach ink-blot, you know.`
+	n := crc32.Checksum([]byte(d+against), crc32.MakeTable(crc32.Koopman))
+	return n, fmt.Sprintf("checksum: %d", n)
+}
+
+func checkChecksum(against, base string) error {
+	// sanitize the path
+	path := filepath.Join(base, ".sum.txt")
+	// check to see if the path is there
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		// if not, initialize it
+		err = os.MkdirAll(base, os.ModeDir)
+		if err != nil {
+			return err
+		}
+		// calculate checksum
+		_, str := calculateChecksum(against)
+		// then write the calculated checksum out to a new file
+		err = os.WriteFile(path, []byte(str), 0666)
+		if err != nil {
+			return err
+		}
+		// return (nil is good)
+		return nil
+	}
+	// file exists, so lets read the checksum file
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	// calculate checksum
+	_, str := calculateChecksum(against)
+	if str != string(data) {
+		return ErrBadChecksum
+	}
+	// return (nil is good)
+	return nil
 }
 
 // loadFromWriteAheadCommitLog loads any entries from the

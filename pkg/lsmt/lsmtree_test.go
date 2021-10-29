@@ -46,6 +46,19 @@ var conf = &LSMConfig{
 	BloomFilterSize: 1 << 16,
 }
 
+func TestLSMChecksum(t *testing.T) {
+
+	db, err := OpenLSMTree(conf)
+	if err != nil {
+		t.Fatalf("open: %v\n", err)
+	}
+
+	err = db.Close()
+	if err != nil {
+		t.Fatalf("open: %v\n", err)
+	}
+}
+
 func TestLSMTLogging(t *testing.T) {
 
 	level := LevelInfo
