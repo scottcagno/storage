@@ -52,6 +52,10 @@ func RandBytes(n int) []byte {
 	return bb.Bytes()
 }
 
+func RandIntn(min, max int) int {
+	return rand.Intn(max-min) + min
+}
+
 func FormattedWidthString(s string, n int) string {
 	if len(s) == 0 {
 		return ""
