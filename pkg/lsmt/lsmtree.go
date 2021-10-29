@@ -98,10 +98,14 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 	return lsmt, nil
 }
 
+func CalcCRC(d []byte) uint32 {
+	return crc32.Checksum(d, crc32.MakeTable(crc32.Koopman))
+}
+
 func calculateChecksum(against string) (uint32, string) {
 	// calculate checksum
 	const d = `Reality is only a Rorschach ink-blot, you know.`
-	n := crc32.Checksum([]byte(d+against), crc32.MakeTable(crc32.Koopman))
+	n := CalcCRC([]byte(d + against))
 	return n, fmt.Sprintf("checksum: %d", n)
 }
 
