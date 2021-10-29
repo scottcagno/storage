@@ -151,7 +151,7 @@ func (lsm *LSMTree) loadFromWriteAheadCommitLog() error {
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
 	// log info
-	lsm.logger.Info("Attempting to re-populate the mem-table from the WAL")
+	lsm.logger.Info("adding write-ahead log entries to mem-table")
 	// scan through the write-ahead log...
 	err := lsm.wacl.Scan(func(e *binary.Entry) bool {
 		// ... and insert data back into the mem-table
@@ -160,7 +160,7 @@ func (lsm *LSMTree) loadFromWriteAheadCommitLog() error {
 	})
 	if err != nil {
 		// log error
-		lsm.logger.Error("Encountered error while scanning the WAL [%s]", err)
+		lsm.logger.Error("scanning write-ahead log: %s", err)
 		return err
 	}
 	return nil
@@ -174,7 +174,7 @@ func (lsm *LSMTree) populateBloomFilter() error {
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
 	// log info
-	lsm.logger.Info("Attempting to re-populate bloom filter from SS-Tables")
+	lsm.logger.Info("adding ss-table entries to bloom filter")
 	// add entries from linear ss-table scan
 	err := lsm.sstm.Scan(sstable.ScanNewToOld, func(e *binary.Entry) bool {
 		// make sure entry is not a tombstone
@@ -191,11 +191,11 @@ func (lsm *LSMTree) populateBloomFilter() error {
 	})
 	if err != nil {
 		// log error
-		lsm.logger.Error("Encountered error while scanning SS-Tables [%s]", err)
+		lsm.logger.Error("scanning s-tables: %s", err)
 		return err
 	}
 	// log info
-	lsm.logger.Info("Attempting to re-populate bloom filter from Mem-table")
+	lsm.logger.Info("adding mem-table entries to bloom filter")
 	// add entries from mem-table
 	lsm.memt.Scan(func(e *binary.Entry) bool {
 		// make sure entry is not a tombstone
@@ -220,7 +220,7 @@ func (lsm *LSMTree) cycleWAL() error {
 	err := lsm.wacl.CloseAndRemove()
 	if err != nil {
 		// log error
-		lsm.logger.Error("Encountered error while closing and removing the WAL [%s]", err)
+		lsm.logger.Error("closing and removing write-ahead log: %s", err)
 		return err
 	}
 	// open a fresh write-ahead commit log
@@ -231,7 +231,7 @@ func (lsm *LSMTree) cycleWAL() error {
 	})
 	if err != nil {
 		// log error
-		lsm.logger.Error("Encountered error while opening a new WAL [%s]", err)
+		lsm.logger.Error("opening fresh write-ahead log: %s", err)
 		return err
 	}
 	return nil
@@ -381,9 +381,13 @@ func (lsm *LSMTree) Put(k string, v []byte) error {
 	_, needFlush := lsm.memt.UpsertAndCheckIfFull(e, lsm.conf.FlushThreshold)
 	// check if we should do a flush
 	if needFlush {
+		// log info
+		lsm.logger.Info("mem-table needs flush, attempting to flush now", err)
 		// attempt to flush
 		err = lsm.FlushToSSTableAndCycleWAL(lsm.memt)
 		if err != nil {
+			// log error
+			lsm.logger.Error("flushing mem-table: %s", err)
 			return err
 		}
 	}
@@ -532,9 +536,13 @@ func (lsm *LSMTree) Del(k string) error {
 	_, needFlush := lsm.memt.UpsertAndCheckIfFull(e, lsm.conf.FlushThreshold)
 	// check if we should do a flush
 	if needFlush {
+		// log info
+		lsm.logger.Info("mem-table needs flush, attempting to flush now", err)
 		// attempt to flush
 		err = lsm.FlushToSSTableAndCycleWAL(lsm.memt)
 		if err != nil {
+			// log error
+			lsm.logger.Error("flushing mem-table: %s", err)
 			return err
 		}
 	}
@@ -598,9 +606,13 @@ func (lsm *LSMTree) PutBatch(batch *binary.Batch) error {
 	_, needFlush := lsm.memt.UpsertBatchAndCheckIfFull(batch, lsm.conf.FlushThreshold)
 	// check if we should do a flush
 	if needFlush {
+		// log info
+		lsm.logger.Info("mem-table needs flush, attempting to flush now", err)
 		// attempt to flush
 		err = lsm.FlushToSSTableAndCycleWAL(lsm.memt)
 		if err != nil {
+			// log error
+			lsm.logger.Error("flushing mem-table: %s", err)
 			return err
 		}
 	}
