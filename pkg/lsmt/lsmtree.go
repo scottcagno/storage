@@ -391,7 +391,13 @@ func (lsm *LSMTree) Get(k string) ([]byte, error) {
 	return de.Value, nil
 }
 
-func (lsm *LSMTree) Get2(k string) ([]byte, error) {
+// GetLinear takes a key and attempts to find a match in the LSMTree. If
+// a match cannot be found Get returns a nil value and ErrNotFound.
+// Get first checks the bloom filter, then the mem-table. If it is
+// still not found [this is where it differs from Get] it attempts
+// to do a linear search directly of the ss-table itself. It can be
+// a bit quicker [if you know that your data is not memory resident.]
+func (lsm *LSMTree) GetLinear(k string) ([]byte, error) {
 	// read lock
 	lsm.lock.RLock()
 	defer lsm.lock.RUnlock()
@@ -434,6 +440,9 @@ func (lsm *LSMTree) Get2(k string) ([]byte, error) {
 	return de.Value, nil
 }
 
+// Del takes a key and overwrites the record with a tomstone or
+// a 'deleted' or nil entry. It leaves the key in the LSMTree
+// so that future table versions can properly merge.
 func (lsm *LSMTree) Del(k string) error {
 	// lock
 	lsm.lock.Lock()
@@ -474,6 +483,10 @@ const (
 
 type ScanDirection = sstable.ScanDirection
 
+// Scan takes a scan direction and an iteration function and scans the ss-tables
+// in the provided direction (young to old, or old to young) and provides you with
+// a pointer to each entry during iteration. *It should be noted that modification
+// of the entry pointer has unknown effects.
 func (lsm *LSMTree) Scan(direction int, iter func(e *binary.Entry) bool) error {
 	// lock
 	lsm.lock.Lock()
@@ -482,7 +495,7 @@ func (lsm *LSMTree) Scan(direction int, iter func(e *binary.Entry) bool) error {
 	return lsm.sstm.Scan(sstable.ScanDirection(direction), iter)
 }
 
-// Sync forces a synb
+// Sync forces a sync
 func (lsm *LSMTree) Sync() error {
 	// lock
 	lsm.lock.Lock()
@@ -495,7 +508,6 @@ func (lsm *LSMTree) Sync() error {
 	return nil
 }
 
-/*
 // PutBatch takes a batch of entries and adds all of them at
 // one time. It acts a bit like a transaction. If you have a
 // configuration option of SyncOnWrite: true it will be disabled
@@ -514,22 +526,11 @@ func (lsm *LSMTree) PutBatch(batch *binary.Batch) error {
 		return err
 	}
 	// write batch to mem-table
-	lsm.memt.PutBatch(batch)
-	// check mem-table size
-	err = lsm.checkMemtableSize(lsm.memt.Size())
-	// check err properly
-	if err != nil {
-		// make sure it's the mem-table doesn't need flushing
-		if err != ErrFlushThreshold {
-			return err
-		}
-		// looks like it needs a flush
-		err = lsm.sstm.FlushMemtableToSSTable(lsm.memt)
-		if err != nil {
-			return err
-		}
-		// let's reset the write-ahead commit log
-		err = lsm.cycleWAL()
+	_, needFlush := lsm.memt.UpsertBatchAndCheckIfFull(batch, lsm.conf.FlushThreshold)
+	// check if we should do a flush
+	if needFlush {
+		// attempt to flush
+		err = lsm.FlushToSSTableAndCycleWAL(lsm.memt)
 		if err != nil {
 			return err
 		}
@@ -583,7 +584,11 @@ func (lsm *LSMTree) GetBatch(keys ...string) (*binary.Batch, error) {
 			// there is still a chance it may be on disk
 			if err == binary.ErrBadEntry {
 				// do linear semi-binary-ish search
-				de = lsm.sstm.LinearSearch(key)
+				de, err = lsm.sstm.LinearSearch(key)
+				// check err
+				if err != nil && err == binary.ErrEntryNotFound {
+					return nil, ErrNotFound
+				}
 				if de == nil || de.Value == nil {
 					continue // skip and look for the next key
 				}
@@ -615,7 +620,6 @@ func (lsm *LSMTree) GetBatch(keys ...string) (*binary.Batch, error) {
 	}
 	return batch, ErrIncompleteSet
 }
-*/
 
 func (lsm *LSMTree) Stats() (*LSMTreeStats, error) {
 	return &LSMTreeStats{

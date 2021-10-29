@@ -101,8 +101,37 @@ func (t *rbTree) Put(entry *binary.Entry) (*binary.Entry, bool) {
 // provided threshold, and false if the current size is less than
 // the provided threshold.
 func (t *rbTree) UpsertAndCheckIfFull(entry *binary.Entry, threshold int64) (int64, bool) {
-	// perform pre-check??
+	// TODO: possibly perform pre-check in future somehow??
+	//
+	// insert the entry in to the mem-table
 	t.putInternal(entry)
+	if t.size >= threshold {
+		// size is greater or equal to supplied threshold
+		// return size along with a true value (need flush)
+		return t.size, true
+	}
+	// size has not met or exceeded supplied threshold
+	// simply return the current size, and a false value
+	return t.size, false
+}
+
+// UpsertBatchAndCheckIfFull ranges the batch of entries, and it
+// updates the provided entry if it already exists or inserts the
+// supplied entry as a new entry if it does not exist. When it's
+// finished, UpsertBatchAndCheckIfFull returns the current size in
+// bytes after performing the insert or update. It also returns a
+// boolean value reporting true if the tree has met or exceeded the
+// provided threshold, and false if the current size is less than
+// the provided threshold.
+func (t *rbTree) UpsertBatchAndCheckIfFull(batch *binary.Batch, threshold int64) (int64, bool) {
+	// TODO: possibly perform pre-check in future somehow??
+	//
+	// range the batch entries
+	for _, e := range batch.Entries {
+		// insert the entry in to the mem-table
+		t.putInternal(e)
+	}
+	// TODO: possibly think about dealing with partial batches??
 	if t.size >= threshold {
 		// size is greater or equal to supplied threshold
 		// return size along with a true value (need flush)

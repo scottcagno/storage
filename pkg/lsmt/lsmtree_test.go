@@ -420,22 +420,22 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 	ts2 := time.Now()
 	fmt.Println(util.FormatTime("batching entries", ts1, ts2))
 
-	//// write batch
-	//logit("write batch")
-	//ts1 = time.Now()
-	//err = lsm.PutBatch(batch)
-	//if err != nil {
-	//	t.Errorf("put batch: %v\n", err)
-	//}
-	//ts2 = time.Now()
-	//fmt.Println(util.FormatTime("writing batch", ts1, ts2))
+	// write batch
+	logit("write batch")
+	ts1 = time.Now()
+	err = lsm.PutBatch(batch)
+	if err != nil {
+		t.Errorf("put batch: %v\n", err)
+	}
+	ts2 = time.Now()
+	fmt.Println(util.FormatTime("writing batch", ts1, ts2))
 
-	//// manual sync
-	//logit("manual sync")
-	//err = lsm.Sync()
-	//if err != nil {
-	//	t.Errorf("manual sync: %v\n", err)
-	//}
+	// manual sync
+	logit("manual sync")
+	err = lsm.Sync()
+	if err != nil {
+		t.Errorf("manual sync: %v\n", err)
+	}
 
 	// close
 	logit("closing lsm tree")
@@ -473,20 +473,20 @@ func testLSMTreeHasAndBatches(t *testing.T) {
 		}
 	}
 
-	//// check get batch
-	//logit("checkin get batch")
-	//var keys []string
-	//for i := range batch.Entries {
-	//	if i%500 == 0 {
-	//		keys = append(keys, string(batch.Entries[i].Key))
-	//	} else {
-	//		continue
-	//	}
-	//}
-	//_, err = lsm.GetBatch(keys...)
-	//if err != nil && err != ErrNotFound {
-	//	t.Errorf("getbatch: %v\n", err)
-	//}
+	// check get batch
+	logit("checkin get batch")
+	var keys []string
+	for i := range batch.Entries {
+		if i%500 == 0 {
+			keys = append(keys, string(batch.Entries[i].Key))
+		} else {
+			continue
+		}
+	}
+	_, err = lsm.GetBatch(keys...)
+	if err != nil && err != ErrNotFound {
+		t.Errorf("getbatch: %v\n", err)
+	}
 
 	// add a few more records just to ensure the segment file is working properly
 	err = lsm.Put("foo-1", []byte("bar-1"))
@@ -628,7 +628,7 @@ func TestLSMTree_Search_vs_LinearSearch(t *testing.T) {
 	for i := 0; i < count; i += 1000 {
 		ts1 := time.Now()
 		k := makeKey(i)
-		v, err := lsm.Get2(k)
+		v, err := lsm.GetLinear(k)
 		if err != nil || v == nil {
 			t.Errorf("reading: %v\n", err)
 		}

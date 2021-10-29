@@ -4,19 +4,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/scottcagno/storage/pkg/lsmt"
+	"log"
 	"path/filepath"
 	"strconv"
 )
 
 func main() {
 
-	conf := lsmt.DefaultConfig("cmd/lsmt/data")
+	defer myRecoverFunc()
 
+	conf := lsmt.DefaultConfig("cmd/lsmt/data")
 	// open LSMTree
 	db, err := lsmt.OpenLSMTree(conf)
 	if err != nil {
 		panic(err)
 	}
+	defer db.Close()
 
 	// write data
 	err = db.Put("key-01", []byte("value-01"))
@@ -40,6 +43,10 @@ func main() {
 	}
 	fmt.Printf("get(%q): %s\n", key, val)
 
+	// check the "has"
+	ok := db.Has(key)
+	fmt.Printf("has(%q)=%v\n", key, ok)
+
 	// read data (from "int" key, aka the second entry)
 	val, err = db.Get(strconv.Itoa(2))
 	if err != nil {
@@ -52,8 +59,12 @@ func main() {
 	fmt.Printf("del(%q) (error=%v)\n", key, err)
 
 	// check the "has"
-	ok := db.Has(key)
+	ok = db.Has(key)
 	fmt.Printf("has(%q)=%v\n", key, ok)
+
+	// check the "has"
+	ok = db.Has("some other key")
+	fmt.Printf("has(%q)=%v\n", "some other key", ok)
 
 	// try to find deleted entry
 	val, err = db.Get(key)
@@ -132,6 +143,12 @@ func main() {
 	err = orders.Close()
 	if err != nil {
 		panic(err)
+	}
+}
+
+func myRecoverFunc() {
+	if err := recover(); err != nil {
+		log.Printf("Recovered from panic: %v", err)
 	}
 }
 
