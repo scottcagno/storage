@@ -20,8 +20,8 @@ const (
 	defaultSstDir  = "sst"
 
 	// syncing
-	defaultSyncOnWrite   = false
-	defaultEnableLogging = false
+	defaultSyncOnWrite  = false
+	defaultLoggingLevel = LevelError
 
 	// default sizes
 	defaultFlushThreshold  = 2 * SizeMB
@@ -46,7 +46,7 @@ const (
 var defaultLSMConfig = &LSMConfig{
 	BaseDir:         defaultBaseDir,
 	SyncOnWrite:     defaultSyncOnWrite,
-	EnableLogging:   defaultEnableLogging,
+	LoggingLevel:    defaultLoggingLevel,
 	FlushThreshold:  defaultFlushThreshold,
 	BloomFilterSize: defaultBloomFilterSize,
 	MaxKeySize:      defaultMaxKeySize,
@@ -60,13 +60,13 @@ func DefaultConfig(path string) *LSMConfig {
 
 // LSMConfig holds configuration settings for an LSMTree instance
 type LSMConfig struct {
-	BaseDir         string // base directory
-	SyncOnWrite     bool   // perform sync every time an entry is written
-	EnableLogging   bool   // enable logging
-	FlushThreshold  int64  // mem-table flush threshold
-	BloomFilterSize uint   // specify the bloom filter size
-	MaxKeySize      int64  // the max allowed key size
-	MaxValueSize    int64  // the maximum allowed value size
+	BaseDir         string   // base directory
+	SyncOnWrite     bool     // perform sync every time an entry is written
+	LoggingLevel    logLevel // enable logging
+	FlushThreshold  int64    // mem-table flush threshold
+	BloomFilterSize uint     // specify the bloom filter size
+	MaxKeySize      int64    // the max allowed key size
+	MaxValueSize    int64    // the maximum allowed value size
 }
 
 func (conf *LSMConfig) String() string {
@@ -85,6 +85,9 @@ func checkLSMConfig(conf *LSMConfig) *LSMConfig {
 	}
 	if conf.BaseDir == *new(string) {
 		conf.BaseDir = defaultBaseDir
+	}
+	if conf.LoggingLevel <= 0 {
+		conf.LoggingLevel = defaultLoggingLevel
 	}
 	if conf.FlushThreshold <= 0 {
 		conf.FlushThreshold = defaultFlushThreshold

@@ -29,6 +29,7 @@ type LSMTree struct {
 	memt    *mtbl.RBTree        // memt is the main mem-table (red-black tree) instance
 	sstm    *sstable.SSTManager // sstm is the sorted-strings table manager
 	bloom   *bloom.BloomFilter  // bloom is a bloom filter
+	logger  *Logger             // logger is a logger for the lsm-tree
 }
 
 // OpenLSMTree opens or creates an LSMTree instance.
@@ -82,8 +83,8 @@ func OpenLSMTree(c *LSMConfig) (*LSMTree, error) {
 		memt:    mtbl.NewRBTree(),
 		sstm:    sstm,
 		bloom:   bloom.NewBloomFilter(conf.BloomFilterSize),
+		logger:  NewLogger(conf.LoggingLevel),
 	}
-	//
 	// load mem-table with commit log data
 	err = lsmt.loadFromWriteAheadCommitLog()
 	if err != nil {
@@ -149,11 +150,17 @@ func (lsm *LSMTree) loadFromWriteAheadCommitLog() error {
 	// lock
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
+	// log info
+	lsm.logger.Info("Attempting to re-populate the mem-table from the WAL")
+	// scan through the write-ahead log...
 	err := lsm.wacl.Scan(func(e *binary.Entry) bool {
+		// ... and insert data back into the mem-table
 		lsm.memt.Put(e)
 		return true
 	})
 	if err != nil {
+		// log error
+		lsm.logger.Error("Encountered error while scanning the WAL [%s]", err)
 		return err
 	}
 	return nil
@@ -166,6 +173,8 @@ func (lsm *LSMTree) populateBloomFilter() error {
 	// lock
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
+	// log info
+	lsm.logger.Info("Attempting to re-populate bloom filter from SS-Tables")
 	// add entries from linear ss-table scan
 	err := lsm.sstm.Scan(sstable.ScanNewToOld, func(e *binary.Entry) bool {
 		// make sure entry is not a tombstone
@@ -181,8 +190,12 @@ func (lsm *LSMTree) populateBloomFilter() error {
 		return true
 	})
 	if err != nil {
+		// log error
+		lsm.logger.Error("Encountered error while scanning SS-Tables [%s]", err)
 		return err
 	}
+	// log info
+	lsm.logger.Info("Attempting to re-populate bloom filter from Mem-table")
 	// add entries from mem-table
 	lsm.memt.Scan(func(e *binary.Entry) bool {
 		// make sure entry is not a tombstone
@@ -197,7 +210,6 @@ func (lsm *LSMTree) populateBloomFilter() error {
 		}
 		return true
 	})
-
 	return nil
 }
 
@@ -207,6 +219,8 @@ func (lsm *LSMTree) cycleWAL() error {
 	// let's reset the write-ahead commit log
 	err := lsm.wacl.CloseAndRemove()
 	if err != nil {
+		// log error
+		lsm.logger.Error("Encountered error while closing and removing the WAL [%s]", err)
 		return err
 	}
 	// open a fresh write-ahead commit log
@@ -216,6 +230,8 @@ func (lsm *LSMTree) cycleWAL() error {
 		SyncOnWrite: lsm.conf.SyncOnWrite,
 	})
 	if err != nil {
+		// log error
+		lsm.logger.Error("Encountered error while opening a new WAL [%s]", err)
 		return err
 	}
 	return nil
