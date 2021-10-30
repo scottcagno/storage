@@ -3,7 +3,7 @@ package wal
 import (
 	"errors"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/_binary"
+	"github.com/scottcagno/storage/pkg/_junk/_lsmtree/encoding/binary"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,7 +17,7 @@ const (
 	LogPrefix = "wal-"
 	LogSuffix = ".seg"
 
-	defaultMaxFileSize uint64 = 4 << 20 // 4 MB
+	defaultMaxFileSize uint64 = 16 << 10 // 16 KB
 )
 
 var (
@@ -31,23 +31,23 @@ var (
 	ErrOptionsMissing = errors.New("error: options missing")
 )
 
-// entry contains the metadata for a single entry within the file segment
-type entry struct {
-	index  int64 // index is the "id" of this entry
-	offset int64 // offset is the actual offset of this entry in the segment file
+// segEntry contains the metadata for a single segEntry within the file segment
+type segEntry struct {
+	index  int64 // index is the "id" of this segEntry
+	offset int64 // offset is the actual offset of this segEntry in the segment file
 }
 
-// String is the stringer method for an entry
-func (e entry) String() string {
-	return fmt.Sprintf("entry.index=%d, entry.offset=%d", e.index, e.offset)
+// String is the stringer method for an segEntry
+func (e segEntry) String() string {
+	return fmt.Sprintf("segEntry.index=%d, segEntry.offset=%d", e.index, e.offset)
 }
 
 // segment contains the metadata for the file segment
 type segment struct {
-	path      string  // path is the full path to this segment file
-	index     int64   // starting index of the segment
-	entries   []entry // entries is an index of the entries in the segment
-	remaining uint64  // remaining is the bytes left after max file size minus entry data
+	path      string     // path is the full path to this segment file
+	index     int64      // starting index of the segment
+	entries   []segEntry // entries is an index of the entries in the segment
+	remaining uint64     // remaining is the bytes left after max file size minus segEntry data
 }
 
 // String is the stringer method for a segment
@@ -81,7 +81,7 @@ func (s *segment) getLastIndex() int64 {
 	return s.index
 }
 
-// findEntryIndex performs binary search to find the entry containing provided index
+// findEntryIndex performs binary search to find the segEntry containing provided index
 func (s *segment) findEntryIndex(index int64) int {
 	// declare for later
 	i, j := 0, len(s.entries)
@@ -97,22 +97,22 @@ func (s *segment) findEntryIndex(index int64) int {
 	return i - 1
 }
 
-// WriteAheadLog is a write-ahead log structure
-type WriteAheadLog struct {
+// WAL is a write-ahead log structure
+type WAL struct {
 	lock       sync.RWMutex   // lock is a mutual exclusion lock
 	base       string         // base is the base filepath
 	r          *binary.Reader // r is a binary reader
 	w          *binary.Writer // w is a binary writer
-	firstIndex int64          // firstIndex is the index of the first entry
-	lastIndex  int64          // lastIndex is the index of the last entry
+	firstIndex int64          // firstIndex is the index of the first segEntry
+	lastIndex  int64          // lastIndex is the index of the last segEntry
 	segments   []*segment     // segments is an index of the current file segments
 	active     *segment       // active is the current active segment
 }
 
 // Open opens and returns a new write-ahead log structure
-func Open(path string) (*WriteAheadLog, error) {
+func Open(base string) (*WAL, error) {
 	// make sure we are working with absolute paths
-	base, err := filepath.Abs(path)
+	base, err := filepath.Abs(base)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +124,7 @@ func Open(path string) (*WriteAheadLog, error) {
 		return nil, err
 	}
 	// create a new write-ahead log instance
-	l := &WriteAheadLog{
+	l := &WAL{
 		base:       base,
 		firstIndex: 0,
 		lastIndex:  1,
@@ -143,7 +143,7 @@ func Open(path string) (*WriteAheadLog, error) {
 // files in the base directory and attempts to index the segment as
 // well as any of the entries within the segment. If this is a new
 // instance, it will create a new segment that is ready for writing.
-func (l *WriteAheadLog) loadIndex() error {
+func (l *WAL) loadIndex() error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -206,7 +206,7 @@ func (l *WriteAheadLog) loadIndex() error {
 // if the file does not exist, an io.ErrUnexpectedEOF if the file exists
 // but is empty and has no data to read, and ErrSegmentFull if the file
 // has met the maxFileSize. It will return the segment and nil error on success.
-func (l *WriteAheadLog) loadSegmentFile(path string) (*segment, error) {
+func (l *WAL) loadSegmentFile(path string) (*segment, error) {
 	// check to make sure path exists before continuing
 	_, err := os.Stat(path)
 	if err != nil {
@@ -224,17 +224,17 @@ func (l *WriteAheadLog) loadSegmentFile(path string) (*segment, error) {
 	// create a new segment to append indexed entries to
 	s := &segment{
 		path:    path,
-		entries: make([]entry, 0),
+		entries: make([]segEntry, 0),
 	}
 	// read segment file and index entries
 	for {
 		// get the current offset of the
-		// reader for the entry later
+		// reader for the segEntry later
 		offset, err := binary.Offset(fd)
 		if err != nil {
 			return nil, err
 		}
-		// read and decode entry
+		// read and decode segEntry
 		e, err := binary.DecodeEntry(fd)
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
@@ -243,14 +243,14 @@ func (l *WriteAheadLog) loadSegmentFile(path string) (*segment, error) {
 			return nil, err
 		}
 		// get current offset
-		// add entry index to segment entries list
-		s.entries = append(s.entries, entry{
+		// add segEntry index to segment entries list
+		s.entries = append(s.entries, segEntry{
 			index:  e.Id,
 			offset: offset,
 		})
-		// continue to process the next entry
+		// continue to process the next segEntry
 	}
-	// make sure to fill out the segment index from the first entry index
+	// make sure to fill out the segment index from the first segEntry index
 	s.index = s.entries[0].index
 	// get the offset of the reader to calculate bytes remaining
 	offset, err := binary.Offset(fd)
@@ -264,7 +264,7 @@ func (l *WriteAheadLog) loadSegmentFile(path string) (*segment, error) {
 
 // makeSegment attempts to make a new segment automatically using the timestamp
 // as the segment name. On success, it will simply return a new segment and a nil error
-func (l *WriteAheadLog) makeSegmentFile() (*segment, error) {
+func (l *WAL) makeSegmentFile() (*segment, error) {
 	// create a new file
 	path := filepath.Join(l.base, makeFileName(time.Now()))
 	fd, err := os.Create(path)
@@ -280,14 +280,14 @@ func (l *WriteAheadLog) makeSegmentFile() (*segment, error) {
 	s := &segment{
 		path:      path,
 		index:     l.lastIndex,
-		entries:   make([]entry, 0),
+		entries:   make([]segEntry, 0),
 		remaining: maxFileSize,
 	}
 	return s, nil
 }
 
 // findSegmentIndex performs binary search to find the segment containing provided index
-func (l *WriteAheadLog) findSegmentIndex(index int64) int {
+func (l *WAL) findSegmentIndex(index int64) int {
 	// declare for later
 	i, j := 0, len(l.segments)
 	// otherwise, perform binary search
@@ -303,12 +303,12 @@ func (l *WriteAheadLog) findSegmentIndex(index int64) int {
 }
 
 // getLastSegment returns the tail segment in the segments index list
-func (l *WriteAheadLog) getLastSegment() *segment {
+func (l *WAL) getLastSegment() *segment {
 	return l.segments[len(l.segments)-1]
 }
 
 // cycleSegment adds a new segment to replace the current (active) segment
-func (l *WriteAheadLog) cycleSegment() error {
+func (l *WAL) cycleSegment() error {
 	// sync and close current file segment
 	err := l.w.Close()
 	if err != nil {
@@ -336,8 +336,8 @@ func (l *WriteAheadLog) cycleSegment() error {
 	return nil
 }
 
-// Read reads an entry from the write-ahead log at the specified index
-func (l *WriteAheadLog) Read(index int64) (string, []byte, error) {
+// Read reads an segEntry from the write-ahead log at the specified index
+func (l *WAL) Read(index int64) (string, []byte, error) {
 	// read lock
 	l.lock.RLock()
 	defer l.lock.RUnlock()
@@ -353,9 +353,9 @@ func (l *WriteAheadLog) Read(index int64) (string, []byte, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	// find the offset for the entry containing the provided index
+	// find the offset for the segEntry containing the provided index
 	offset := s.entries[s.findEntryIndex(index)].offset
-	// read entry at offset
+	// read segEntry at offset
 	e, err := l.r.ReadEntryAt(offset)
 	if err != nil {
 		return "", nil, err
@@ -363,13 +363,13 @@ func (l *WriteAheadLog) Read(index int64) (string, []byte, error) {
 	return string(e.Key), e.Value, nil
 }
 
-// WriteIndexEntry writes an entry to the write-ahead log in an append-only fashion
-func (l *WriteAheadLog) Write(key string, value []byte) (int64, error) {
+// WriteIndexEntry writes an segEntry to the write-ahead log in an append-only fashion
+func (l *WAL) Write(key string, value []byte) (int64, error) {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
-	// write entry
-	offset, err := l.w.WriteEntry(&binary.Entry{
+	// write segEntry
+	offset, err := l.w.WriteEntry(&binary.DataEntry{
 		Id:    l.lastIndex,
 		Key:   []byte(key),
 		Value: value,
@@ -377,8 +377,8 @@ func (l *WriteAheadLog) Write(key string, value []byte) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// add new entry to the segment index
-	l.active.entries = append(l.active.entries, entry{
+	// add new segEntry to the segment index
+	l.active.entries = append(l.active.entries, segEntry{
 		index:  l.lastIndex,
 		offset: offset,
 	})
@@ -402,7 +402,7 @@ func (l *WriteAheadLog) Write(key string, value []byte) (int64, error) {
 }
 
 // Scan provides an iterator method for the write-ahead log
-func (l *WriteAheadLog) Scan(iter func(index int64, key string, value []byte) bool) error {
+func (l *WAL) Scan(iter func(index int64, key string, value []byte) bool) error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -418,7 +418,7 @@ func (l *WriteAheadLog) Scan(iter func(index int64, key string, value []byte) bo
 		}
 		// range the segment entries index
 		for _, eidx := range sidx.entries {
-			// read entry
+			// read segEntry
 			e, err := l.r.ReadEntryAt(eidx.offset)
 			if err != nil {
 				if err == io.EOF || err == io.ErrUnexpectedEOF {
@@ -426,20 +426,20 @@ func (l *WriteAheadLog) Scan(iter func(index int64, key string, value []byte) bo
 				}
 				return err
 			}
-			// check entry against iterator boolean function
+			// check segEntry against iterator boolean function
 			if !iter(e.Id, string(e.Key), e.Value) {
-				// if it returns false, then process next entry
+				// if it returns false, then process next segEntry
 				continue
 			}
 		}
-		// outside entry loop
+		// outside segEntry loop
 	}
 	// outside segment loop
 	return nil
 }
 
 // TruncateFront removes all segments and entries before specified index
-func (l *WriteAheadLog) TruncateFront(index int64) error {
+func (l *WAL) TruncateFront(index int64) error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -473,7 +473,7 @@ func (l *WriteAheadLog) TruncateFront(index int64) error {
 	l.firstIndex = l.segments[0].index
 	// prepare to re-write partial segment
 	var err error
-	var entries []entry
+	var entries []segEntry
 	tmpfd, err := os.Create(filepath.Join(l.base, "tmp-partial.seg"))
 	if err != nil {
 		return err
@@ -493,12 +493,12 @@ func (l *WriteAheadLog) TruncateFront(index int64) error {
 			if ent.index < index {
 				continue // skip
 			}
-			// read entry
+			// read segEntry
 			e, err := l.r.ReadEntryAt(ent.offset)
 			if err != nil {
 				return err
 			}
-			// write entry to temp file
+			// write segEntry to temp file
 			ent.offset, err = binary.EncodeEntry(tmpfd, e)
 			if err != nil {
 				return err
@@ -539,7 +539,7 @@ func (l *WriteAheadLog) TruncateFront(index int64) error {
 }
 
 // Count returns the number of entries currently in the write-ahead log
-func (l *WriteAheadLog) Count() int {
+func (l *WAL) Count() int {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -553,7 +553,7 @@ func (l *WriteAheadLog) Count() int {
 }
 
 // FirstIndex returns the write-ahead logs first index
-func (l *WriteAheadLog) FirstIndex() int64 {
+func (l *WAL) FirstIndex() int64 {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -561,7 +561,7 @@ func (l *WriteAheadLog) FirstIndex() int64 {
 }
 
 // LastIndex returns the write-ahead logs first index
-func (l *WriteAheadLog) LastIndex() int64 {
+func (l *WAL) LastIndex() int64 {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -569,7 +569,7 @@ func (l *WriteAheadLog) LastIndex() int64 {
 }
 
 // Close syncs and closes the write-ahead log
-func (l *WriteAheadLog) Close() error {
+func (l *WAL) Close() error {
 	// lock
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -596,12 +596,12 @@ func (l *WriteAheadLog) Close() error {
 	return nil
 }
 
-func (l *WriteAheadLog) Path() string {
+func (l *WAL) Path() string {
 	return l.base
 }
 
 // String is the stringer method for the write-ahead log
-func (l *WriteAheadLog) String() string {
+func (l *WAL) String() string {
 	var ss string
 	ss += fmt.Sprintf("\n\n[write-ahead log]\n")
 	ss += fmt.Sprintf("base: %q\n", l.base)

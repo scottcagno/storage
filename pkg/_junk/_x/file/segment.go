@@ -3,7 +3,7 @@ package file
 import (
 	"errors"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/_lsmtree/encoding/binary"
+	"github.com/scottcagno/storage/pkg/_junk/_lsmtree/encoding/binary"
 	"io"
 	"os"
 	"path/filepath"

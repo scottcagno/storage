@@ -113,17 +113,11 @@ func TestLog_Reset(t *testing.T) {
 	fmt.Printf("chillin for a few....")
 	time.Sleep(3 * time.Second)
 
-	err = wal.Reset()
+	err = wal.CloseAndRemove()
 	if err != nil {
-		t.Fatalf("reset: %v\n", err)
+		t.Fatalf("close and remove: %v\n", err)
 	}
 
-	//
-	// close log
-	err = wal.Close()
-	if err != nil {
-		t.Fatalf("got error: %v\n", err)
-	}
 }
 
 func TestLog_TruncateFront(t *testing.T) {

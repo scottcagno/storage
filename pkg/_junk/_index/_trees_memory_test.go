@@ -1,12 +1,12 @@
-package _index
+package index
 
 import (
 	"fmt"
 	"github.com/scottcagno/data-structures/pkg/_reference/_rbtree"
 	"github.com/scottcagno/data-structures/pkg/_reference/idx"
 	"github.com/scottcagno/data-structures/pkg/treemap"
-	"github.com/scottcagno/storage/pkg/_index/bptree"
-	"github.com/scottcagno/storage/pkg/_index/rbtree"
+	"github.com/scottcagno/storage/pkg/_junk/_index/bptree"
+	"github.com/scottcagno/storage/pkg/_junk/_index/rbtree"
 	"log"
 	"runtime"
 	"strconv"

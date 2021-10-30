@@ -2,9 +2,9 @@ package memtable
 
 import (
 	"errors"
-	"github.com/scottcagno/storage/pkg/_lsmtree/container/rbtree"
-	"github.com/scottcagno/storage/pkg/_lsmtree/sstable"
-	"github.com/scottcagno/storage/pkg/x/file"
+	"github.com/scottcagno/storage/pkg/_junk/_lsmtree/container/rbtree"
+	"github.com/scottcagno/storage/pkg/_junk/_lsmtree/sstable"
+	"github.com/scottcagno/storage/pkg/_junk/_x/file"
 	"os"
 	"runtime"
 )

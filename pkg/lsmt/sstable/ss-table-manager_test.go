@@ -33,7 +33,7 @@ func TestSSTManager(t *testing.T) {
 			count++
 		}
 		// write batch to ss-table
-		err = sstm.FlushBatchToSSTable(batch)
+		sstm.flushBatchToSSTable(batch)
 		if err != nil {
 			t.Errorf("flushing batch to ss-table: %v\n", err)
 		}
