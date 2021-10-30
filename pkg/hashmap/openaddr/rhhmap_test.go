@@ -3,7 +3,7 @@ package openaddr
 import (
 	"bytes"
 	"fmt"
-	"github.com/scottcagno/leviathan/pkg/bitset"
+	"github.com/scottcagno/storage/pkg/bitset"
 	"github.com/scottcagno/storage/pkg/util"
 	"math/rand"
 	"testing"
