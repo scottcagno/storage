@@ -15,27 +15,19 @@ func OpenLSMTree(options *Options) (*LSMTree, error) {
 	return nil, nil
 }
 
-func (lsm *LSMTree) Put(k, v []byte) error {
-	return nil
-}
-
-func (lsm *LSMTree) putEntry(e *Entry) error {
-	return nil
+func (lsm *LSMTree) Has(k []byte) (bool, error) {
+	return false, nil
 }
 
 func (lsm *LSMTree) Get(k []byte) ([]byte, error) {
 	return nil, nil
 }
 
-func (lsm *LSMTree) getEntry(k []byte) (*Entry, error) {
-	return nil, nil
-}
-
-func (lsm *LSMTree) Del(k []byte) error {
+func (lsm *LSMTree) Put(k, v []byte) error {
 	return nil
 }
 
-func (lsm *LSMTree) delEntry(k []byte) error {
+func (lsm *LSMTree) Del(k []byte) error {
 	return nil
 }
 
@@ -52,5 +44,29 @@ func (lsm *LSMTree) Sync() error {
 }
 
 func (lsm *LSMTree) Close() error {
+	return nil
+}
+
+func (lsm *LSMTree) getEntry(k []byte) (*Entry, error) {
+	return nil, nil
+}
+
+func (lsm *LSMTree) putEntry(e *Entry) error {
+	return nil
+}
+
+func (lsm *LSMTree) delEntry(k []byte) error {
+	return nil
+}
+
+func (lsm *LSMTree) loadDataFromCommitLog() error {
+	return nil
+}
+
+func (lsm *LSMTree) cycleCommitLog() error {
+	return nil
+}
+
+func (lsm *LSMTree) flushToSSTable(memt *MemTable) error {
 	return nil
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 )
 
+var Tombstone = []byte(nil)
+
 type Entry struct {
 	Key   []byte
 	Value []byte
