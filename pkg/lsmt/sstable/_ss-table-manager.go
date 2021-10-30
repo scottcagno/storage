@@ -3,7 +3,7 @@ package sstable
 import (
 	"bytes"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/lsmt/_memtable"
+	"github.com/scottcagno/storage/pkg/_junk/_memtable"
 	"github.com/scottcagno/storage/pkg/lsmt/binary"
 	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"log"
