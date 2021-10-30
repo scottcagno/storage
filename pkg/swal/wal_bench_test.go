@@ -53,7 +53,7 @@ func walRead(b *testing.B, wal *SWAL) {
 func setup(b *testing.B) *SWAL {
 
 	// open
-	wal, err := OpenWAL(conf)
+	wal, err := OpenSWAL(conf)
 	if err != nil {
 		b.Errorf("open: %v\n", err)
 	}

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-var conf = &WALConfig{
+var conf = &SWALConfig{
 	BasePath:       "wal-testing",
 	MaxSegmentSize: -1,
 	SyncOnWrite:    false,
@@ -16,7 +16,7 @@ var conf = &WALConfig{
 
 func TestOpenAndCloseNoWrite(t *testing.T) {
 	// open
-	wal, err := OpenWAL(conf)
+	wal, err := OpenSWAL(conf)
 	if err != nil {
 		t.Fatalf("opening: %v\n", err)
 	}
@@ -26,7 +26,7 @@ func TestOpenAndCloseNoWrite(t *testing.T) {
 		t.Fatalf("closing: %v\n", err)
 	}
 	// open
-	wal, err = OpenWAL(conf)
+	wal, err = OpenSWAL(conf)
 	if err != nil {
 		t.Fatalf("opening: %v\n", err)
 	}
@@ -40,7 +40,7 @@ func TestOpenAndCloseNoWrite(t *testing.T) {
 func TestWAL(t *testing.T) {
 	//
 	// open log
-	wal, err := OpenWAL(conf)
+	wal, err := OpenSWAL(conf)
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}
@@ -86,7 +86,7 @@ func TestWAL(t *testing.T) {
 func TestLog_Reset(t *testing.T) {
 	//
 	// open log
-	wal, err := OpenWAL(conf)
+	wal, err := OpenSWAL(conf)
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}
@@ -124,7 +124,7 @@ func TestLog_TruncateFront(t *testing.T) {
 
 	//
 	// open log
-	wal, err := OpenWAL(conf)
+	wal, err := OpenSWAL(conf)
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}
@@ -149,7 +149,7 @@ func TestLog_TruncateFront(t *testing.T) {
 	}
 	//
 	// open log
-	wal, err = OpenWAL(conf)
+	wal, err = OpenSWAL(conf)
 	if err != nil {
 		t.Fatalf("got error: %v\n", err)
 	}
