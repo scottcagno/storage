@@ -10,6 +10,12 @@ import (
 // Tombstone is a marker for an entry that has been deleted
 var Tombstone = []byte{0xDE, 0xAD, 0xBE, 0xEF}
 
+func makeTombstone() []byte {
+	data := make([]byte, 4)
+	copy(data, Tombstone)
+	return data
+}
+
 // Entry represents a single entry or record
 type Entry struct {
 	Key   []byte

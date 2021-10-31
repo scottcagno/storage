@@ -11,6 +11,10 @@ func openCommitLog(base string, syncOnWrite bool) (*commitLog, error) {
 	return nil, nil
 }
 
+func (c *commitLog) put(e *Entry) error {
+	return nil
+}
+
 func (c *commitLog) Read(r io.Reader) (int, error) {
 	return -1, nil
 }

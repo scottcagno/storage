@@ -67,12 +67,13 @@ func (lsm *LSMTree) Put(k, v []byte) error {
 	// write lock
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
-	// make entry and check it
+	// make entry
 	e := &Entry{
 		Key:   k,
 		Value: v,
 		CRC:   checksum(append(k, v...)),
 	}
+	// check entry
 	err := checkEntry(e, lsm.opt.MaxKeySize, lsm.opt.MaxValueSize)
 	if err != nil {
 		return err
@@ -92,9 +93,14 @@ func (lsm *LSMTree) Del(k []byte) error {
 	// write lock
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
-	// make entry and check it
-	e := &Entry{Key: k}
-	err := checkKey(e, lsm.opt.MaxKeySize)
+	// make entry
+	e := &Entry{
+		Key:   k,
+		Value: makeTombstone(),
+		CRC:   checksum(append(k, Tombstone...)),
+	}
+	// check entry
+	err := checkEntry(e, lsm.opt.MaxKeySize, lsm.opt.MaxValueSize)
 	if err != nil {
 		return err
 	}
@@ -158,11 +164,51 @@ func (lsm *LSMTree) getEntry(e *Entry) (*Entry, error) {
 
 // putEntry is the internal "get" implementation
 func (lsm *LSMTree) putEntry(e *Entry) error {
+	// write entry to the commit log
+	err := lsm.wacl.put(e)
+	if err != nil {
+		return err
+	}
+	// write entry to the mem-table
+	err = lsm.memt.put(e)
+	// check if we should do a flush
+	if err != nil && err == ErrFlushThreshold {
+		// attempt to flush
+		err = lsm.flushToSSTable(lsm.memt)
+		if err != nil {
+			return err
+		}
+		// cycle the commit log
+		err = lsm.cycleCommitLog()
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 // delEntry is the internal "get" implementation
 func (lsm *LSMTree) delEntry(e *Entry) error {
+	// write entry to the commit log
+	err := lsm.wacl.put(e)
+	if err != nil {
+		return err
+	}
+	// write entry to the mem-table
+	err = lsm.memt.put(e)
+	// check if we should do a flush
+	if err != nil && err == ErrFlushThreshold {
+		// attempt to flush
+		err = lsm.flushToSSTable(lsm.memt)
+		if err != nil {
+			return err
+		}
+		// cycle the commit log
+		err = lsm.cycleCommitLog()
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
