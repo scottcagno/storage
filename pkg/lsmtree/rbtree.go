@@ -1,21 +1,15 @@
 package lsmtree
 
 import (
+	"bytes"
 	"runtime"
 	"strings"
-	"sync"
 )
 
-type RBEntry interface {
-	Compare(that RBEntry) int
-	Size() int
-	String() string
-}
+var empty *Entry = nil
 
-var empty = *new(RBEntry)
-
-func compare(this, that RBEntry) int {
-	return this.Compare(that)
+func compare(this, that *Entry) int {
+	return bytes.Compare(this.Key, that.Key)
 }
 
 const (
@@ -28,12 +22,11 @@ type rbNode struct {
 	right  *rbNode
 	parent *rbNode
 	color  uint
-	entry  RBEntry
+	entry  *Entry
 }
 
 // rbTree is a struct representing a rbTree
 type rbTree struct {
-	lock  sync.RWMutex
 	NIL   *rbNode
 	root  *rbNode
 	count int
@@ -53,21 +46,33 @@ func newRBTree() *rbTree {
 		NIL:   n,
 		root:  n,
 		count: 0,
+		size:  0,
 	}
+}
+
+func (t *rbTree) Count() int {
+	return t.count
 }
 
 // Has tests and returns a boolean value if the
 // provided key exists in the tree
-func (t *rbTree) Has(entry RBEntry) bool {
+func (t *rbTree) Has(entry *Entry) bool {
 	_, ok := t.getInternal(entry)
 	return ok
+}
+
+// HasKey tests and returns a boolean value if the
+// provided key exists in the tree
+func (t *rbTree) HasKey(k string) bool {
+	e, ok := t.getInternal(&Entry{Key: []byte(k)})
+	return ok && e != nil && e.Value != nil
 }
 
 // Add adds the provided key and value only if it does not
 // already exist in the tree. It returns false if the key and
 // value was not able to be added, and true if it was added
 // successfully
-func (t *rbTree) Add(entry RBEntry) bool {
+func (t *rbTree) Add(entry *Entry) bool {
 	_, ok := t.getInternal(entry)
 	if ok {
 		// key already exists, so we are not adding
@@ -77,17 +82,73 @@ func (t *rbTree) Add(entry RBEntry) bool {
 	return true
 }
 
-func (t *rbTree) Put(entry RBEntry) (RBEntry, bool) {
+func (t *rbTree) Put(entry *Entry) (*Entry, bool) {
 	return t.putInternal(entry)
 }
 
-func (t *rbTree) putInternal(entry RBEntry) (RBEntry, bool) {
+// UpsertAndCheckIfFull updates the provided entry if it already
+// exists or inserts the supplied entry as a new entry if it
+// does not exist. UpsertAndCheckIfFull returns the current size
+// in bytes after performing the insert or update. It also returns
+// a boolean reporting true if the tree has met or exceeded the
+// provided threshold, and false if the current size is less than
+// the provided threshold.
+func (t *rbTree) UpsertAndCheckIfFull(entry *Entry, threshold int64) (int64, bool) {
+	// TODO: possibly perform pre-check in future somehow??
+	//
+	// insert the entry in to the mem-table
+	t.putInternal(entry)
+	if t.size >= threshold {
+		// size is greater or equal to supplied threshold
+		// return size along with a true value (need flush)
+		return t.size, true
+	}
+	// size has not met or exceeded supplied threshold
+	// simply return the current size, and a false value
+	return t.size, false
+}
+
+// UpsertBatchAndCheckIfFull ranges the batch of entries, and it
+// updates the provided entry if it already exists or inserts the
+// supplied entry as a new entry if it does not exist. When it's
+// finished, UpsertBatchAndCheckIfFull returns the current size in
+// bytes after performing the insert or update. It also returns a
+// boolean value reporting true if the tree has met or exceeded the
+// provided threshold, and false if the current size is less than
+// the provided threshold.
+func (t *rbTree) UpsertBatchAndCheckIfFull(batch *Batch, threshold int64) (int64, bool) {
+	// TODO: possibly perform pre-check in future somehow??
+	//
+	// range the batch entries
+	for _, e := range batch.Entries {
+		// insert the entry in to the mem-table
+		t.putInternal(e)
+	}
+	// TODO: possibly think about dealing with partial batches??
+	if t.size >= threshold {
+		// size is greater or equal to supplied threshold
+		// return size along with a true value (need flush)
+		return t.size, true
+	}
+	// size has not met or exceeded supplied threshold
+	// simply return the current size, and a false value
+	return t.size, false
+}
+
+func (t *rbTree) PutBatch(batch *Batch) {
+	for _, entry := range batch.Entries {
+		t.putInternal(entry)
+	}
+}
+
+func (t *rbTree) putInternal(entry *Entry) (*Entry, bool) {
 	if entry == nil {
 		return nil, false
 	}
-	// insert returns the node inserted
-	// and if the node returned already
-	// existed and/or was updated
+	// insert return the node along with
+	// a boolean value signaling true if
+	// the node was updated, and false if
+	// the node was newly added.
 	ret, ok := t.insert(&rbNode{
 		left:   t.NIL,
 		right:  t.NIL,
@@ -98,7 +159,7 @@ func (t *rbTree) putInternal(entry RBEntry) (RBEntry, bool) {
 	return ret.entry, ok
 }
 
-func (t *rbTree) Get(entry RBEntry) (RBEntry, bool) {
+func (t *rbTree) Get(entry *Entry) (*Entry, bool) {
 	return t.getInternal(entry)
 }
 
@@ -107,7 +168,7 @@ func (t *rbTree) Get(entry RBEntry) (RBEntry, bool) {
 // to the searched key as well as a boolean reporting true if an
 // exact match was found for the key, and false if it is unknown
 // or and exact match was not found
-func (t *rbTree) GetNearMin(entry RBEntry) (RBEntry, bool) {
+func (t *rbTree) GetNearMin(entry *Entry) (*Entry, bool) {
 	if entry == nil {
 		return nil, false
 	}
@@ -122,7 +183,7 @@ func (t *rbTree) GetNearMin(entry RBEntry) (RBEntry, bool) {
 	if prev == nil {
 		prev, _ = t.Min()
 	}
-	return prev, ret.entry.Compare(entry) == 0
+	return prev, compare(ret.entry, entry) == 0
 }
 
 // GetNearMax performs an approximate search for the specified key
@@ -130,7 +191,7 @@ func (t *rbTree) GetNearMin(entry RBEntry) (RBEntry, bool) {
 // to the searched key as well as a boolean reporting true if an
 // exact match was found for the key, and false if it is unknown or
 // and exact match was not found
-func (t *rbTree) GetNearMax(entry RBEntry) (RBEntry, bool) {
+func (t *rbTree) GetNearMax(entry *Entry) (*Entry, bool) {
 	if entry == nil {
 		return nil, false
 	}
@@ -141,14 +202,14 @@ func (t *rbTree) GetNearMax(entry RBEntry) (RBEntry, bool) {
 		color:  RED,
 		entry:  entry,
 	})
-	return t.successor(ret).entry, ret.entry.Compare(entry) == 0
+	return t.successor(ret).entry, compare(ret.entry, entry) == 0
 }
 
 // GetApproxPrevNext performs an approximate search for the specified key
 // and returns the searched key, the predecessor, and the successor and a
 // boolean reporting true if an exact match was found for the key, and false
 // if it is unknown or and exact match was not found
-func (t *rbTree) GetApproxPrevNext(entry RBEntry) (RBEntry, RBEntry, RBEntry, bool) {
+func (t *rbTree) GetApproxPrevNext(entry *Entry) (*Entry, *Entry, *Entry, bool) {
 	if entry == nil {
 		return nil, nil, nil, false
 	}
@@ -160,10 +221,10 @@ func (t *rbTree) GetApproxPrevNext(entry RBEntry) (RBEntry, RBEntry, RBEntry, bo
 		entry:  entry,
 	})
 	return ret.entry, t.predecessor(ret).entry, t.successor(ret).entry,
-		ret.entry.Compare(entry) == 0
+		compare(ret.entry, entry) == 0
 }
 
-func (t *rbTree) getInternal(entry RBEntry) (RBEntry, bool) {
+func (t *rbTree) getInternal(entry *Entry) (*Entry, bool) {
 	if entry == nil {
 		return nil, false
 	}
@@ -177,11 +238,11 @@ func (t *rbTree) getInternal(entry RBEntry) (RBEntry, bool) {
 	return ret.entry, ret.entry != nil
 }
 
-func (t *rbTree) Del(entry RBEntry) (RBEntry, bool) {
+func (t *rbTree) Del(entry *Entry) (*Entry, bool) {
 	return t.delInternal(entry)
 }
 
-func (t *rbTree) delInternal(entry RBEntry) (RBEntry, bool) {
+func (t *rbTree) delInternal(entry *Entry) (*Entry, bool) {
 	if entry == nil {
 		return nil, false
 	}
@@ -205,7 +266,7 @@ func (t *rbTree) Size() int64 {
 	return t.size
 }
 
-func (t *rbTree) Min() (RBEntry, bool) {
+func (t *rbTree) Min() (*Entry, bool) {
 	x := t.min(t.root)
 	if x == t.NIL {
 		return nil, false
@@ -213,7 +274,7 @@ func (t *rbTree) Min() (RBEntry, bool) {
 	return x.entry, true
 }
 
-func (t *rbTree) Max() (RBEntry, bool) {
+func (t *rbTree) Max() (*Entry, bool) {
 	x := t.max(t.root)
 	if x == t.NIL {
 		return nil, false
@@ -223,13 +284,13 @@ func (t *rbTree) Max() (RBEntry, bool) {
 
 // helper function for clone
 func (t *rbTree) cloneEntries(t2 *rbTree) {
-	t.ascend(t.root, t.min(t.root).entry, func(e RBEntry) bool {
+	t.ascend(t.root, t.min(t.root).entry, func(e *Entry) bool {
 		t2.putInternal(e)
 		return true
 	})
 }
 
-type Iterator func(entry RBEntry) bool
+type Iterator func(entry *Entry) bool
 
 func (t *rbTree) Scan(iter Iterator) {
 	t.ascend(t.root, t.min(t.root).entry, iter)
@@ -239,13 +300,13 @@ func (t *rbTree) ScanBack(iter Iterator) {
 	t.descend(t.root, t.max(t.root).entry, iter)
 }
 
-func (t *rbTree) ScanRange(start, end RBEntry, iter Iterator) {
+func (t *rbTree) ScanRange(start, end *Entry, iter Iterator) {
 	t.ascendRange(t.root, start, end, iter)
 }
 
 func (t *rbTree) String() string {
 	var sb strings.Builder
-	t.ascend(t.root, t.min(t.root).entry, func(entry RBEntry) bool {
+	t.ascend(t.root, t.min(t.root).entry, func(entry *Entry) bool {
 		sb.WriteString(entry.String())
 		return true
 	})
@@ -583,7 +644,7 @@ func (t *rbTree) deleteFixup(x *rbNode) {
 	x.color = BLACK
 }
 
-func (t *rbTree) ascend(x *rbNode, entry RBEntry, iter Iterator) bool {
+func (t *rbTree) ascend(x *rbNode, entry *Entry, iter Iterator) bool {
 	if x == t.NIL {
 		return true
 	}
@@ -598,11 +659,7 @@ func (t *rbTree) ascend(x *rbNode, entry RBEntry, iter Iterator) bool {
 	return t.ascend(x.right, entry, iter)
 }
 
-func (t *rbTree) __Descend(pivot RBEntry, iter Iterator) {
-	t.descend(t.root, pivot, iter)
-}
-
-func (t *rbTree) descend(x *rbNode, pivot RBEntry, iter Iterator) bool {
+func (t *rbTree) descend(x *rbNode, pivot *Entry, iter Iterator) bool {
 	if x == t.NIL {
 		return true
 	}
@@ -617,7 +674,7 @@ func (t *rbTree) descend(x *rbNode, pivot RBEntry, iter Iterator) bool {
 	return t.descend(x.left, pivot, iter)
 }
 
-func (t *rbTree) ascendRange(x *rbNode, inf, sup RBEntry, iter Iterator) bool {
+func (t *rbTree) ascendRange(x *rbNode, inf, sup *Entry, iter Iterator) bool {
 	if x == t.NIL {
 		return true
 	}

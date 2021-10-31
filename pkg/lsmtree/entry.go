@@ -2,17 +2,37 @@ package lsmtree
 
 import (
 	"bytes"
+	"fmt"
 	"hash/crc32"
+	"unsafe"
 )
 
 // Tombstone is a marker for an entry that has been deleted
-var Tombstone = []byte(nil)
+var Tombstone = []byte{0xDE, 0xAD, 0xBE, 0xEF}
 
 // Entry represents a single entry or record
 type Entry struct {
 	Key   []byte
 	Value []byte
 	CRC   uint32
+}
+
+func (e *Entry) hasTombstone() bool {
+	return bytes.Equal(e.Value, Tombstone)
+}
+
+// String is the stringer method for an *Entry
+func (e *Entry) String() string {
+	return fmt.Sprintf("entry.Key=%q, entry.Value=%q, entry.CRC=%d\n",
+		e.Key, e.Value, e.CRC)
+}
+
+// Size returns the size in bytes for an entry
+func (e *Entry) Size() int64 {
+	ks := int(unsafe.Sizeof(e.Key)) + len(e.Key)
+	vs := int(unsafe.Sizeof(e.Value)) + len(e.Value)
+	cs := unsafe.Sizeof(e.CRC)
+	return int64(ks) + int64(vs) + int64(cs)
 }
 
 // Batch is a set of entries

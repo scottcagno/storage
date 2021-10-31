@@ -2,31 +2,31 @@ package lsmtree
 
 import "io"
 
-type CommitLog struct {
+type commitLog struct {
 	baseDir     string
 	syncOnWrite bool
 }
 
-func OpenCommitLog(base string, syncOnWrite bool) (*CommitLog, error) {
+func openCommitLog(base string, syncOnWrite bool) (*commitLog, error) {
 	return nil, nil
 }
 
-func (c *CommitLog) Read(r io.Reader) (int, error) {
+func (c *commitLog) Read(r io.Reader) (int, error) {
 	return -1, nil
 }
 
-func (c *CommitLog) Write(w io.Writer) (int, error) {
+func (c *commitLog) Write(w io.Writer) (int, error) {
 	return -1, nil
 }
 
-func (c *CommitLog) CloseAndRemove() error {
+func (c *commitLog) CloseAndRemove() error {
 	return nil
 }
 
-func (c *CommitLog) Sync() error {
+func (c *commitLog) Sync() error {
 	return nil
 }
 
-func (c *CommitLog) Close() error {
+func (c *commitLog) Close() error {
 	return nil
 }

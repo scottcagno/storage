@@ -1,14 +1,17 @@
 package lsmtree
 
-import "sync"
+import (
+	"sync"
+)
 
 type LSMTree struct {
 	lock   sync.RWMutex
 	opt    *Options
 	logDir string
 	sstDir string
-	wacl   *CommitLog
-	memt   *MemTable
+	wacl   *commitLog
+	memt   *memTable
+	sstm   *ssTableManager
 }
 
 // OpenLSMTree opens or creates an LSMTree instance
@@ -21,6 +24,15 @@ func OpenLSMTree(options *Options) (*LSMTree, error) {
 // this may return a false positive, but it should never
 // return a false negative.
 func (lsm *LSMTree) Has(k []byte) (bool, error) {
+	// read lock
+	lsm.lock.RLock()
+	defer lsm.lock.RUnlock()
+	// make entry and check it
+	e := &Entry{Key: k}
+	err := checkKey(e, lsm.opt.MaxKeySize)
+	if err != nil {
+		return false, err
+	}
 	return false, nil
 }
 
@@ -31,12 +43,39 @@ func (lsm *LSMTree) Has(k []byte) (bool, error) {
 // key in the ss-index and if that yields no result it will try to
 // find the entry by doing a linear search of the ss-table itself.
 func (lsm *LSMTree) Get(k []byte) ([]byte, error) {
-	return nil, nil
+	// read lock
+	lsm.lock.RLock()
+	defer lsm.lock.RUnlock()
+	// make entry and check it
+	e := &Entry{Key: k}
+	err := checkKey(e, lsm.opt.MaxKeySize)
+	if err != nil {
+		return nil, err
+	}
+	ent, err := lsm.getEntry(e)
+	if err != nil {
+		return nil, err
+	}
+	// otherwise, we got it!
+	return ent.Value, nil
 }
 
 // Put takes a key and a value and adds them to the LSMTree. If
 // the entry already exists, it should overwrite the old entry.
 func (lsm *LSMTree) Put(k, v []byte) error {
+	// write lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+	// make entry and check it
+	e := &Entry{
+		Key:   k,
+		Value: v,
+		CRC:   checksum(append(k, v...)),
+	}
+	err := checkEntry(e, lsm.opt.MaxKeySize, lsm.opt.MaxValueSize)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -44,6 +83,15 @@ func (lsm *LSMTree) Put(k, v []byte) error {
 // a 'deleted' or nil entry. It leaves the key in the LSMTree
 // so that future table versions can properly merge.
 func (lsm *LSMTree) Del(k []byte) error {
+	// write lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+	// make entry and check it
+	e := &Entry{Key: k}
+	err := checkKey(e, lsm.opt.MaxKeySize)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -81,8 +129,20 @@ func (lsm *LSMTree) Close() error {
 }
 
 // getEntry is the internal "get" implementation
-func (lsm *LSMTree) getEntry(k []byte) (*Entry, error) {
-	return nil, nil
+func (lsm *LSMTree) getEntry(e *Entry) (*Entry, error) {
+	// look in mem-table
+	ent, err := lsm.memt.get(e)
+	if err == nil {
+		// found it
+		return ent, nil
+	}
+	// look in ss-tables
+	ent, err = lsm.sstm.get(e)
+	if err == nil {
+		// found it
+		return ent, nil
+	}
+	return nil, ErrNotFound
 }
 
 // putEntry is the internal "get" implementation
@@ -112,6 +172,6 @@ func (lsm *LSMTree) cycleCommitLog() error {
 // flushToSSTable takes a mem-table instance and flushes it
 // to disk as a ss-table. After flushing the mem-table is
 // reset (cleared out) and the commit log is cycled.
-func (lsm *LSMTree) flushToSSTable(memt *MemTable) error {
+func (lsm *LSMTree) flushToSSTable(memt *memTable) error {
 	return nil
 }
