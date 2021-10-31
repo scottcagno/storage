@@ -216,6 +216,10 @@ func (lsm *LSMTree) delEntry(e *Entry) error {
 // and reads the contents of the commit log in order to
 // re-populate the MemTable on a restart
 func (lsm *LSMTree) loadDataFromCommitLog() error {
+	// write lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+
 	return nil
 }
 

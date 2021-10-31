@@ -16,6 +16,21 @@ func makeTombstone() []byte {
 	return data
 }
 
+// EntryHeader is mainly used for serialization
+type EntryHeader struct {
+	klen uint32
+	vlen uint32
+	crc  uint32
+}
+
+func (e *Entry) getEntryHeader() *EntryHeader {
+	return &EntryHeader{
+		klen: uint32(len(e.Key)),
+		vlen: uint32(len(e.Value)),
+		crc:  e.CRC,
+	}
+}
+
 // Entry represents a single entry or record
 type Entry struct {
 	Key   []byte

@@ -16,5 +16,10 @@ var (
 	ErrBadValue      = errors.New("lsmtree: bad value")
 	ErrValueTooLarge = errors.New("lsmtree: value too large")
 
+	ErrWritingEntry = errors.New("lsmtree: error write entry")
+	ErrReadingEntry = errors.New("lsmtree: error reading entry")
+
+	ErrNilEntry = errors.New("lsmtree: error got nil entry")
+
 	ErrBadChecksum = errors.New("lsmtree: bad checksum")
 )
