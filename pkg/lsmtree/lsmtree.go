@@ -52,6 +52,7 @@ func (lsm *LSMTree) Get(k []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// call internal getEntry
 	ent, err := lsm.getEntry(e)
 	if err != nil {
 		return nil, err
@@ -76,6 +77,11 @@ func (lsm *LSMTree) Put(k, v []byte) error {
 	if err != nil {
 		return err
 	}
+	// call internal putEntry
+	err = lsm.putEntry(e)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -89,6 +95,11 @@ func (lsm *LSMTree) Del(k []byte) error {
 	// make entry and check it
 	e := &Entry{Key: k}
 	err := checkKey(e, lsm.opt.MaxKeySize)
+	if err != nil {
+		return err
+	}
+	// call internal delEntry
+	err = lsm.delEntry(e)
 	if err != nil {
 		return err
 	}
@@ -151,7 +162,7 @@ func (lsm *LSMTree) putEntry(e *Entry) error {
 }
 
 // delEntry is the internal "get" implementation
-func (lsm *LSMTree) delEntry(k []byte) error {
+func (lsm *LSMTree) delEntry(e *Entry) error {
 	return nil
 }
 
