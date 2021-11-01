@@ -41,7 +41,7 @@ type Logger struct {
 	level logLevel
 }
 
-func NewLogger(level logLevel) *Logger {
+func newLogger(level logLevel) *Logger {
 	return &Logger{
 		Logger: log.New(os.Stderr, "", log.LstdFlags),
 		level:  level,

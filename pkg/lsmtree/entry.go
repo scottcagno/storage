@@ -78,7 +78,7 @@ func (b *Batch) writeEntry(e *Entry) error {
 	// make checksum for entry
 	e.CRC = checksum(append(e.Key, e.Value...))
 	// check entry
-	err := checkEntry(e, maxKeySizeAllowed, maxValueSizeAllowed)
+	err := checkEntry(e)
 	if err != nil {
 		return err
 	}
@@ -108,16 +108,16 @@ func checksum(data []byte) uint32 {
 }
 
 // checkEntry ensures the entry does not violate the max key and value config
-func checkEntry(e *Entry, keyMax, valMax int64) error {
+func checkEntry(e *Entry) error {
 	// init err
 	var err error
 	// key checks
-	err = checkKey(e, keyMax)
+	err = checkKey(e)
 	if err != nil {
 		return err
 	}
 	// value checks
-	err = checkValue(e, valMax)
+	err = checkValue(e)
 	if err != nil {
 		return err
 	}
@@ -125,22 +125,22 @@ func checkEntry(e *Entry, keyMax, valMax int64) error {
 }
 
 // checkKey checks the entry key size is okay
-func checkKey(e *Entry, max int64) error {
+func checkKey(e *Entry) error {
 	if e.Key == nil || len(e.Key) < minKeySizeAllowed {
 		return ErrBadKey
 	}
-	if int64(len(e.Key)) > max {
+	if int64(len(e.Key)) > maxKeySizeAllowed {
 		return ErrKeyTooLarge
 	}
 	return nil
 }
 
 // checkValue checks the entry value size is okay
-func checkValue(e *Entry, max int64) error {
+func checkValue(e *Entry) error {
 	if e.Value == nil || len(e.Value) < minValueSizeAllowed {
 		return ErrBadValue
 	}
-	if int64(len(e.Value)) > max {
+	if int64(len(e.Value)) > maxValueSizeAllowed {
 		return ErrValueTooLarge
 	}
 	return nil

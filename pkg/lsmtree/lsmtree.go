@@ -1,8 +1,12 @@
 package lsmtree
 
 import (
+	"os"
+	"path/filepath"
 	"sync"
 )
+
+const ()
 
 type LSMTree struct {
 	lock   sync.RWMutex
@@ -12,11 +16,62 @@ type LSMTree struct {
 	wacl   *commitLog
 	memt   *memTable
 	sstm   *ssTableManager
+	logger *Logger
 }
 
 // OpenLSMTree opens or creates an LSMTree instance
 func OpenLSMTree(options *Options) (*LSMTree, error) {
-	return nil, nil
+	// check lsm config
+	opt := checkOptions(options)
+	// initialize base path
+	base, err := initBasePath(opt.BaseDir)
+	if err != nil {
+		return nil, err
+	}
+	// create commit log base directory
+	logdir := filepath.Join(base, defaultWalDir)
+	err = os.MkdirAll(logdir, os.ModeDir)
+	if err != nil {
+		return nil, err
+	}
+	// open commit log
+	wacl, err := openCommitLog(logdir, opt.SyncOnWrite)
+	if err != nil {
+		return nil, err
+	}
+	// create ss-table data base directory
+	sstdir := filepath.Join(base, defaultSstDir)
+	err = os.MkdirAll(sstdir, os.ModeDir)
+	if err != nil {
+		return nil, err
+	}
+	// open ss-table-manager
+	sstm, err := openSSTableManager(sstdir)
+	if err != nil {
+		return nil, err
+	}
+	// open memtable
+	memt, err := openMemTable(opt.flushThreshold)
+	if err != nil {
+		return nil, err
+	}
+	// create lsm-tree instance
+	lsmt := &LSMTree{
+		opt:    opt,
+		logDir: logdir,
+		sstDir: sstdir,
+		wacl:   wacl,
+		memt:   memt,
+		sstm:   sstm,
+		logger: newLogger(opt.LoggingLevel),
+	}
+	// load mem-table with commit log data
+	err = lsmt.loadDataFromCommitLog()
+	if err != nil {
+		return nil, err
+	}
+	// return lsm-tree
+	return lsmt, nil
 }
 
 // Has returns a boolean signaling weather or not the key
@@ -29,7 +84,7 @@ func (lsm *LSMTree) Has(k []byte) (bool, error) {
 	defer lsm.lock.RUnlock()
 	// make entry and check it
 	e := &Entry{Key: k}
-	err := checkKey(e, lsm.opt.MaxKeySize)
+	err := checkKey(e)
 	if err != nil {
 		return false, err
 	}
@@ -48,7 +103,7 @@ func (lsm *LSMTree) Get(k []byte) ([]byte, error) {
 	defer lsm.lock.RUnlock()
 	// make entry and check it
 	e := &Entry{Key: k}
-	err := checkKey(e, lsm.opt.MaxKeySize)
+	err := checkKey(e)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +129,7 @@ func (lsm *LSMTree) Put(k, v []byte) error {
 		CRC:   checksum(append(k, v...)),
 	}
 	// check entry
-	err := checkEntry(e, lsm.opt.MaxKeySize, lsm.opt.MaxValueSize)
+	err := checkEntry(e)
 	if err != nil {
 		return err
 	}
@@ -100,7 +155,7 @@ func (lsm *LSMTree) Del(k []byte) error {
 		CRC:   checksum(append(k, Tombstone...)),
 	}
 	// check entry
-	err := checkEntry(e, lsm.opt.MaxKeySize, lsm.opt.MaxValueSize)
+	err := checkEntry(e)
 	if err != nil {
 		return err
 	}
@@ -153,7 +208,7 @@ func (lsm *LSMTree) GetBatch(keys ...[]byte) (*Batch, error) {
 	for _, k := range keys {
 		// make entry and check it
 		e := &Entry{Key: k}
-		err := checkKey(e, lsm.opt.MaxKeySize)
+		err := checkKey(e)
 		if err != nil {
 			return nil, err
 		}

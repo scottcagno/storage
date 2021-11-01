@@ -12,10 +12,14 @@ type ssTable struct {
 }
 
 type ssTableManager struct {
+	baseDir string
 }
 
-func openSSTableManager() (*ssTableManager, error) {
-	return nil, nil
+func openSSTableManager(base string) (*ssTableManager, error) {
+	sstm := &ssTableManager{
+		baseDir: base,
+	}
+	return sstm, nil
 }
 
 func (sstm *ssTableManager) get(e *Entry) (*Entry, error) {
