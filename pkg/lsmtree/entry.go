@@ -44,7 +44,7 @@ func (e *Entry) hasTombstone() bool {
 
 // String is the stringer method for an *Entry
 func (e *Entry) String() string {
-	return fmt.Sprintf("entry.Key=%q, entry.Value=%q, entry.CRC=%d\n",
+	return fmt.Sprintf("entry.Key=%q, entry.Value=%q, entry.CRC=%d",
 		e.Key, e.Value, e.CRC)
 }
 

@@ -28,7 +28,7 @@ func readEntryHeader(r io.Reader, hdr *EntryHeader) (int, error) {
 // and returns the entry or nil and an error
 func readEntry(r io.Reader) (*Entry, error) {
 	// make entry header
-	var hdr *EntryHeader
+	hdr := new(EntryHeader)
 	// reader entry header from r into EntryHeader
 	_, err := readEntryHeader(r, hdr)
 	if err != nil {
@@ -82,7 +82,7 @@ func readEntryHeaderAt(r io.ReaderAt, offset int64, hdr *EntryHeader) (int, erro
 // and returns the entry or nil and an error
 func readEntryAt(r io.ReaderAt, offset int64) (*Entry, error) {
 	// make entry header
-	var hdr *EntryHeader
+	hdr := new(EntryHeader)
 	// reader entry header from r into EntryHeader
 	n, err := readEntryHeaderAt(r, offset, hdr)
 	if err != nil {
