@@ -50,10 +50,10 @@ func readEntry(r io.Reader) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	// read value key from data into entry value
-	_, err = r.Read(e.Value)
-	if err != nil {
-		return nil, err
+	// make sure the crc checksum is valid
+	crc := checksum(append(e.Key, e.Value...))
+	if e.CRC != crc {
+		return nil, ErrBadChecksum
 	}
 	// return entry
 	return e, nil
@@ -110,13 +110,11 @@ func readEntryAt(r io.ReaderAt, offset int64) (*Entry, error) {
 	}
 	// update offset
 	offset += int64(n)
-	// read value key from data into entry value
-	_, err = r.ReadAt(e.Value, offset)
-	if err != nil {
-		return nil, err
+	// make sure the crc checksum is valid
+	crc := checksum(append(e.Key, e.Value...))
+	if e.CRC != crc {
+		return nil, ErrBadChecksum
 	}
-	// update offset
-	offset += int64(n)
 	// return entry
 	return e, nil
 }
