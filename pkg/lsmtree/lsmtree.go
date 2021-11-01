@@ -88,7 +88,13 @@ func (lsm *LSMTree) Has(k []byte) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return false, nil
+	// call internal get method
+	e, err = lsm.getEntry(e)
+	if err != nil {
+		return false, err
+	}
+	// otherwise, we got it
+	return e != nil, err
 }
 
 // Get takes a key and attempts to find a match in the LSMTree. If
