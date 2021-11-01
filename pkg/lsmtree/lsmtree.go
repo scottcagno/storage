@@ -165,7 +165,7 @@ func (lsm *LSMTree) getEntry(e *Entry) (*Entry, error) {
 // putEntry is the internal "get" implementation
 func (lsm *LSMTree) putEntry(e *Entry) error {
 	// write entry to the commit log
-	err := lsm.wacl.put(e)
+	_, err := lsm.wacl.put(e)
 	if err != nil {
 		return err
 	}
@@ -190,7 +190,7 @@ func (lsm *LSMTree) putEntry(e *Entry) error {
 // delEntry is the internal "get" implementation
 func (lsm *LSMTree) delEntry(e *Entry) error {
 	// write entry to the commit log
-	err := lsm.wacl.put(e)
+	_, err := lsm.wacl.put(e)
 	if err != nil {
 		return err
 	}
