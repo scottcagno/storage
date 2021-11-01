@@ -121,6 +121,18 @@ func (lsm *LSMTree) Del(k []byte) error {
 // impact on performance and may also cause frequent ss-table
 // flushes which may result in fragmentation.
 func (lsm *LSMTree) PutBatch(b *Batch) error {
+	// lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+	// iterate batch entries
+	for _, e := range b.Entries {
+		// call internal putEntry
+		err := lsm.putEntry(e)
+		if err != nil {
+			return err
+		}
+	}
+	// we're done
 	return nil
 }
 
@@ -132,16 +144,68 @@ func (lsm *LSMTree) PutBatch(b *Batch) error {
 // of entries that it could find. If it could not find any matches at all, the
 // batch will be nil and GetBatch will return an ErrNotFound
 func (lsm *LSMTree) GetBatch(keys ...[]byte) (*Batch, error) {
-	return nil, nil
+	// read lock
+	lsm.lock.RLock()
+	defer lsm.lock.RUnlock()
+	// create new batch to return
+	batch := NewBatch()
+	// iterate over keys
+	for _, k := range keys {
+		// make entry and check it
+		e := &Entry{Key: k}
+		err := checkKey(e, lsm.opt.MaxKeySize)
+		if err != nil {
+			return nil, err
+		}
+		// call internal getEntry
+		ent, err := lsm.getEntry(e)
+		if err != nil {
+			if err == ErrFoundTombstone {
+				// found tombstone entry (means this entry was
+				// deleted) so we can try to find the next one
+				continue
+			}
+			// if not tombstone, then it may be a bad entry, or a
+			// bad checksum, or not found! either way, return err
+			return nil, err
+		}
+		// otherwise, we got it! add to batch
+		_ = batch.writeEntry(ent)
+		continue
+	}
+	// check the batch
+	if batch.Len() == 0 {
+		// nothing at all was found
+		return nil, ErrNotFound
+	}
+	if batch.Len() == len(keys) {
+		// we found all the potential matches!
+		return batch, nil
+	}
+	// otherwise, we found some but not all
+	return batch, ErrIncompleteSet
 }
 
 // Sync forces a sync on all underlying structures no matter what the configuration
 func (lsm *LSMTree) Sync() error {
+	// write lock
+	lsm.lock.Lock()
+	defer lsm.lock.Unlock()
+	// sync commit log
+	err := lsm.wacl.sync()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
 // Close syncs and closes the LSMTree
 func (lsm *LSMTree) Close() error {
+	// close commit log
+	err := lsm.wacl.close()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -179,7 +243,7 @@ func (lsm *LSMTree) putEntry(e *Entry) error {
 			return err
 		}
 		// cycle the commit log
-		err = lsm.cycleCommitLog()
+		err = lsm.wacl.cycle()
 		if err != nil {
 			return err
 		}
@@ -204,7 +268,7 @@ func (lsm *LSMTree) delEntry(e *Entry) error {
 			return err
 		}
 		// cycle the commit log
-		err = lsm.cycleCommitLog()
+		err = lsm.wacl.cycle()
 		if err != nil {
 			return err
 		}
@@ -219,14 +283,15 @@ func (lsm *LSMTree) loadDataFromCommitLog() error {
 	// write lock
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
-
-	return nil
-}
-
-// cycleCommitLog closes the current commit log and removes
-// the log files on disk and opens a fresh one. This is used
-// after a mem-table is flushed out to disk as a ss-table.
-func (lsm *LSMTree) cycleCommitLog() error {
+	// iterate through the commit log...
+	err := lsm.wacl.next(func(e *Entry) bool {
+		// ...and insert entries back into mem-table
+		err := lsm.memt.put(e)
+		return err == nil
+	})
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -234,5 +299,16 @@ func (lsm *LSMTree) cycleCommitLog() error {
 // to disk as a ss-table. After flushing the mem-table is
 // reset (cleared out) and the commit log is cycled.
 func (lsm *LSMTree) flushToSSTable(memt *memTable) error {
+	// attempt to flush
+	err := lsm.sstm.flushToSSTable(memt)
+	if err != nil {
+		return err
+	}
+	// let's reset the write-ahead commit log
+	err = lsm.wacl.cycle()
+	if err != nil {
+		return err
+	}
+	// no error, simply return
 	return nil
 }

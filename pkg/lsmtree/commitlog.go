@@ -12,6 +12,7 @@ type commitLog struct {
 	baseDir     string
 	syncOnWrite bool
 	fd          *os.File
+	offsets     []int64
 }
 
 func openCommitLog(base string, syncOnWrite bool) (*commitLog, error) {
@@ -38,8 +39,34 @@ func openCommitLog(base string, syncOnWrite bool) (*commitLog, error) {
 		syncOnWrite: syncOnWrite,
 		fd:          fd,
 	}
+	// load entry index
+	//err = c.loadIndex()
+	//if err != nil {
+	//	return nil, err
+	//}
 	return c, nil
 }
+
+//func (c *commitLog) loadIndex() error {
+//	for {
+//		// get offset of entry
+//		offset, err := c.fd.Seek(0, io.SeekCurrent)
+//		if err != nil {
+//			return err
+//		}
+//		// read entry
+//		_, err = readEntry(c.fd)
+//		if err != nil {
+//			if err == io.EOF || err == io.ErrUnexpectedEOF {
+//				break
+//			}
+//			return err
+//		}
+//		// read entry successful, add to index
+//		c.offsets = append(c.offsets, offset)
+//	}
+//	return nil
+//}
 
 func (c *commitLog) get(offset int64) (*Entry, error) {
 	// read entry at provided offset
@@ -61,7 +88,26 @@ func (c *commitLog) put(e *Entry) (int64, error) {
 	return offset, nil
 }
 
-func (c *commitLog) reset() error {
+func (c *commitLog) next(iter func(e *Entry) bool) error {
+	for {
+		// read entry
+		e, err := readEntry(c.fd)
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+			return err
+		}
+		// check entry against iterator boolean function
+		if !iter(e) {
+			// if it returns false, then process next segEntry
+			continue
+		}
+	}
+	return nil
+}
+
+func (c *commitLog) cycle() error {
 	// seek to start
 	_, err := c.fd.Seek(0, io.SeekStart)
 	if err != nil {

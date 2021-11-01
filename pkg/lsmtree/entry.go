@@ -69,14 +69,22 @@ func NewBatch() *Batch {
 }
 
 // Write writes a new entry to the batch
-func (b *Batch) Write(key, value []byte) {
-	b.writeEntry(&Entry{Key: key, Value: value})
+func (b *Batch) Write(key, value []byte) error {
+	return b.writeEntry(&Entry{Key: key, Value: value})
 }
 
 // writeEntry is the internal write implementation
-func (b *Batch) writeEntry(e *Entry) {
+func (b *Batch) writeEntry(e *Entry) error {
+	// make checksum for entry
 	e.CRC = checksum(append(e.Key, e.Value...))
+	// check entry
+	err := checkEntry(e, maxKeySizeAllowed, maxValueSizeAllowed)
+	if err != nil {
+		return err
+	}
+	// write entry to batch
 	b.Entries = append(b.Entries, e)
+	return nil
 }
 
 // Len [implementing sort interface]

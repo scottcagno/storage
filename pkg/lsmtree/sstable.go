@@ -21,3 +21,7 @@ func openSSTableManager() (*ssTableManager, error) {
 func (sstm *ssTableManager) get(e *Entry) (*Entry, error) {
 	return nil, nil
 }
+
+func (sstm *ssTableManager) flushToSSTable(memt *memTable) error {
+	return nil
+}
