@@ -303,7 +303,7 @@ func (lsm *LSMTree) putEntry(e *Entry) error {
 	// check if we should do a flush
 	if err != nil && err == ErrFlushThreshold {
 		// attempt to flush
-		err = lsm.flushToSSTable(lsm.memt)
+		err = lsm.sstm.flushToSSTable(lsm.memt)
 		if err != nil {
 			return err
 		}
@@ -328,7 +328,7 @@ func (lsm *LSMTree) delEntry(e *Entry) error {
 	// check if we should do a flush
 	if err != nil && err == ErrFlushThreshold {
 		// attempt to flush
-		err = lsm.flushToSSTable(lsm.memt)
+		err = lsm.sstm.flushToSSTable(lsm.memt)
 		if err != nil {
 			return err
 		}
@@ -357,23 +357,5 @@ func (lsm *LSMTree) loadDataFromCommitLog() error {
 	if err != nil {
 		return err
 	}
-	return nil
-}
-
-// flushToSSTable takes a mem-table instance and flushes it
-// to disk as a ss-table. After flushing the mem-table is
-// reset (cleared out) and the commit log is cycled.
-func (lsm *LSMTree) flushToSSTable(memt *memTable) error {
-	// attempt to flush
-	err := lsm.sstm.flushToSSTable(memt)
-	if err != nil {
-		return err
-	}
-	// let's reset the write-ahead commit log
-	err = lsm.wacl.cycle()
-	if err != nil {
-		return err
-	}
-	// no error, simply return
 	return nil
 }
