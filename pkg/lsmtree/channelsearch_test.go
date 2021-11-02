@@ -21,14 +21,13 @@ func TestChannelSearch(t *testing.T) {
 
 	nums := make(map[int]bool)
 
-	fmt.Println("Making \"files\"")
 	for i := 0; i < 500; i++ {
 		f := &myFile{
 			data: make([]*myEntry, 1000),
 		}
 		for j := 0; j < 1000; j++ {
 			for {
-				num := rand.Int()
+				num := rand.Intn(750000)
 				if _, ok := nums[num]; ok != true {
 					f.data[j] = &myEntry{
 						value: num,
@@ -44,16 +43,16 @@ func TestChannelSearch(t *testing.T) {
 	var totalChannel time.Duration
 
 	totalFound := 0
+	totalCFound := 0
 
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 1000; i++ {
+		num := rand.Intn(750000)
 		//try linear search for benchmark
-		num := rand.Int()
 		t := time.Now()
 		_, err := linearSearch(dir, num)
 		elapsed := time.Since(t)
 		totalLinear += elapsed
 		if err != nil {
-			fmt.Printf("Linear search for %v: %v. [%v] elapsed\n", num, err, elapsed)
 		} else {
 			totalFound++
 			fmt.Printf("Linear search for %v: data found! [%v] elapsed\n", num, elapsed)
@@ -65,13 +64,14 @@ func TestChannelSearch(t *testing.T) {
 		elapsed = time.Since(t)
 		totalChannel += elapsed
 		if err != nil {
-			fmt.Printf("Channel search for %v: %v. [%v] elapsed\n", num, err, elapsed)
 		} else {
+			totalCFound++
 			fmt.Printf("Channel search for %v: data found! [%v] elapsed\n", num, elapsed)
 		}
 	}
 
-	fmt.Printf("%v out of 20 searched items found!\n", totalFound)
+	fmt.Printf("Linear Search: %v out of 20000 searched items found!\n", totalFound)
+	fmt.Printf("Channel Search: %v out of 20000 searched items found!\n", totalCFound)
 	fmt.Printf("Total linear search time: %v\n", totalLinear)
 	fmt.Printf("Total channel search time: %v\n", totalChannel)
 
