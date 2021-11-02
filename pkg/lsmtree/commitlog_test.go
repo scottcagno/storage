@@ -301,3 +301,68 @@ func TestCommitLogTestLargeLoad(t *testing.T) {
 		t.Errorf("close: %v\n", err)
 	}
 }
+
+func TestCommitLogScanNext(t *testing.T) {
+
+	fmt.Println("opening commit log...")
+	// open commit log
+	c, err := openCommitLog(baseDir, false)
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	fmt.Println("writing entries...")
+	// write entries
+	for i := count / 2; i < count; i++ {
+		// make entry
+		e := &Entry{
+			Key:   makeData("key", i),
+			Value: makeData("value", i),
+		}
+		// add checksum
+		e.CRC = checksum(append(e.Key, e.Value...))
+
+		// write entry
+		_, err := c.put(e)
+		if err != nil {
+			t.Errorf("put: %v\n", err)
+		}
+	}
+
+	fmt.Println("closing commit log...")
+	// close commit log
+	err = c.close()
+	if err != nil {
+		t.Errorf("close: %v\n", err)
+	}
+
+	fmt.Println("opening commit log, again...")
+	// open commit log
+	c, err = openCommitLog(baseDir, false)
+	if err != nil {
+		t.Errorf("open: %v\n", err)
+	}
+
+	fmt.Println("reading entries using scan next...")
+	err = c.scan(func(e *Entry) bool {
+		fmt.Printf("%s\n", e)
+		return true
+	})
+	if err != nil {
+		t.Errorf("next: %v\n", err)
+	}
+
+	fmt.Println("cycling...")
+	// cycling
+	err = c.cycle()
+	if err != nil {
+		t.Errorf("cycling: %v\n", err)
+	}
+
+	fmt.Println("closing commit log")
+	// close commit log
+	err = c.close()
+	if err != nil {
+		t.Errorf("close: %v\n", err)
+	}
+}

@@ -345,7 +345,7 @@ func (lsm *LSMTree) loadDataFromCommitLog() error {
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
 	// iterate through the commit log...
-	err := lsm.wacl.next(func(e *Entry) bool {
+	err := lsm.wacl.scan(func(e *Entry) bool {
 		// ...and insert entries back into mem-table
 		err := lsm.memt.put(e)
 		return err == nil

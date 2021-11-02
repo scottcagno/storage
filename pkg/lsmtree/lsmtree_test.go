@@ -1,6 +1,7 @@
 package lsmtree
 
 import (
+	"fmt"
 	"log"
 	"testing"
 )
@@ -40,6 +41,57 @@ func TestLSMTree_Put(t *testing.T) {
 		if err != nil {
 			t.Fatalf("put: %v\n", err)
 		}
+	})
+
+	// close
+	err = db.Close()
+	logAndCheckErr("closing", err, t)
+}
+
+func TestLSMTree_PutBatch(t *testing.T) {
+
+	// open
+	db, err := OpenLSMTree(opt)
+	logAndCheckErr("opening", err, t)
+
+	// make new batch
+	batch := NewBatch()
+
+	// write
+	doNTimes(1*thousand, func(i int) {
+		// write entry to batch
+		err := batch.Write(makeData("key", i), []byte(smVal))
+		if err != nil {
+			t.Fatalf("batch write: %v\n", err)
+		}
+	})
+
+	// write batch
+	err = db.PutBatch(batch)
+	logAndCheckErr("put batch", err, t)
+
+	// close
+	err = db.Close()
+	logAndCheckErr("closing", err, t)
+
+}
+
+func TestLSMTree_Get(t *testing.T) {
+
+	// open
+	db, err := OpenLSMTree(opt)
+	logAndCheckErr("opening", err, t)
+	log.Printf("memtable size -> %d\n", db.memt.table.size)
+
+	// read
+	doNTimes(1*thousand, func(i int) {
+		// get entry at i
+		k := makeData("key", i)
+		v, err := db.Get(k)
+		if err != nil {
+			t.Fatalf("get(%q): %v\n", k, err)
+		}
+		fmt.Printf("got(%q)->%q\n", k, v)
 	})
 
 	// close

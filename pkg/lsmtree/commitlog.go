@@ -28,11 +28,6 @@ func openCommitLog(base string, syncOnWrite bool) (*commitLog, error) {
 	if err != nil {
 		return nil, err
 	}
-	// seek to end of file
-	_, err = fd.Seek(0, io.SeekEnd)
-	if err != nil {
-		return nil, err
-	}
 	// create commit log instance
 	c := &commitLog{
 		baseDir:     base,
@@ -40,33 +35,33 @@ func openCommitLog(base string, syncOnWrite bool) (*commitLog, error) {
 		fd:          fd,
 	}
 	// load entry index
-	//err = c.loadIndex()
-	//if err != nil {
-	//	return nil, err
-	//}
+	err = c.loadIndex()
+	if err != nil {
+		return nil, err
+	}
 	return c, nil
 }
 
-//func (c *commitLog) loadIndex() error {
-//	for {
-//		// get offset of entry
-//		offset, err := c.fd.Seek(0, io.SeekCurrent)
-//		if err != nil {
-//			return err
-//		}
-//		// read entry
-//		_, err = readEntry(c.fd)
-//		if err != nil {
-//			if err == io.EOF || err == io.ErrUnexpectedEOF {
-//				break
-//			}
-//			return err
-//		}
-//		// read entry successful, add to index
-//		c.offsets = append(c.offsets, offset)
-//	}
-//	return nil
-//}
+func (c *commitLog) loadIndex() error {
+	for {
+		// get offset of entry
+		offset, err := c.fd.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return err
+		}
+		// read entry
+		_, err = readEntry(c.fd)
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+			return err
+		}
+		// read entry successful, add to index
+		c.offsets = append(c.offsets, offset)
+	}
+	return nil
+}
 
 func (c *commitLog) get(offset int64) (*Entry, error) {
 	// read entry at provided offset
@@ -88,10 +83,10 @@ func (c *commitLog) put(e *Entry) (int64, error) {
 	return offset, nil
 }
 
-func (c *commitLog) next(iter func(e *Entry) bool) error {
-	for {
+func (c *commitLog) scan(iter func(e *Entry) bool) error {
+	for i := range c.offsets {
 		// read entry
-		e, err := readEntry(c.fd)
+		e, err := readEntryAt(c.fd, c.offsets[i])
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				break
