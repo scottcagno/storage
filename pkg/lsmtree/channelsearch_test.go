@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func testChannelSearch(t *testing.T) {
+func TestChannelSearch(t *testing.T) {
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -19,13 +19,22 @@ func testChannelSearch(t *testing.T) {
 		files: make([]*myFile, 500),
 	}
 
-	for i := 0; i < 1000; i++ {
+	nums := make(map[int]bool)
+
+	fmt.Println("Making \"files\"")
+	for i := 0; i < 500; i++ {
 		f := &myFile{
 			data: make([]*myEntry, 1000),
 		}
 		for j := 0; j < 1000; j++ {
-			f.data[j] = &myEntry{
-				value: rand.Int(),
+			for {
+				num := rand.Int()
+				if _, ok := nums[num]; ok != true {
+					f.data[j] = &myEntry{
+						value: num,
+					}
+					break
+				}
 			}
 		}
 		dir.files[i] = f
