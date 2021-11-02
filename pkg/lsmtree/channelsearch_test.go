@@ -1,3 +1,5 @@
 package lsmtree
 
-func testChannelSearch(t *testing.T){}
+import "testing"
+
+func testChannelSearch(t *testing.T) {}
