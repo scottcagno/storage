@@ -46,14 +46,17 @@ func channelSearch(d *myDir, i int) (*myEntry, error) {
 	//the wait group will tell us when all the concurrent search functions are over
 	wg := &sync.WaitGroup{}
 
-	//turns out making this concurrent was a bad idea, because waitgroup
-	//I guess we can make it concurrent again if there's a way to count
-	//how many files we need to search, then just add that number directly
-	//to the wait group. But I really feel like blocking here is slowing us down
-	for _, f := range d.files {
-		wg.Add(1)
-		go search(f, i, c, wg)
-	}
+	//I think this will make the search function faster by making the function
+	//call concurrent. Specifically, this should make a huge difference when
+	//the entry is found in one of the first few files
+	wg.Add(len(d.files))
+
+	//now we can make this part concurrent
+	go func() {
+		for _, f := range d.files {
+			go search(f, i, c, wg)
+		}
+	}()
 
 	//close c if all searches finish without returning a value
 	go func() {
@@ -62,11 +65,8 @@ func channelSearch(d *myDir, i int) (*myEntry, error) {
 		return
 	}()
 
-	//listen on channel c. This syntax is a little awkward, since I'm not
-	//running it concurrently, but I'm also not blocking on this function.
-	//I should figure out a way to make this a go func(){}() without having
-	//to create another channel, thus defeating the purpose of running this
-	//loop concurrently
+	//now this blocks the return until either the index is found
+	//or the channel is closed
 	for {
 		v, ok := <-c
 		if ok != true { //if we've closed the channel
