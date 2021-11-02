@@ -4,6 +4,7 @@ package lsmtree
 //I just copy/pasted from playground, I'll be cleaning this up then
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -65,7 +66,7 @@ func channelSearch(d *myDir, i int) (*myEntry, error) {
 	for {
 		v, ok := <-c
 		if ok != true { //if we've closed the channel
-			return &myEntry{}, ErrNotFound
+			return &myEntry{}, fmt.Errorf("Not Found")
 		}
 		return v, nil
 	}
@@ -81,5 +82,5 @@ func linearSearch(d *myDir, i int) (int, error) {
 			}
 		}
 	}
-	return -1, ErrNotFound
+	return -1, fmt.Errorf("Not found")
 }
