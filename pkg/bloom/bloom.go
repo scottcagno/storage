@@ -8,6 +8,7 @@
 package bloom
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/scottcagno/storage/pkg/bitset"
 	"github.com/scottcagno/storage/pkg/hash/cityhash"
@@ -166,4 +167,12 @@ func split4(x uint64) []uint16 {
 
 func join4(a, b, c, d int64) uint64 {
 	return uint64(a) | uint64(b)<<16 | uint64(c)<<32 | uint64(d)<<48
+}
+
+func (f *BloomFilter) MarshalBinary() (data []byte, err error) {
+	return json.Marshal(f)
+}
+
+func (f *BloomFilter) UnmarshalBinary(data []byte) error {
+	return json.Unmarshal(data, f)
 }

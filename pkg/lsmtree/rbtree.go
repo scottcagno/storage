@@ -292,8 +292,8 @@ func (t *rbTree) cloneEntries(t2 *rbTree) {
 
 type Iterator func(entry *Entry) bool
 
-func (t *rbTree) Scan(iter Iterator) {
-	t.ascend(t.root, t.min(t.root).entry, iter)
+func (t *rbTree) Scan(iter Iterator) bool {
+	return t.ascend(t.root, t.min(t.root).entry, iter)
 }
 
 func (t *rbTree) ScanBack(iter Iterator) {

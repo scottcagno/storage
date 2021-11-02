@@ -31,3 +31,11 @@ func (mt *memTable) put(e *Entry) error {
 	}
 	return nil
 }
+
+func (mt *memTable) scan(iter func(e *Entry) bool) error {
+	ok := mt.table.Scan(iter)
+	if ok {
+		return nil
+	}
+	return ErrNotFound
+}
