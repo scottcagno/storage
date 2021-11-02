@@ -76,8 +76,17 @@ func (sstm *ssTableManager) createSSTable(memt *memTable) error {
 		}
 		// write entry to bloom filter
 		bf.Set(e.Key)
-		// write bloom filter to head of ss-table
-		file.Write(bf.Bytes())
+		// marshal bloom filter info data to be written
+		data, err := bf.MarshalBinary()
+		if err != nil {
+			return false
+		}
+		// write bloom filter data to head of ss-table
+		_, err = file.Write(data)
+		if err != nil {
+			return false
+		}
+		return true
 	})
 	// init and return SSTable
 	sst := &SSTable{
