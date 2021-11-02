@@ -3,6 +3,7 @@ package lsmtree
 import (
 	"os"
 	"path/filepath"
+	"testing"
 )
 
 func initBasePath(base string) (string, error) {
@@ -19,4 +20,18 @@ func initBasePath(base string) (string, error) {
 	}
 	// return "sanitized" path
 	return path, nil
+}
+
+func GetTempFileForTesting(t *testing.T, fn func(file *os.File)) {
+	fd, err := os.CreateTemp(t.TempDir(), "tmp-file-*.txt")
+	if err != nil {
+		t.Fatalf("create and open temp dir and file: %v\n", err)
+	}
+	defer func(fd *os.File) {
+		err := fd.Close()
+		if err != nil {
+			t.Fatalf("defferred close of file: %v\n", err)
+		}
+	}(fd)
+	fn(fd)
 }

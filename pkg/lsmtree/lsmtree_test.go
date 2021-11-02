@@ -123,6 +123,44 @@ func TestLSMTree_GetBatch(t *testing.T) {
 	logAndCheckErr("closing", err, t)
 }
 
+func TestLSMTreeKeyOverride(t *testing.T) {
+
+	db, err := OpenLSMTree(opt)
+	logAndCheckErr("opening", err, t)
+
+	err = db.Put([]byte("Hi!"), []byte("Hello world, LSMTree!"))
+	logAndCheckErr("put (1st)", err, t)
+
+	err = db.Put([]byte("Does it override key?"), []byte("No!"))
+	logAndCheckErr("put (2nd)", err, t)
+
+	err = db.Put([]byte("Does it override key?"), []byte("Yes, absolutely! The key has been overridden."))
+	logAndCheckErr("put (2nd override)", err, t)
+
+	err = db.Close()
+	logAndCheckErr("closing", err, t)
+
+	db, err = OpenLSMTree(opt)
+	logAndCheckErr("opening", err, t)
+
+	key := []byte("Hi!")
+	val, err := db.Get(key)
+	logAndCheckErr("get (1st)", err, t)
+	fmt.Printf("get(%q)=%q\n", key, val)
+
+	key = []byte("Does it override key?")
+	val, err = db.Get(key)
+	logAndCheckErr("get (2nd)", err, t)
+	fmt.Printf("get(%q)=%q\n", key, val)
+
+	err = db.Close()
+	logAndCheckErr("closing", err, t)
+
+	// Expected output:
+	// Hello world, LSMTree!
+	// Yes, absolutely! The key has been overridden.
+}
+
 var smVal = `Praesent efficitur, ante eget eleifend scelerisque, neque erat malesuada neque, vel euismod 
 dui leo a nisl. Donec a eleifend dui. Maecenas necleo odio. In maximus convallis ligula eget sodales.`
 
