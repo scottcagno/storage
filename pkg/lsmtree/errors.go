@@ -5,9 +5,10 @@ import "errors"
 var (
 	ErrKeyNotFound    = errors.New("lsmtree: key not found")
 	ErrFoundTombstone = errors.New("lsmtree: found tombstone or empty value")
-	ErrDeleted        = ErrFoundTombstone
 
-	ErrNotFound       = errors.New("lsmtree: not found")
+	ErrNoDataFound = errors.New("lsmtree: no data found")
+
+	ErrNotFound       = errors.New("lsmtree: entry not found")
 	ErrIncompleteSet  = errors.New("lsmtree: incomplete batch or set")
 	ErrFlushThreshold = errors.New("lsmtree: flush threshold has been reached")
 

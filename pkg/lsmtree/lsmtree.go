@@ -272,6 +272,10 @@ func (lsm *LSMTree) Close() error {
 
 // getEntry is the internal "get" implementation
 func (lsm *LSMTree) getEntry(e *Entry) (*Entry, error) {
+	// check to make sure there is data
+	if lsm.memt.table.size < 1 {
+		return nil, ErrNoDataFound
+	}
 	// look in mem-table
 	ent, err := lsm.memt.get(e)
 	if err == nil {

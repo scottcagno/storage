@@ -81,7 +81,6 @@ func TestLSMTree_Get(t *testing.T) {
 	// open
 	db, err := OpenLSMTree(opt)
 	logAndCheckErr("opening", err, t)
-	log.Printf("memtable size -> %d\n", db.memt.table.size)
 
 	// read
 	doNTimes(1*thousand, func(i int) {
@@ -93,6 +92,31 @@ func TestLSMTree_Get(t *testing.T) {
 		}
 		fmt.Printf("got(%q)->%q\n", k, v)
 	})
+
+	// close
+	err = db.Close()
+	logAndCheckErr("closing", err, t)
+}
+
+func TestLSMTree_GetBatch(t *testing.T) {
+
+	// open
+	db, err := OpenLSMTree(opt)
+	logAndCheckErr("opening", err, t)
+
+	// make keys
+	var keys [][]byte
+	doNTimes(1*thousand, func(i int) {
+		// get entry at i
+		k := makeData("key", i)
+		keys = append(keys, k)
+	})
+	// read using get batch
+	batch, err := db.GetBatch(keys...)
+	logAndCheckErr("read using get batch", err, t)
+	for i := range batch.Entries {
+		fmt.Printf("%s\n", batch.Entries[i])
+	}
 
 	// close
 	err = db.Close()

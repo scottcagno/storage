@@ -65,7 +65,7 @@ func channelSearch(d *myDir, i int) (*myEntry, error) {
 	for {
 		v, ok := <-c
 		if ok != true { //if we've closed the channel
-			return &myEntry{}, errEntryNotFound
+			return &myEntry{}, ErrNotFound
 		}
 		return v, nil
 	}
@@ -81,5 +81,5 @@ func linearSearch(d *myDir, i int) (int, error) {
 			}
 		}
 	}
-	return -1, errEntryNotFound
+	return -1, ErrNotFound
 }
