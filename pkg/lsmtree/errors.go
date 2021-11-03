@@ -21,6 +21,7 @@ var (
 	ErrReadingEntry = errors.New("lsmtree: error reading entry")
 
 	ErrNilEntry = errors.New("lsmtree: error got nil entry")
+	ErrNilIndex = errors.New("lsmtree: error got nil index")
 
 	ErrBadChecksum = errors.New("lsmtree: bad checksum")
 )

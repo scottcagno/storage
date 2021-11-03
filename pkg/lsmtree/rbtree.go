@@ -320,7 +320,7 @@ func (t *rbTree) Close() {
 	return
 }
 
-func (t *rbTree) Reset() {
+func (t *rbTree) reset() {
 	t.NIL = nil
 	t.root = nil
 	t.count = 0

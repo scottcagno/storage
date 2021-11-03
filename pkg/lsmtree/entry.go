@@ -7,6 +7,17 @@ import (
 	"unsafe"
 )
 
+// Index is a binary entry index
+type Index struct {
+	Key    []byte
+	Offset int64
+}
+
+// String is the stringer method for a *Index
+func (i *Index) String() string {
+	return fmt.Sprintf("index.key=%q, index.offset=%d", i.Key, i.Offset)
+}
+
 // Tombstone is a marker for an entry that has been deleted
 var Tombstone = []byte{0xDE, 0xAD, 0xBE, 0xEF}
 

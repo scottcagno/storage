@@ -5,6 +5,97 @@ import (
 	"io"
 )
 
+// readIndex reads and decodes the provided entry index from r
+func readIndex(r io.Reader) (*Index, error) {
+	// make buffer
+	buf := make([]byte, 18)
+	// read index header
+	_, err := r.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	// decode key length
+	klen := binary.LittleEndian.Uint64(buf[0:8])
+	// decode data offset
+	off, _ := binary.Varint(buf[8:18])
+	// make entry index
+	i := &Index{
+		Key:    make([]byte, klen),
+		Offset: off,
+	}
+	// read key from data into entry key
+	_, err = r.Read(i.Key)
+	if err != nil {
+		return nil, err
+	}
+	// return index
+	return i, nil
+}
+
+// readIndexAt decodes the index at the provided offset using the provided reader
+func readIndexAt(r io.ReaderAt, offset int64) (*Index, error) {
+	// make buffer
+	buf := make([]byte, 18)
+	// read index header
+	n, err := r.ReadAt(buf, offset)
+	if err != nil {
+		return nil, err
+	}
+	// update offset
+	offset += int64(n)
+	// decode key length
+	klen := binary.LittleEndian.Uint64(buf[0:8])
+	// decode data offset
+	off, _ := binary.Varint(buf[8:18])
+	// make entry index
+	e := &Index{
+		Key:    make([]byte, klen),
+		Offset: off,
+	}
+	// read key from data into entry key
+	n, err = r.ReadAt(e.Key, offset)
+	if err != nil {
+		return nil, err
+	}
+	// update offset
+	offset += int64(n)
+	// return entry
+	return e, nil
+}
+
+// writeIndex encodes and writes the provided entry index to w
+func writeIndex(w io.WriteSeeker, i *Index) (int64, error) {
+	// error check
+	if i == nil {
+		return -1, ErrNilIndex
+	}
+	// get the file pointer offset for the entry
+	offset, err := w.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return -1, err
+	}
+	// make buffer
+	buf := make([]byte, 18)
+	// encode and write index key length
+	binary.LittleEndian.PutUint64(buf[0:8], uint64(len(i.Key)))
+	_, err = w.Write(buf[0:8])
+	if err != nil {
+		return -1, err
+	}
+	// encode and write index data offset
+	binary.PutVarint(buf[8:18], i.Offset)
+	_, err = w.Write(buf[8:18])
+	if err != nil {
+		return -1, err
+	}
+	// write index key
+	_, err = w.Write(i.Key)
+	if err != nil {
+		return -1, err
+	}
+	return offset, nil
+}
+
 func readEntryHeader(r io.Reader, hdr *EntryHeader) (int, error) {
 	// make header buffer to read data into
 	buf := make([]byte, 16)
