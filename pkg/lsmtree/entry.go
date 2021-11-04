@@ -111,6 +111,17 @@ func (b *Batch) writeEntry(e *Entry) error {
 	return nil
 }
 
+// Discard just vaporizes a batch
+func (b *Batch) Discard() {
+	for i := range b.Entries {
+		b.Entries[i].Key = nil
+		b.Entries[i].Value = nil
+	}
+	b.Entries = nil
+	b.size = -1
+	b = nil
+}
+
 // Len [implementing sort interface]
 func (b *Batch) Len() int {
 	return len(b.Entries)
