@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -13,6 +14,10 @@ const (
 	dataFileSuffix  = ".dat"
 	indexFileSuffix = ".idx"
 )
+
+func levelToDir(level int) string {
+	return fmt.Sprintf("level-%d", level)
+}
 
 func toDataFileName(index int64) string {
 	hexa := strconv.FormatInt(index, 16)
@@ -47,9 +52,13 @@ type ssTable struct {
 	index *ssTableIndex
 }
 
+func createLevel0Tables(path string, batch *Batch) error {
+	return nil
+}
+
 // createSSAndIndexTables creates a new ss-table and ss-table-index using
 // the provided entry batch, and returns nil on success.
-func createSSAndIndexTables(path string, seq int64, batch *Batch) error {
+func createSSAndIndexTables(path string, level int, batch *Batch) error {
 	// error check
 	if batch == nil {
 		return ErrIncompleteSet
@@ -59,8 +68,27 @@ func createSSAndIndexTables(path string, seq int64, batch *Batch) error {
 		// sort if not sorted
 		sort.Stable(batch)
 	}
+	// sanitize base path
+	base, err := initBasePath(filepath.Join(path, levelToDir(level)))
+	if err != nil {
+		return err
+	}
+	// read the base dir for this level
+	files, err := os.ReadDir(base)
+	if err != nil {
+		return err
+	}
+	// init seq
+	var seq int64
+	// count the files to get the sequence number
+	for _, file := range files {
+		// if the file is a sst-table data file, increment
+		if !file.IsDir() && strings.HasSuffix(file.Name(), dataFileSuffix) {
+			seq++
+		}
+	}
 	// get data file name
-	dataFileName := filepath.Join(path, toDataFileName(seq))
+	dataFileName := filepath.Join(base, toDataFileName(seq))
 	// open data file
 	dataFile, err := os.OpenFile(dataFileName, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
@@ -74,7 +102,7 @@ func createSSAndIndexTables(path string, seq int64, batch *Batch) error {
 		}
 	}(dataFile)
 	// get index file name
-	indexFileName := filepath.Join(path, toIndexFileName(seq))
+	indexFileName := filepath.Join(base, toIndexFileName(seq))
 	// open index file
 	indexFile, err := os.OpenFile(indexFileName, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
@@ -134,25 +162,50 @@ func (sstm *ssTableManager) get(e *Entry) (*Entry, error) {
 }
 
 func (sstm *ssTableManager) flushToSSTable(memt *memTable) error {
-	// create new batch
-	batch := NewBatch()
-	// iterate memtable adding to batch
-	err := memt.scan(func(e *Entry) bool {
-		err := batch.writeEntry(e)
-		if err != nil {
-			return false
-		}
-		return true
-	})
+	// get entries from memtable as batch
+	batch, err := memt.getAllBatch()
+	// check for error
 	if err != nil {
 		return err
 	}
-	// reset memtable
+	// reset mem-table
 	memt.table.reset()
+	// get batch size
+	size := batch.Size()
+	// get level based on size
+	level := getLevelFromSize(size)
 	// write ss-table and ss-table index files
-	err = createSSAndIndexTables(sstm.baseDir, sstm.seqnum, batch)
+	err = createSSAndIndexTables(sstm.baseDir, level, batch)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func (sstm *ssTableManager) flushBatchToSSTable(batch *Batch) error {
+	// get batch size
+	size := batch.Size()
+	// get level based on size
+	level := getLevelFromSize(size)
+	// write ss-table and ss-table index files
+	err := createSSAndIndexTables(sstm.baseDir, level, batch)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func getLevelFromSize(size int64) int {
+	switch {
+	case size > 0<<20 && size < 1<<21: // level-0	(2 MB) max=4
+		return 0
+	case size > 1<<22 && size < 1<<23: // level-1   (8 MB) max=4
+		return 1
+	case size > 1<<24 && size < 1<<25: // level-2  (32 MB) max=4
+		return 2
+	case size > 1<<26 && size < 1<<27: // level-3 (128 MB) max=4
+		return 3
+	default:
+		return 4 // oddballs that will need gc for sure
+	}
 }

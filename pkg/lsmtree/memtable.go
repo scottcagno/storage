@@ -39,3 +39,7 @@ func (mt *memTable) scan(iter func(e *Entry) bool) error {
 	}
 	return ErrNotFound
 }
+
+func (mt *memTable) getAllBatch() (*Batch, error) {
+	return mt.table.getAllBatch()
+}

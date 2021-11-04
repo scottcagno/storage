@@ -290,6 +290,17 @@ func (t *rbTree) cloneEntries(t2 *rbTree) {
 	})
 }
 
+func (t *rbTree) getAllBatch() (batch *Batch, err error) {
+	t.ascend(t.root, t.min(t.root).entry, func(e *Entry) bool {
+		err = batch.writeEntry(e)
+		if err != nil {
+			return false
+		}
+		return true
+	})
+	return
+}
+
 type Iterator func(entry *Entry) bool
 
 func (t *rbTree) Scan(iter Iterator) bool {

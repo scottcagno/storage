@@ -70,6 +70,7 @@ func (e *Entry) Size() int64 {
 // Batch is a set of entries
 type Batch struct {
 	Entries []*Entry
+	size    int64
 }
 
 // NewBatch instantiates a new batch of entries
@@ -77,6 +78,11 @@ func NewBatch() *Batch {
 	return &Batch{
 		Entries: make([]*Entry, 0),
 	}
+}
+
+// Size returns the batch size in bytes
+func (b *Batch) Size() int64 {
+	return b.size
 }
 
 // Write writes a new entry to the batch
@@ -93,8 +99,15 @@ func (b *Batch) writeEntry(e *Entry) error {
 	if err != nil {
 		return err
 	}
+	// add size
+	b.size += e.Size()
 	// write entry to batch
 	b.Entries = append(b.Entries, e)
+	// check size
+	if b.size >= defaultFlushThreshold {
+		// if batch has met or exceeded flush threshold
+		return ErrFlushThreshold
+	}
 	return nil
 }
 
