@@ -9,15 +9,14 @@ import (
 const ()
 
 type LSMTree struct {
-	lock        sync.RWMutex
-	opt         *Options
-	logDir      string
-	sstDir      string
-	wacl        *commitLog
-	memt        *rbTree
-	memtInFlush *rbTree
-	sstm        *ssTableManager
-	logger      *Logger
+	lock   sync.RWMutex
+	opt    *Options
+	logDir string
+	sstDir string
+	wacl   *commitLog
+	memt   *rbTree
+	sstm   *ssTableManager
+	logger *Logger
 }
 
 // OpenLSMTree opens or creates an LSMTree instance
@@ -53,14 +52,13 @@ func OpenLSMTree(options *Options) (*LSMTree, error) {
 	}
 	// create lsm-tree instance
 	lsmt := &LSMTree{
-		opt:         opt,
-		logDir:      logdir,
-		sstDir:      sstdir,
-		wacl:        wacl,
-		memt:        newRBTree(),
-		memtInFlush: newRBTree(),
-		sstm:        sstm,
-		logger:      newLogger(opt.LoggingLevel),
+		opt:    opt,
+		logDir: logdir,
+		sstDir: sstdir,
+		wacl:   wacl,
+		memt:   newRBTree(),
+		sstm:   sstm,
+		logger: newLogger(opt.LoggingLevel),
 	}
 	// load mem-table with commit log data
 	err = lsmt.loadDataFromCommitLog()
