@@ -138,7 +138,7 @@ func (t *rbTree) addEntry(entry *Entry) bool {
 }
 
 // putEntry acts as a regular upsert. It returns true if
-// the entry was updated.
+// the entry was updated and false if it was added.
 func (t *rbTree) putEntry(entry *Entry) (*Entry, bool) {
 	return t.putInternal(entry)
 }

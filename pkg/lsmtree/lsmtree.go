@@ -14,7 +14,7 @@ type LSMTree struct {
 	logDir string
 	sstDir string
 	wacl   *commitLog
-	memt   *memTable
+	memt   *rbTree
 	sstm   *ssTableManager
 	logger *Logger
 }
@@ -50,18 +50,13 @@ func OpenLSMTree(options *Options) (*LSMTree, error) {
 	if err != nil {
 		return nil, err
 	}
-	// open memtable
-	memt, err := openMemTable(opt.flushThreshold)
-	if err != nil {
-		return nil, err
-	}
 	// create lsm-tree instance
 	lsmt := &LSMTree{
 		opt:    opt,
 		logDir: logdir,
 		sstDir: sstdir,
 		wacl:   wacl,
-		memt:   memt,
+		memt:   newRBTree(),
 		sstm:   sstm,
 		logger: newLogger(opt.LoggingLevel),
 	}
@@ -273,17 +268,17 @@ func (lsm *LSMTree) Close() error {
 // getEntry is the internal "get" implementation
 func (lsm *LSMTree) getEntry(e *Entry) (*Entry, error) {
 	// check to make sure there is data
-	if lsm.memt.table.size < 1 {
+	if lsm.memt.sizeOfEntries() < 1 {
 		return nil, ErrNoDataFound
 	}
 	// look in mem-table
-	ent, err := lsm.memt.get(e)
-	if err == nil {
+	ent, found := lsm.memt.getEntry(e)
+	if found {
 		// found it
 		return ent, nil
 	}
 	// look in ss-tables
-	ent, err = lsm.sstm.get(e)
+	ent, err := lsm.sstm.get(e)
 	if err == nil {
 		// found it
 		return ent, nil
@@ -299,9 +294,9 @@ func (lsm *LSMTree) putEntry(e *Entry) error {
 		return err
 	}
 	// write entry to the mem-table
-	err = lsm.memt.put(e)
+	_, needToFlush := lsm.memt.upsertAndCheckSize(e, lsm.opt.flushThreshold)
 	// check if we should do a flush
-	if err != nil && err == ErrFlushThreshold {
+	if needToFlush {
 		// attempt to flush
 		err = lsm.sstm.flushToSSTable(lsm.memt)
 		if err != nil {
@@ -324,9 +319,9 @@ func (lsm *LSMTree) delEntry(e *Entry) error {
 		return err
 	}
 	// write entry to the mem-table
-	err = lsm.memt.put(e)
+	_, needToFlush := lsm.memt.upsertAndCheckSize(e, lsm.opt.flushThreshold)
 	// check if we should do a flush
-	if err != nil && err == ErrFlushThreshold {
+	if needToFlush {
 		// attempt to flush
 		err = lsm.sstm.flushToSSTable(lsm.memt)
 		if err != nil {
@@ -351,8 +346,13 @@ func (lsm *LSMTree) loadDataFromCommitLog() error {
 	// iterate through the commit log...
 	err := lsm.wacl.scan(func(e *Entry) bool {
 		// ...and insert entries back into mem-table
-		err := lsm.memt.put(e)
-		return err == nil
+		if e.hasTombstone() {
+			// skip tombstone entry
+			return true
+		}
+		// blind insert of entry
+		lsm.memt.putEntry(e)
+		return true
 	})
 	if err != nil {
 		return err
