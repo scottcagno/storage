@@ -5,16 +5,17 @@ import "testing"
 func TestCreateSSAndIndexTables(t *testing.T) {
 
 	// make batch
-	batch := NewBatch()
+	memt := newRBTree()
 	for i := 0; i < 50000; i++ {
-		err := batch.Write(makeData("key", i), []byte(mdVal))
-		if err != nil {
-			t.Fatalf("writing batch: %v\n", err)
+		e := &Entry{
+			Key:   makeData("key", i),
+			Value: []byte(mdVal),
 		}
+		_, _ = memt.putEntry(e)
 	}
 
 	// create ss-table and ss-table-index
-	err := createSSAndIndexTables("ss-table-testing", getLevelFromSize(batch.Size()), batch)
+	err := createSSAndIndexTables("ss-table-testing", memt)
 	if err != nil {
 		t.Fatalf("create ss-table and ss-table-index: %v\n", err)
 	}

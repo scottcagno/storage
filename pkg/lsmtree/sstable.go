@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -58,23 +57,14 @@ func createLevel0Tables(path string, batch *Batch) error {
 
 // createSSAndIndexTables creates a new ss-table and ss-table-index using
 // the provided entry batch, and returns nil on success.
-func createSSAndIndexTables(path string, level int, batch *Batch) error {
-	// error check
-	if batch == nil {
-		return ErrIncompleteSet
-	}
-	// make sure batch is sorted
-	if !sort.IsSorted(batch) {
-		// sort if not sorted
-		sort.Stable(batch)
-	}
+func createSSAndIndexTables(base string, memt *rbTree) error {
 	// sanitize base path
-	base, err := initBasePath(filepath.Join(path, levelToDir(level)))
+	path, err := initBasePath(filepath.Join(base, levelToDir(0)))
 	if err != nil {
 		return err
 	}
 	// read the base dir for this level
-	files, err := os.ReadDir(base)
+	files, err := os.ReadDir(path)
 	if err != nil {
 		return err
 	}
@@ -88,7 +78,7 @@ func createSSAndIndexTables(path string, level int, batch *Batch) error {
 		}
 	}
 	// get data file name
-	dataFileName := filepath.Join(base, toDataFileName(seq))
+	dataFileName := filepath.Join(path, toDataFileName(seq))
 	// open data file
 	dataFile, err := os.OpenFile(dataFileName, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
@@ -102,7 +92,7 @@ func createSSAndIndexTables(path string, level int, batch *Batch) error {
 		}
 	}(dataFile)
 	// get index file name
-	indexFileName := filepath.Join(base, toIndexFileName(seq))
+	indexFileName := filepath.Join(path, toIndexFileName(seq))
 	// open index file
 	indexFile, err := os.OpenFile(indexFileName, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
@@ -115,14 +105,13 @@ func createSSAndIndexTables(path string, level int, batch *Batch) error {
 			panic("closing indexFile: " + err.Error())
 		}
 	}(indexFile)
-	// range batch and write entries and indexes
-	for i := range batch.Entries {
-		// entry
-		e := batch.Entries[i]
+	// range mem-table and write entries and indexes
+	memt.rangeFront(func(e *Entry) bool {
 		// write entry to data file
 		offset, err := writeEntry(dataFile, e)
 		if err != nil {
-			return err
+			// for now, just panic
+			panic(err)
 		}
 		// write index to index file
 		_, err = writeIndex(indexFile, &Index{
@@ -130,14 +119,17 @@ func createSSAndIndexTables(path string, level int, batch *Batch) error {
 			Offset: offset,
 		})
 		if err != nil {
-			return err
+			// for now, just panic
+			panic(err)
 		}
-	}
-	// sync files
+		return true
+	})
+	// sync data file
 	err = dataFile.Sync()
 	if err != nil {
 		return err
 	}
+	// sync index file
 	err = indexFile.Sync()
 	if err != nil {
 		return err
@@ -159,40 +151,6 @@ func openSSTableManager(base string) (*ssTableManager, error) {
 
 func (sstm *ssTableManager) get(e *Entry) (*Entry, error) {
 	return nil, nil
-}
-
-func (sstm *ssTableManager) flushToSSTable(memt *memTable) error {
-	// get entries from memtable as batch
-	batch, err := memt.getAllBatch()
-	// check for error
-	if err != nil {
-		return err
-	}
-	// reset mem-table
-	memt.table.reset()
-	// get batch size
-	size := batch.Size()
-	// get level based on size
-	level := getLevelFromSize(size)
-	// write ss-table and ss-table index files
-	err = createSSAndIndexTables(sstm.baseDir, level, batch)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (sstm *ssTableManager) flushBatchToSSTable(batch *Batch) error {
-	// get batch size
-	size := batch.Size()
-	// get level based on size
-	level := getLevelFromSize(size)
-	// write ss-table and ss-table index files
-	err := createSSAndIndexTables(sstm.baseDir, level, batch)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func getLevelFromSize(size int64) int {

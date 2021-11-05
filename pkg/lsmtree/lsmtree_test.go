@@ -161,6 +161,25 @@ func TestLSMTreeKeyOverride(t *testing.T) {
 	// Yes, absolutely! The key has been overridden.
 }
 
+func TestLSMTreeForceFlush(t *testing.T) {
+
+	db, err := OpenLSMTree(opt)
+	logAndCheckErr("opening", err, t)
+
+	for i := 0; i < 2000; i++ {
+		key := makeData("key", i)
+		err = db.Put(key, []byte(mdVal))
+		logAndCheckErr("put("+fmt.Sprintf("%s", key)+")", err, t)
+	}
+
+	err = db.Close()
+	logAndCheckErr("closing", err, t)
+
+	// Expected output:
+	// Hello world, LSMTree!
+	// Yes, absolutely! The key has been overridden.
+}
+
 var smVal = `Praesent efficitur, ante eget eleifend scelerisque, neque erat malesuada neque, vel euismod 
 dui leo a nisl. Donec a eleifend dui. Maecenas necleo odio. In maximus convallis ligula eget sodales.`
 

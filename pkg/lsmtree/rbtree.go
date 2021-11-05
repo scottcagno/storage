@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 const (
 	colorRED uint8 = iota
 	colorBLK
 )
+
+var lock sync.RWMutex
 
 // rbNode is a node of a rbtree
 type rbNode struct {
@@ -662,6 +665,30 @@ func (t *rbTree) ascendRange(x *rbNode, inf, sup *Entry, f func(e *Entry) bool) 
 		return false
 	}
 	return t.ascendRange(x.right, inf, sup, f)
+}
+
+func (t *rbTree) Lock() {
+	lock.Lock()
+}
+
+func (t *rbTree) Unlock() {
+	lock.Unlock()
+}
+
+func (t *rbTree) MarshalBinary() ([]byte, error) {
+	// lock in this case (for now)
+	lock.Lock()
+	defer lock.Unlock()
+	// TODO: implement...
+	return nil, nil
+}
+
+func (t *rbTree) UnmarshalBinary(data []byte) error {
+	// lock in this case (for now)
+	lock.Lock()
+	defer lock.Unlock()
+	// TODO: implement...
+	return nil
 }
 
 func (t *rbTree) String() string {

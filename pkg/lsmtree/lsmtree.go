@@ -9,14 +9,15 @@ import (
 const ()
 
 type LSMTree struct {
-	lock   sync.RWMutex
-	opt    *Options
-	logDir string
-	sstDir string
-	wacl   *commitLog
-	memt   *rbTree
-	sstm   *ssTableManager
-	logger *Logger
+	lock        sync.RWMutex
+	opt         *Options
+	logDir      string
+	sstDir      string
+	wacl        *commitLog
+	memt        *rbTree
+	memtInFlush *rbTree
+	sstm        *ssTableManager
+	logger      *Logger
 }
 
 // OpenLSMTree opens or creates an LSMTree instance
@@ -52,13 +53,14 @@ func OpenLSMTree(options *Options) (*LSMTree, error) {
 	}
 	// create lsm-tree instance
 	lsmt := &LSMTree{
-		opt:    opt,
-		logDir: logdir,
-		sstDir: sstdir,
-		wacl:   wacl,
-		memt:   newRBTree(),
-		sstm:   sstm,
-		logger: newLogger(opt.LoggingLevel),
+		opt:         opt,
+		logDir:      logdir,
+		sstDir:      sstdir,
+		wacl:        wacl,
+		memt:        newRBTree(),
+		memtInFlush: newRBTree(),
+		sstm:        sstm,
+		logger:      newLogger(opt.LoggingLevel),
 	}
 	// load mem-table with commit log data
 	err = lsmt.loadDataFromCommitLog()
@@ -298,7 +300,7 @@ func (lsm *LSMTree) putEntry(e *Entry) error {
 	// check if we should do a flush
 	if needToFlush {
 		// attempt to flush
-		err = lsm.sstm.flushToSSTable(lsm.memt)
+		err = lsm.flushToSSTable()
 		if err != nil {
 			return err
 		}
@@ -323,7 +325,7 @@ func (lsm *LSMTree) delEntry(e *Entry) error {
 	// check if we should do a flush
 	if needToFlush {
 		// attempt to flush
-		err = lsm.sstm.flushToSSTable(lsm.memt)
+		err = lsm.flushToSSTable()
 		if err != nil {
 			return err
 		}
@@ -357,5 +359,16 @@ func (lsm *LSMTree) loadDataFromCommitLog() error {
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func (lsm *LSMTree) flushToSSTable() error {
+	// create a new table files on disk
+	err := createSSAndIndexTables(lsm.sstDir, lsm.memt)
+	if err != nil {
+		return err
+	}
+	// reset memtable
+	lsm.memt.reset()
 	return nil
 }
