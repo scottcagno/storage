@@ -173,6 +173,7 @@ func (sstm *ssTableManager) get(e *Entry) (*Entry, error) {
 	return nil, nil
 }
 
+/*
 func getLevelFromSize(size int64) int {
 	switch {
 	case size > 0<<20 && size < 1<<21: // level-0	(2 MB) max=4
@@ -187,8 +188,10 @@ func getLevelFromSize(size int64) int {
 		return 4 // oddballs that will need gc for sure
 	}
 }
+*/
 
 func compactSSTable(path string) error {
+	// TODO: implement me...
 	// lock and defer unlock
 	// open and load ss-table
 	// make new ss-table
