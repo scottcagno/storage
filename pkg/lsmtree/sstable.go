@@ -1,6 +1,7 @@
 package lsmtree
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,14 +46,33 @@ type ssTableIndex struct {
 	data  []*Index
 }
 
+func (ssti *ssTableIndex) Len() int {
+	return len(ssti.data)
+}
+
 type ssTable struct {
 	path  string
 	fd    *os.File
 	index *ssTableIndex
 }
 
-func createLevel0Tables(path string, batch *Batch) error {
-	return nil
+func (sst *ssTable) ReadAt(offset int64) (*Entry, error) {
+	// error check
+	if sst.fd == nil {
+		return nil, ErrFileClosed
+	}
+	// use offset to read entry
+	e, err := readEntryAt(sst.fd, offset)
+	if err != nil {
+		return nil, err
+	}
+	// make sure entry checksum is good
+	err = checkCRC(e, checksum(append(e.Key, e.Value...)))
+	if err != nil {
+		return nil, err
+	}
+	// return entry
+	return e, nil
 }
 
 // createSSAndIndexTables creates a new ss-table and ss-table-index using
@@ -166,4 +186,102 @@ func getLevelFromSize(size int64) int {
 	default:
 		return 4 // oddballs that will need gc for sure
 	}
+}
+
+func compactSSTable(path string) error {
+	// lock and defer unlock
+	// open and load ss-table
+	// make new ss-table
+	// iterate old ss-table and write entries to new ss-table (not adding tombstone entries to batch)
+	// flush new ss-table
+	// close both ss-tables
+	// remove old ss-table (and index)
+	return nil
+}
+
+func mergeSSTables(sstA, sstB *ssTable, batch *Batch) error {
+
+	i, j := 0, 0
+	n1, n2 := sstA.index.Len(), sstB.index.Len()
+
+	var err error
+	var de *Entry
+	for i < n1 && j < n2 {
+		if bytes.Compare(sstA.index.data[i].Key, sstB.index.data[j].Key) == 0 {
+			// read entry from sstB
+			de, err = sstB.ReadAt(sstB.index.data[j].Offset)
+			if err != nil {
+				return err
+			}
+			// write entry to batch
+			err = batch.writeEntry(de)
+			if err != nil {
+				return err
+			}
+			i++
+			j++
+			continue
+		}
+		if bytes.Compare(sstA.index.data[i].Key, sstB.index.data[j].Key) == -1 {
+			// read entry from sstA
+			de, err = sstA.ReadAt(sstA.index.data[i].Offset)
+			if err != nil {
+				return err
+			}
+			// write entry to batch
+			err = batch.writeEntry(de)
+			if err != nil {
+				return err
+			}
+			i++
+			continue
+		}
+		if bytes.Compare(sstB.index.data[j].Key, sstA.index.data[i].Key) == -1 {
+			// read entry from sstB
+			de, err = sstB.ReadAt(sstB.index.data[j].Offset)
+			if err != nil {
+				return err
+			}
+			// write entry to batch
+			err = batch.writeEntry(de)
+			if err != nil {
+				return err
+			}
+			j++
+			continue
+		}
+	}
+
+	// print remaining
+	for i < n1 {
+		// read entry from sstA
+		de, err = sstA.ReadAt(sstA.index.data[i].Offset)
+		if err != nil {
+			return err
+		}
+		// write entry to batch
+		err = batch.writeEntry(de)
+		if err != nil {
+			return err
+		}
+		i++
+	}
+
+	// print remaining
+	for j < n2 {
+		// read entry from sstB
+		de, err = sstB.ReadAt(sstB.index.data[j].Offset)
+		if err != nil {
+			return err
+		}
+		// write entry to batch
+		err = batch.writeEntry(de)
+		if err != nil {
+			return err
+		}
+		j++
+	}
+
+	// return error free
+	return nil
 }

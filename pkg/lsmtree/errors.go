@@ -24,4 +24,6 @@ var (
 	ErrNilIndex = errors.New("lsmtree: error got nil index")
 
 	ErrBadChecksum = errors.New("lsmtree: bad checksum")
+
+	ErrFileClosed = errors.New("lsmtree: file is closed")
 )
