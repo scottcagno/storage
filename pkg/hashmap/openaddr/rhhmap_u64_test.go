@@ -77,7 +77,7 @@ func Test_HashMapU64_Range(t *testing.T) {
 	util.AssertExpected(t, 25, hm.Len())
 	var counted int
 	hm.Range(func(key uint64, value uint64) bool {
-		if key != -1 && value == 0x69 {
+		if key != 0 && value == 0x69 {
 			counted++
 			return true
 		}

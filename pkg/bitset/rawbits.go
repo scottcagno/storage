@@ -46,7 +46,7 @@ func RawBytesGetBit(bs *[]byte, i uint) uint {
 	return uint((*bs)[i>>3] & (1 << (i & (7))))
 }
 
-func PrintBits(bs *[]byte) string {
+func RawBytesStringer(bs *[]byte) string {
 	// print binary value of bitset
 	//var res string = "16" // set this to the "bit resolution" you'd like to see
 	var res = strconv.Itoa(len(*bs))
