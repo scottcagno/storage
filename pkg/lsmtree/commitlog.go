@@ -125,6 +125,14 @@ func (c *commitLog) sync() error {
 	return nil
 }
 
+func (c *commitLog) size() int64 {
+	fi, err := c.fd.Stat()
+	if err != nil {
+		return -1
+	}
+	return fi.Size()
+}
+
 func (c *commitLog) close() error {
 	// flush data
 	err := c.fd.Sync()

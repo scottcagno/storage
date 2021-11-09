@@ -6,6 +6,7 @@ import (
 	"github.com/scottcagno/storage/pkg/bits"
 	"github.com/scottcagno/storage/pkg/util"
 	"math/rand"
+	"strconv"
 	"testing"
 )
 
@@ -195,4 +196,36 @@ func BenchmarkHashMap_Set2(b *testing.B) {
 		}
 	}
 	result = v
+}
+
+func TestHashMapMillionEntriesSize(t *testing.T) {
+	count := 1000000
+	hm := NewHashMap(512)
+	for i := 0; i < count; i++ {
+		_, ok := hm.Set(strconv.Itoa(i), nil)
+		if ok {
+			t.Errorf("error: could not located value for key: %q\n", strconv.Itoa(i))
+		}
+	}
+	if hm.Len() != count {
+		t.Errorf("error: incorrect count of entries\n")
+	}
+	fmt.Printf("hashmap containing %d entries is taking %d bytes (%.2f kb, %.2f mb)\n",
+		count, util.Sizeof(hm), float64(util.Sizeof(hm)/1024), float64(util.Sizeof(hm)/1024/1024))
+	for i := 0; i < count; i++ {
+		_, ok := hm.Get(strconv.Itoa(i))
+		if !ok {
+			t.Errorf("error: could not located value for key: %q\n", strconv.Itoa(i))
+		}
+	}
+	for i := 0; i < count; i++ {
+		_, ok := hm.Del(strconv.Itoa(i))
+		if !ok {
+			t.Errorf("error: could not remove value for key: %q\n", strconv.Itoa(i))
+		}
+	}
+	if hm.Len() != count-count {
+		t.Errorf("error: incorrect count of entries\n")
+	}
+	hm.Close()
 }

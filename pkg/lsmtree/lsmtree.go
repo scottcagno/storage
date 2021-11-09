@@ -6,8 +6,6 @@ import (
 	"sync"
 )
 
-const ()
-
 type LSMTree struct {
 	lock   sync.RWMutex
 	opt    *Options
@@ -77,8 +75,9 @@ func (lsm *LSMTree) Has(k []byte) (bool, error) {
 	// read lock
 	lsm.lock.RLock()
 	defer lsm.lock.RUnlock()
-	// make entry and check it
+	// make entry for key
 	e := &Entry{Key: k}
+	// check the entry
 	err := checkKey(e)
 	if err != nil {
 		return false, err
@@ -102,13 +101,14 @@ func (lsm *LSMTree) Get(k []byte) ([]byte, error) {
 	// read lock
 	lsm.lock.RLock()
 	defer lsm.lock.RUnlock()
-	// make entry and check it
+	// make entry for key
 	e := &Entry{Key: k}
+	// check the entry
 	err := checkKey(e)
 	if err != nil {
 		return nil, err
 	}
-	// call internal getEntry
+	// call internal get method
 	ent, err := lsm.getEntry(e)
 	if err != nil {
 		return nil, err
@@ -134,7 +134,7 @@ func (lsm *LSMTree) Put(k, v []byte) error {
 	if err != nil {
 		return err
 	}
-	// call internal putEntry
+	// call internal put method
 	err = lsm.putEntry(e)
 	if err != nil {
 		return err
@@ -160,7 +160,7 @@ func (lsm *LSMTree) Del(k []byte) error {
 	if err != nil {
 		return err
 	}
-	// call internal delEntry
+	// call internal delete method
 	err = lsm.delEntry(e)
 	if err != nil {
 		return err
@@ -362,11 +362,11 @@ func (lsm *LSMTree) loadDataFromCommitLog() error {
 
 func (lsm *LSMTree) flushToSSTable() error {
 	// create a new table files on disk
-	err := createSSAndIndexTables(lsm.sstDir, lsm.memt)
+	err := lsm.sstm.createSSAndIndexTables(lsm.memt)
 	if err != nil {
 		return err
 	}
-	// reset memtable
+	// reset mem-table
 	lsm.memt.reset()
 	return nil
 }

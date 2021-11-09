@@ -19,6 +19,10 @@ func levelToDir(level int) string {
 	return fmt.Sprintf("level-%d", level)
 }
 
+func dirToLevel(dir string) (int, error) {
+	return strconv.Atoi(strings.Split(dir, "-")[1])
+}
+
 func toDataFileName(index int64) string {
 	hexa := strconv.FormatInt(index, 16)
 	return fmt.Sprintf("%s%010s%s", filePrefix, hexa, dataFileSuffix)
@@ -75,14 +79,86 @@ func (sst *ssTable) ReadAt(offset int64) (*Entry, error) {
 	return e, nil
 }
 
-// createSSAndIndexTables creates a new ss-table and ss-table-index using
-// the provided entry batch, and returns nil on success.
-func createSSAndIndexTables(base string, memt *rbTree) error {
+type indexKey struct {
+	level int
+	key   string
+}
+
+type indexVal struct {
+	path   string
+	offset int64
+}
+
+type ssTableManager struct {
+	baseDir  string
+	index    map[indexKey]indexVal
+	level    map[int]int
+	sstcount int
+}
+
+func openSSTableManager(base string) (*ssTableManager, error) {
 	// sanitize base path
-	path, err := initBasePath(filepath.Join(base, levelToDir(0)))
+	path, err := initBasePath(base)
+	if err != nil {
+		return nil, err
+	}
+	// create new ss-table-manager to return
+	sstm := &ssTableManager{
+		baseDir: path,
+		index:   make(map[indexKey]indexVal),
+		level:   make(map[int]int),
+	}
+	// initialize
+	err = sstm.load()
+	if err != nil {
+		return nil, err
+	}
+	return sstm, nil
+}
+
+func (sstm *ssTableManager) load() error {
+	// read the base dir for this level
+	dirs, err := os.ReadDir(sstm.baseDir)
 	if err != nil {
 		return err
 	}
+	// iterate dirs
+	for _, dir := range dirs {
+		// skip anything that is not a directory
+		if !dir.IsDir() {
+			continue
+		}
+		// get level
+		level, err := dirToLevel(dir.Name())
+		if err != nil {
+			return err
+		}
+		// add level to levels
+		if _, ok := sstm.level[level]; !ok {
+			sstm.level[level] = 0
+		}
+		// now let us add the file count within those levels
+		files, err := os.ReadDir(dir.Name())
+		if err != nil {
+			return err
+		}
+		// count the files
+		for _, file := range files {
+			// if the file is a sst-table data file, increment
+			if !file.IsDir() && strings.HasSuffix(file.Name(), dataFileSuffix) {
+				sstm.level[level]++
+				sstm.sstcount++
+			}
+		}
+	}
+	return nil
+}
+
+// createSSAndIndexTables creates a new ss-table and ss-table-index using
+// the provided entry batch, and returns nil on success.
+func (sstm *ssTableManager) createSSAndIndexTables(memt *rbTree) error {
+	// create level-0 path for newly flushed ss-tables
+	path := filepath.Join(sstm.baseDir, levelToDir(0))
 	// read the base dir for this level
 	files, err := os.ReadDir(path)
 	if err != nil {
@@ -155,18 +231,6 @@ func createSSAndIndexTables(base string, memt *rbTree) error {
 		return err
 	}
 	return nil
-}
-
-type ssTableManager struct {
-	baseDir string
-	seqnum  int64
-}
-
-func openSSTableManager(base string) (*ssTableManager, error) {
-	sstm := &ssTableManager{
-		baseDir: base,
-	}
-	return sstm, nil
 }
 
 func (sstm *ssTableManager) get(e *Entry) (*Entry, error) {
