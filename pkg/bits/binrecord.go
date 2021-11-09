@@ -1,4 +1,4 @@
-package bitset
+package bits
 
 type BinaryRecord struct {
 	data []byte
@@ -10,6 +10,10 @@ func NewBinaryRecord(hint uint) *BinaryRecord {
 	}
 	checkResize(&br.data, hint)
 	return br
+}
+
+func (br *BinaryRecord) Resize(i uint) {
+	checkResize(&br.data, i)
 }
 
 func (br *BinaryRecord) Set(i uint) {

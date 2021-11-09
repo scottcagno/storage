@@ -9,7 +9,7 @@ package bloom
 
 import (
 	"fmt"
-	"github.com/scottcagno/storage/pkg/bitset"
+	"github.com/scottcagno/storage/pkg/bits"
 	"github.com/scottcagno/storage/pkg/hash/cityhash"
 	"math"
 )
@@ -35,7 +35,7 @@ type BloomFilter struct {
 	m     uint // m is the number of bits allocated for the filter
 	k     uint // k is the number of hash functions for the filter
 	n     uint // n is the number of items "in" the filter
-	b     *bitset.BitSet
+	b     *bits.BitSet
 	count int
 	mask  uint64
 }
@@ -54,7 +54,7 @@ func NewBloomFilter(n uint) *BloomFilter {
 	return &BloomFilter{
 		m:    n * 24,
 		k:    8,
-		b:    bitset.NewBitSet(n),
+		b:    bits.NewBitSet(n),
 		mask: uint64(n - 1),
 	}
 }

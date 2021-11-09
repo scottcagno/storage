@@ -3,8 +3,8 @@ package openaddr
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/scottcagno/storage/pkg/bitset"
-	"math/bits"
+	"github.com/scottcagno/storage/pkg/bits"
+	mathbits "math/bits"
 	"runtime"
 	"sync"
 )
@@ -55,7 +55,7 @@ func alignShardCount(size uint) uint64 {
 }
 
 func initialMapShardSize(x uint16) uint {
-	return uint(bits.Reverse16(x)) / 2
+	return uint(mathbits.Reverse16(x)) / 2
 }
 
 func (s *ShardedHashMap) getShard(key string) (uint64, uint64) {
@@ -85,10 +85,10 @@ func (s *ShardedHashMap) SetBit(key string, idx uint, bit uint) bool {
 	s.shards[buk].mu.Lock()
 	ret, _ := s.shards[buk].hm.lookup(hashkey, key)
 	if bit == 1 {
-		bitset.RawBytesSetBit(&ret, idx)
+		bits.RawBytesSetBit(&ret, idx)
 	}
 	if bit == 0 {
-		bitset.RawBytesUnsetBit(&ret, idx)
+		bits.RawBytesUnsetBit(&ret, idx)
 	}
 	_, _ = s.shards[buk].hm.insert(hashkey, key, ret)
 	s.shards[buk].mu.Unlock()
@@ -103,7 +103,7 @@ func (s *ShardedHashMap) GetBit(key string, idx uint) (uint, bool) {
 		return 0, false
 	}
 	s.shards[buk].mu.Unlock()
-	bit := bitset.RawBytesGetBit(&ret, idx)
+	bit := bits.RawBytesGetBit(&ret, idx)
 	return bit, bit != 0
 }
 

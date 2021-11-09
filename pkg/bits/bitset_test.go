@@ -1,4 +1,4 @@
-package bitset
+package bits
 
 import (
 	"fmt"

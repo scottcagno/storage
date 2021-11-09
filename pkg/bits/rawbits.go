@@ -1,9 +1,17 @@
-package bitset
+package bits
 
 import (
 	"fmt"
 	"strconv"
 )
+
+type RawBitSet interface {
+	HasBit(i uint) bool
+	SetBit(i uint)
+	GetBit(i uint) uint
+	UnsetBit(i uint)
+	String() string
+}
 
 func roundTo(value uint, roundTo uint) uint {
 	return (value + (roundTo - 1)) &^ (roundTo - 1)
@@ -22,28 +30,28 @@ func checkResize(bs *[]byte, i uint) {
 	return
 }
 
-func RawBytesSetBit(bs *[]byte, i uint) {
-	checkResize(bs, i)
-	//_ = (*bs)[i>>3]
-	(*bs)[i>>3] |= 1 << (i & (7))
-}
-
-func RawBytesUnsetBit(bs *[]byte, i uint) {
-	checkResize(bs, i)
-	//_ = (*bs)[i>>3]
-	(*bs)[i>>3] &^= 1 << (i & (7))
-}
-
 func RawBytesHasBit(bs *[]byte, i uint) bool {
 	checkResize(bs, i)
 	//_ = (*bs)[i>>3]
 	return (*bs)[i>>3]&(1<<(i&(7))) != 0
 }
 
+func RawBytesSetBit(bs *[]byte, i uint) {
+	checkResize(bs, i)
+	//_ = (*bs)[i>>3]
+	(*bs)[i>>3] |= 1 << (i & (7))
+}
+
 func RawBytesGetBit(bs *[]byte, i uint) uint {
 	checkResize(bs, i)
 	//_ = (*bs)[i>>3]
 	return uint((*bs)[i>>3] & (1 << (i & (7))))
+}
+
+func RawBytesUnsetBit(bs *[]byte, i uint) {
+	checkResize(bs, i)
+	//_ = (*bs)[i>>3]
+	(*bs)[i>>3] &^= 1 << (i & (7))
 }
 
 func RawBytesStringer(bs *[]byte) string {

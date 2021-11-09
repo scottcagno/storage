@@ -1,4 +1,4 @@
-package bitset
+package bits
 
 import (
 	"fmt"
@@ -45,7 +45,7 @@ func TestBinardRecord_String(t *testing.T) {
 	br.Set(2)
 	br.Set(4)
 	br.Set(6)
-	str := br.PrintBits()
+	str := br.String()
 	AssertExpected(t, true, str != "")
 	fmt.Println(str)
 	br = nil
@@ -85,7 +85,7 @@ func TestBinardRecord_Value(t *testing.T) {
 func TestBinardRecord_resize(t *testing.T) {
 	br := NewBinaryRecord(16)
 	AssertExpected(t, uint(16), br.Len())
-	br.check(32)
+	br.Resize(32)
 	AssertExpected(t, uint(32), br.Len())
 	br = nil
 }
@@ -94,19 +94,6 @@ func TestNewBinardRecord(t *testing.T) {
 	br := NewBinaryRecord(16)
 	AssertExpected(t, uint(16), br.Len())
 	br = nil
-}
-
-func Test_roundTo(t *testing.T) {
-	var size uint
-	size = alignedSize(62)
-	AssertExpected(t, uint(1), size)
-	size = alignedSize(96)
-	AssertExpected(t, uint(2), size)
-
-	size = align(roundTo(62, arch()))
-	AssertExpected(t, uint(1), size)
-	size = align(roundTo(96, arch()))
-	AssertExpected(t, uint(2), size)
 }
 
 func TestBinardRecordTestMany(t *testing.T) {
