@@ -10,7 +10,7 @@ type Info struct {
 	sstmIndexSize int64
 }
 
-func (lsm *LSMTree) getInfo() *Info {
+func (lsm *LSMTree) GetInfo() *Info {
 	lsm.lock.Lock()
 	defer lsm.lock.Unlock()
 
