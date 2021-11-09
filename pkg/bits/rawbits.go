@@ -3,14 +3,22 @@ package bits
 import (
 	"fmt"
 	"strconv"
+	"unsafe"
 )
 
-type RawBitSet interface {
-	HasBit(i uint) bool
-	SetBit(i uint)
-	GetBit(i uint) uint
-	UnsetBit(i uint)
-	String() string
+type sliceType = byte
+
+var (
+	wordSize     uint = uint(unsafe.Sizeof(sliceType(0)))
+	log2WordSize uint = log2(wordSize)
+)
+
+func log2(i uint) uint {
+	var n uint
+	for ; i > 0; n++ {
+		i >>= 1
+	}
+	return n - 1
 }
 
 func roundTo(value uint, roundTo uint) uint {
@@ -33,24 +41,32 @@ func checkResize(bs *[]byte, i uint) {
 func RawBytesHasBit(bs *[]byte, i uint) bool {
 	checkResize(bs, i)
 	//_ = (*bs)[i>>3]
+	//
+	// b.bits[i>>lg2ws]&(1<<(i&(ws-1))) != 0
 	return (*bs)[i>>3]&(1<<(i&(7))) != 0
 }
 
 func RawBytesSetBit(bs *[]byte, i uint) {
 	checkResize(bs, i)
 	//_ = (*bs)[i>>3]
+	//
+	// b.bits[i>>lg2ws] |= 1 << (i & (ws - 1))
 	(*bs)[i>>3] |= 1 << (i & (7))
 }
 
 func RawBytesGetBit(bs *[]byte, i uint) uint {
 	checkResize(bs, i)
 	//_ = (*bs)[i>>3]
+	//
+	// b.bits[i>>lg2ws] & (1 << (i & (ws - 1)))
 	return uint((*bs)[i>>3] & (1 << (i & (7))))
 }
 
 func RawBytesUnsetBit(bs *[]byte, i uint) {
 	checkResize(bs, i)
 	//_ = (*bs)[i>>3]
+	//
+	// b.bits[i>>lg2ws] &^= 1 << (i & (ws - 1))
 	(*bs)[i>>3] &^= 1 << (i & (7))
 }
 

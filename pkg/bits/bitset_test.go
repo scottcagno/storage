@@ -2,6 +2,7 @@ package bits
 
 import (
 	"fmt"
+	"math"
 	"testing"
 )
 
@@ -115,4 +116,59 @@ func TestBitSetTestMany(t *testing.T) {
 		AssertExpected(t, false, bs.IsSet(x))
 	}
 	bs = nil
+}
+
+func Benchmark_Log2_Version1(b *testing.B) {
+
+	var result uint
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for n := 0; n < b.N; n++ {
+		result = log2Version1(uint(n))
+	}
+
+	_ = result
+}
+func Benchmark_Log2_Version2(b *testing.B) {
+
+	var result uint
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for n := 0; n < b.N; n++ {
+		result = log2Version2(uint(n))
+		_ = result
+	}
+
+	_ = result
+
+}
+
+func log2Version1(i uint) uint {
+	v1 := func(i uint) uint {
+		return uint(math.Log2(float64(i)))
+	}
+	//return v1(i)
+	v := v1(i)
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
+func log2Version2(i uint) uint {
+	v2 := func(i uint) uint {
+		var n uint
+		for ; i > 0; n++ {
+			i >>= 1
+		}
+		return n - 1
+	}
+	//return v2(i)
+	v := v2(i)
+	if v < 0 {
+		return 0
+	}
+	return v
 }
