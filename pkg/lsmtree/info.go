@@ -30,3 +30,7 @@ func SizeInKB(size int64) int64 {
 func SizeInMB(size int64) int64 {
 	return size / 1000 / 1000
 }
+
+func (info *Info) String() string {
+	return ""
+}
