@@ -360,6 +360,7 @@ func (lsm *LSMTree) loadDataFromCommitLog() error {
 	return nil
 }
 
+// flushToSSTable flushes the current mem-table to a level-0 ss-table
 func (lsm *LSMTree) flushToSSTable() error {
 	// create a new table files on disk
 	err := lsm.sstm.createSSAndIndexTables(lsm.memt)

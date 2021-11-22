@@ -15,7 +15,7 @@ func TestCreateSSAndIndexTables(t *testing.T) {
 	}
 
 	// create ss-table and ss-table-index
-	err := createSSAndIndexTables("ss-table-testing", memt)
+	err := createSSTable("ss-table-testing", memt)
 	if err != nil {
 		t.Fatalf("create ss-table and ss-table-index: %v\n", err)
 	}
