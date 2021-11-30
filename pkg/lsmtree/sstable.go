@@ -2,7 +2,9 @@ package lsmtree
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -175,10 +177,6 @@ func openSSTable(path string, seq int64) (*ssTable, error) {
 	return sst, nil
 }
 
-func isBetween(lo, key, hi []byte) bool {
-	return bytes.Compare(lo, key) <= 0 && bytes.Compare(hi, key) >= 0
-}
-
 func (sst *ssTable) keyInRange(key []byte) bool {
 	// error check
 	if key == nil {
@@ -188,7 +186,65 @@ func (sst *ssTable) keyInRange(key []byte) bool {
 	return isBetween(sst.index.first, key, sst.index.last)
 }
 
-func searchInSSTables(base string, key []byte) (*Entry, error) {
+func isBetween(lo, key, hi []byte) bool {
+	return bytes.Compare(lo, key) <= 0 && bytes.Compare(hi, key) >= 0
+}
+
+func locateSSTable(base string, key []byte) (string, error) {
+	// initialize vars for return
+	var sstPath string
+	// start walking the directory tree from the supplied base
+	err := filepath.WalkDir(base, func(path string, de fs.DirEntry, err error) error {
+		// handle path error
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "prevent panic by handling failure accessing a path %q: %v\n", path, err)
+			return err
+		}
+		// we found a ss-table index file
+		if !de.IsDir() && strings.HasPrefix(de.Name(), dataFileSuffix) {
+			// open index file
+			dataFile, err := os.OpenFile(path, os.O_RDONLY, 0666)
+			if err != nil {
+				return err
+			}
+			// read through the index file entries
+			for {
+				// read index entry from the index file
+				e, err := readEntry(dataFile)
+				if err != nil {
+					if err == io.EOF || err == io.ErrUnexpectedEOF {
+						break
+					}
+					// make sure we close!
+					err = dataFile.Close()
+					if err != nil {
+						return err
+					}
+					return err
+				}
+				// see if we have a match
+				if bytes.Contains(e.Key, key) {
+					sstPath = path
+					break
+				}
+			}
+			// close index file
+			err = dataFile.Close()
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	// got one?
+	return sstPath, nil
+}
+
+/*
+func searchInSSTablesOLD(base string, key []byte) (*Entry, error) {
 	// read the base dir for this level
 	dirs, err := os.ReadDir(base)
 	if err != nil {
@@ -245,7 +301,7 @@ func searchInSSTables(base string, key []byte) (*Entry, error) {
 	return nil, ErrNotFound
 }
 
-func searchSSTable(dir string, key []byte) (*Entry, error) {
+func searchSSTableOLD(dir string, key []byte) (*Entry, error) {
 	// read the base dir for this level
 	dirs, err := os.ReadDir(sstm.baseDir)
 	if err != nil {
@@ -282,6 +338,7 @@ func searchSSTable(dir string, key []byte) (*Entry, error) {
 	}
 	return nil
 }
+*/
 
 func (sst *ssTable) ReadAt(offset int64) (*Entry, error) {
 	// error check

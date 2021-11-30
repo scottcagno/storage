@@ -1,6 +1,8 @@
 package lsmtree
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,4 +36,18 @@ func GetTempFileForTesting(t *testing.T, fn func(file *os.File)) {
 		}
 	}(fd)
 	fn(fd)
+}
+
+func FileIsOpen(fd *os.File) bool {
+	if fd == nil {
+		return false
+	}
+	_, err := fd.Seek(0, io.SeekCurrent)
+	if err != nil {
+		if errors.Is(err, os.ErrClosed) {
+			return false
+		}
+		return false
+	}
+	return true
 }
