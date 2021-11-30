@@ -78,6 +78,42 @@ func (bf *blockFile) init() error {
 	return nil
 }
 
+func (bf *blockFile) read(rd *recordData) (int64, error) {
+	// read record data
+	n, err := rd.read(bf.fp)
+	if err != nil {
+		return -1, err
+	}
+	return int64(n), nil
+}
+
+func (bf *blockFile) readRecordAt(rd *recordData, offset int64) (int64, error) {
+	// read record data
+	n, err := rd.readAt(bf.fp, offset)
+	if err != nil {
+		return -1, err
+	}
+	return int64(n), nil
+}
+
+func (bf *blockFile) writeRecord(rd *recordData) (int64, error) {
+	// write record data
+	n, err := rd.write(bf.fp)
+	if err != nil {
+		return -1, err
+	}
+	return n, nil
+}
+
+func (bf *blockFile) writeRecordAt(rd *recordData, offset int64) (int64, error) {
+	// write record data
+	n, err := rd.writeAt(bf.fp, offset)
+	if err != nil {
+		return -1, err
+	}
+	return n, nil
+}
+
 func align(size int64) int64 {
 	if size > 0 {
 		return ((size + 2) + blockSize - 1) &^ (blockSize - 1)
