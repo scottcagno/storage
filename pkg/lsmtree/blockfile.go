@@ -120,7 +120,7 @@ func (bf *blockFile) Write(d []byte) (int, error) {
 		return -1, err
 	}
 	// get record offset
-	off, err := offset(bf.fp)
+	off, err := currentOffset(bf.fp)
 	if err != nil {
 		return -1, err
 	}
@@ -145,13 +145,8 @@ func (bf *blockFile) WriteAt(d []byte, off int64) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	// get record offset
-	noff, err := offset(bf.fp)
-	if err != nil {
-		return -1, err
-	}
 	// return bytes written
-	return int(noff - off), nil
+	return int(off), nil
 }
 
 func (bf *blockFile) Seek(offset int64, whence int) (int64, error) {
@@ -260,7 +255,22 @@ func align(size int64) int64 {
 	return blockSize
 }
 
-func offset(w io.Seeker) (int64, error) {
+func getOffset(pos int, max int64) (int64, error) {
+	// calculate the
+	offset := int64(pos * blockSize)
+	// return error if offset is not block aligned
+	if offset%blockSize != 0 {
+		return -1, ErrBadOffsetAlignment
+	}
+	// return error if offset is larger than max
+	if offset > max {
+		return -1, ErrOffsetOutOfBounds
+	}
+	// otherwise, return offset
+	return offset, nil
+}
+
+func currentOffset(w io.Seeker) (int64, error) {
 	// get current offset (of the beginning of this record) to return
 	off, err := w.Seek(0, io.SeekCurrent)
 	if err != nil {
