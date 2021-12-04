@@ -11,7 +11,11 @@ import (
 )
 
 const (
-	blockSize          = 4096
+	sectorSize = 512            // 512 B
+	blockSize  = 8 * sectorSize //   4 KB
+	chunkSize  = 8 * blockSize  //  32 KB
+	extentSize = 8 * chunkSize  // 256 KB
+
 	headerSize         = 12
 	recordMaxSize      = blockSize * math.MaxUint16
 	asciiUnitSeparator = 0x1F
