@@ -1,4 +1,4 @@
-package bfile
+package v2
 
 import (
 	"encoding/binary"
