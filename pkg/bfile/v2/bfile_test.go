@@ -33,7 +33,7 @@ func Test_bfile_write(t *testing.T) {
 	}
 
 	// write
-	doWrite := false
+	doWrite := true
 	if doWrite {
 		// init offsets
 		var offsets []int64

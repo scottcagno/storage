@@ -1,6 +1,7 @@
 package datafile
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"math/bits"
@@ -9,12 +10,48 @@ import (
 	"strconv"
 )
 
+type kind uint8
+
 const (
 	blockSize   = 4096
 	chunkSize   = 16 * blockSize
 	extentSize  = 16 * chunkSize
 	segmentSize = 16 * extentSize
+
+	blockSizeMask   = blockSize - 1
+	chunkSizeMask   = chunkSize - 1
+	extentSizeMask  = extentSize - 1
+	segmentSizeMask = segmentSize - 1
+
+	fullBlock   = kind(1)
+	firstBlock  = kind(2)
+	middleBlock = kind(3)
+	lastBlock   = kind(4)
 )
+
+var (
+	ErrOutOfBounds = errors.New("out of bounds")
+)
+
+// align aligns sizes
+func align(n int, mask int) int {
+	return ((n + 2) + mask) &^ mask
+}
+
+// malloc allocates heap memory and copies d into it
+func malloc(d []byte, sizeMask int) ([]byte, error) {
+	if len(d) > sizeMask {
+		return nil, ErrOutOfBounds
+	}
+	heap := make([]byte, align(0, sizeMask))
+	copy(heap[0:], d)
+	return heap, nil
+}
+
+// free releases memory to be cleaned up
+func free(d *[]byte) {
+	*d = nil
+}
 
 func wordSize(t interface{}) int {
 	switch t.(type) {
@@ -51,18 +88,28 @@ func (bs bitsetU16) String() string {
 	return fmt.Sprintf("%."+res+"b (%s bits)", bs, res)
 }
 
-// block is a contiguous set of bytes 4kb in size
-type block struct {
+// header represents a block header
+type header struct {
 	stat uint8  // stat is the block status
 	kind uint8  // kind is the type of block
 	used uint16 // used is the length of the data
 	free uint16 // free is the free bytes at the end
-	data [blockSize]byte
+}
+
+// block is a contiguous set of bytes 4kb in size
+type block struct {
+	*header
+	data []byte
 }
 
 // Write is the write method for a block
 func (b *block) Write(d []byte) (int, error) {
-	// placeholder
+	// allocate
+	data, err := malloc(d, blockSizeMask)
+	if err != nil {
+		return -1, err
+	}
+	b.data = data
 	return -1, nil
 }
 
@@ -80,7 +127,7 @@ func (b *chunk) Write(d []byte) (int, error) {
 
 // extent is a contiguous set of 16 chunks
 type extent struct {
-	free bitsetU16 // bitmap of free chunks in extent
+	free bitsetU16 // bitmap of free blocks in extent
 	data [extentSize]byte
 }
 
