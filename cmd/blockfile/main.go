@@ -23,6 +23,21 @@ func main() {
 		log.Panic(err)
 	}
 
+	at, err := bf.WriteAt([]byte("THIS IS A TEST"), 8192)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf(">>>>>>>>>>>>> %v\n", at)
+
+	da, err := bf.ReadAt(8192)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf(">>>>>>>>>>>> %q\n", da)
+
+	bf.Close()
+	return
+
 	// write...
 	d1 := []byte("foo bar")
 	off, err := bf.Write(d1)
