@@ -5,7 +5,9 @@ import "errors"
 var (
 	ErrInvalidSize   = errors.New("bio: invalid size")
 	ErrInvalidOffset = errors.New("bio: invalid offset")
-	ErrDataTooBig    = errors.New("bio: data too big")
+	ErrSliceTooLarge = errors.New("bio: slice is too large")
+	ErrSliceTooSmall = errors.New("bio: slice is too small")
+	ErrDataIsEmpty   = errors.New("bio: data is empty or nil")
 )
 
 const (
