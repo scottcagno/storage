@@ -73,10 +73,10 @@ func BenchmarkChunkSliceV2(b *testing.B) {
 func TestNewWriter(t *testing.T) {
 	b := new(bytes.Buffer)
 	w := NewWriter(b)
-	fmt.Println(w.Info(b))
+	fmt.Println(Info(w, b))
 }
 
-func TestWriter_WriteSpan(t *testing.T) {
+func TestWriter_Write(t *testing.T) {
 	b := new(bytes.Buffer)
 	w := NewWriter(b)
 	n, err := w.Write([]byte("entry 1: this is just a test. this is entry number one."))
@@ -84,10 +84,10 @@ func TestWriter_WriteSpan(t *testing.T) {
 		t.Error(err)
 	}
 	fmt.Printf("wrote %d bytes.\n", n)
-	fmt.Printf("%s", w.Info(b))
+	fmt.Printf("%s", Info(w, b))
 }
 
-func TestWriter_Write1(t *testing.T) {
+func TestWriter_WriteMultiple(t *testing.T) {
 	b := new(bytes.Buffer)
 	w := NewWriter(b)
 	n, err := w.Write([]byte("entry 1: this is just a test. this is entry number one."))
@@ -99,46 +99,21 @@ func TestWriter_Write1(t *testing.T) {
 		t.Error(err)
 	}
 	fmt.Printf("wrote %d bytes.\n", n)
-	fmt.Printf("%s", w.Info(b))
+	fmt.Printf("%s", Info(w, b))
 }
 
-func TestFoo(t *testing.T) {
-	f := new(foo)
-	f.write([]byte("entry 1: this is just a test. this is entry number 1"))
-	fmt.Printf("%q\n", f.w)
-}
-
-const (
-	fullSize = 32
-	hedrSize = 6
-	maxSize  = fullSize - hedrSize
-)
-
-type foo struct {
-	w [fullSize * 2]byte
-	n int
-}
-
-func (f *foo) write(b []byte) {
-	var nn int
-	off := maxSize
-	for {
-		nn += f.writeBlock(b[nn : nn+off])
-		fmt.Println("wrote:", nn)
-		if nn >= len(b) {
-			break
-		}
+func TestWriter_WriteOverflowChunk(t *testing.T) {
+	b := new(bytes.Buffer)
+	w := NewWriter(b)
+	var data []byte
+	for i := 0; i < blocksPerChunk; i++ {
+		data = append(data, []byte(fmt.Sprintf("entry %d: this is just a test. Not sure how long it should be.", i))...)
 	}
-}
-
-func (f *foo) writeBlock(b []byte) int {
-	fmt.Printf("(%d) writing: %q => ", f.n, f.w)
-	n := copy(f.w[f.n:], []byte{0x07, 0x07, 0x07, 0x07, 0x07, 0x07})
-	f.n += n
-	n = copy(f.w[f.n:], b)
-	if len(b) < maxSize {
-		f.n += maxSize - len(b)
+	n, err := w.Write(data)
+	if err != nil {
+		t.Logf("got: %v, expected: %v\n", err, err)
+	} else {
+		t.Error("did not get any error, but expected one")
 	}
-	fmt.Printf("(%d) %q\n", f.n, f.w)
-	return n
+	fmt.Printf("wrote %d bytes.\n", n)
 }

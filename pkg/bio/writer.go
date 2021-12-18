@@ -3,11 +3,10 @@ package bio
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"io"
-	"log"
 )
 
+// Writer is a bio writer
 type Writer struct {
 	bw  *bufio.Writer // w is the underlying writer
 	pad [blockSize]byte
@@ -66,8 +65,6 @@ func (w *Writer) Write(p []byte) (int, error) {
 }
 
 func (w *Writer) writeBlock(p []byte, part, parts int) (int, error) {
-	log.Printf("len(p)=%d\n", len(p))
-
 	// create header
 	h := &header{
 		status: statusActive,
@@ -93,24 +90,7 @@ func (w *Writer) writeBlock(p []byte, part, parts int) (int, error) {
 		if err != nil {
 			return -1, err
 		}
-		log.Printf("[PADDING] %d bytes\n", padding)
 	}
 	// return exactly how much data was written into this block
 	return n, nil
-}
-
-func (w *Writer) Info(b *bytes.Buffer) string {
-	buf := b.Bytes()
-	ss := fmt.Sprintf("writer:\n")
-	ss += fmt.Sprintf("buffered=%d, available=%d\n", w.bw.Buffered(), w.bw.Available())
-	for i := 0; i < len(buf); i += blockSize {
-		ss += fmt.Sprintf("\tblock[%.2d]\n", i/blockSize)
-		hdr := new(header)
-		decodeHeader(buf[i:i+headerSize], hdr)
-		ss += fmt.Sprintf("\t\t%s\n", hdr)
-		dat := buf[i+headerSize : i+blockSize]
-		//ss += fmt.Sprintf("\t\t%s\n", longStr(string(dat), "", blockSize))
-		ss += fmt.Sprintf("\t\t%q\n", dat)
-	}
-	return ss
 }
