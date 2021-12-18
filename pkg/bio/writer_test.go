@@ -71,32 +71,35 @@ func BenchmarkChunkSliceV2(b *testing.B) {
 }
 
 func TestNewWriter(t *testing.T) {
-	w := NewWriter(new(bytes.Buffer))
-	fmt.Println(w.Info())
+	b := new(bytes.Buffer)
+	w := NewWriter(b)
+	fmt.Println(w.Info(b))
 }
 
 func TestWriter_WriteSpan(t *testing.T) {
-	w := NewWriter(new(bytes.Buffer))
-	n, err := w.WriteSpan([]byte("entry 1: this is just a test. this is entry number 1"))
+	b := new(bytes.Buffer)
+	w := NewWriter(b)
+	n, err := w.Write([]byte("entry 1: this is just a test. this is entry number one."))
 	if err != nil {
 		t.Error(err)
 	}
 	fmt.Printf("wrote %d bytes.\n", n)
-	fmt.Printf("%s", w.Info())
+	fmt.Printf("%s", w.Info(b))
 }
 
 func TestWriter_Write1(t *testing.T) {
-	w := NewWriter(new(bytes.Buffer))
-	n, err := w.Write1([]byte("entry 1: this is just a test. this is entry number 1"))
+	b := new(bytes.Buffer)
+	w := NewWriter(b)
+	n, err := w.Write([]byte("entry 1: this is just a test. this is entry number one."))
 	if err != nil {
 		t.Error(err)
 	}
-	n, err = w.Write1([]byte("entry 2: this is entry two"))
+	n, err = w.Write([]byte("entry 2: this is entry two"))
 	if err != nil {
 		t.Error(err)
 	}
 	fmt.Printf("wrote %d bytes.\n", n)
-	fmt.Printf("%s", w.Info())
+	fmt.Printf("%s", w.Info(b))
 }
 
 func TestFoo(t *testing.T) {

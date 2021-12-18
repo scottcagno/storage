@@ -3,9 +3,11 @@ package bio
 import (
 	"errors"
 	"fmt"
+	"io"
 )
 
 // working toy impl --> https://go.dev/play/p/q0Ww_3QPNAe
+// FINISHED PART --> https://go.dev/play/p/SkP9qNOdt7B
 
 var (
 	ErrInvalidSize   = errors.New("bio: invalid size")
@@ -115,6 +117,21 @@ func encodeHeader(p []byte, h *header) (int, error) {
 	p[4] = byte(h.length)
 	p[5] = byte(h.length >> 8)
 	return len(p), nil
+}
+
+func (h *header) WriteTo(w io.Writer) (int64, error) {
+	n, err := w.Write([]byte{
+		h.status,
+		h.kind,
+		h.part,
+		h.parts,
+		byte(h.length),
+		byte(h.length >> 8),
+	})
+	if err != nil {
+		return -1, err
+	}
+	return int64(n), nil
 }
 
 func (h *header) Read(p []byte) (int, error) {
