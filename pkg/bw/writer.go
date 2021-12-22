@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	defaultBufSize = 512
+	defaultBufSize = 4096
 	headerSize     = 16
 
 	pageSize = 64
@@ -138,10 +138,10 @@ func (b *Writer) Write(p []byte) (int, error) {
 	b.n += n
 	nn += n
 
-	if b.align != 0 && b.n%b.align != 0 {
-		b.n = (b.n + b.align - 1) &^ (b.align - 1)
+	if pageSize != 0 && b.n%pageSize != 0 {
+		b.n = (b.n + pageSize - 1) &^ (pageSize - 1)
 	}
-	return b.n / b.align, nil
+	return b.n, nil
 }
 
 func (b *Writer) WriteV2(p []byte) (int, error) {

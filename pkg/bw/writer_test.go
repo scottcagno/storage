@@ -1,6 +1,7 @@
 package bw
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"github.com/scottcagno/storage/pkg/util"
@@ -12,6 +13,7 @@ var result interface{}
 func BenchmarkNewWriter_WriteV1(b *testing.B) {
 
 	var bb bytes.Buffer
+	bb.Grow(4096)
 	w := NewWriter(&bb)
 	var x int
 	var err error
@@ -19,7 +21,7 @@ func BenchmarkNewWriter_WriteV1(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		x, err = w.Write(util.RandBytes(64))
+		x, err = w.Write(util.RandBytes(512))
 		if err != nil {
 			b.Error(err)
 		}
@@ -36,14 +38,15 @@ func BenchmarkNewWriter_WriteV1(b *testing.B) {
 func BenchmarkNewWriter_WriteV2(b *testing.B) {
 
 	var bb bytes.Buffer
-	w := NewWriter(&bb)
+	bb.Grow(4096)
+	w := bufio.NewWriterSize(&bb, defaultBufSize)
 	var x int
 	var err error
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		x, err = w.WriteV2(util.RandBytes(64))
+		x, err = w.Write(util.RandBytes(512))
 		if err != nil {
 			b.Error(err)
 		}
