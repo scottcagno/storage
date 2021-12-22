@@ -1,4 +1,4 @@
-package se
+package _se
 
 import (
 	"bufio"
