@@ -2,7 +2,6 @@ package v3
 
 import (
 	"bufio"
-	"errors"
 	"hash/crc32"
 	"io"
 )
@@ -31,8 +30,6 @@ func (d *DataReader) readHeader(h *header) (int, error) {
 	return int(n), nil
 }
 
-var ErrBadChecksum = errors.New("bad checksum")
-
 func (d *DataReader) Read(p []byte) (int, error) {
 	// create header
 	var h header
@@ -57,6 +54,6 @@ func (d *DataReader) Read(p []byte) (int, error) {
 	if h.crc32 != crc32.ChecksumIEEE(p[:h.size]) {
 		return nn, ErrBadChecksum
 	}
-	// return bytes written
+	// return bytes read
 	return nn, nil
 }

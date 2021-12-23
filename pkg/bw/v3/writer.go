@@ -2,10 +2,8 @@ package v3
 
 import (
 	"bufio"
-	"errors"
 	"hash/crc32"
 	"io"
-	"log"
 )
 
 var emptyPage [4096]byte
@@ -62,36 +60,21 @@ func (d *DataWriter) Write(p []byte) (int, error) {
 	// check align rules
 	if d.opts.pageAlign {
 		off := d.bw.Size() - d.bw.Buffered()
-		//log.Printf("writing % x (len=%d)\n", emptyPage[0:off], len(emptyPage[0:off]))
 		n, err = d.bw.Write(emptyPage[:off])
 		if err != nil {
 			return n + nn, err
 		}
 		nn += n
 	}
+	// check auto flush
+	if d.opts.autoFlush {
+		err = d.bw.Flush()
+		if err != nil {
+			return nn, err
+		}
+	}
 	// return bytes written
 	return nn, nil
-}
-
-var ErrNotEnoughRoom = errors.New("not enough room left in the buffer")
-
-func (d *DataWriter) Align() (int, error) {
-	// get current "offset"
-	off := d.bw.Buffered()
-	// get the "aligned offset"
-	aln := ((off + (d.opts.pageSize - 1)) &^ (d.opts.pageSize - 1)) - off
-	// check to see if the buffer
-	// has enough room to take up
-	// the "aligned offset" slack
-	log.Printf(">>> off=%d, aln=%d, available=%d\n", off, aln, d.bw.Available())
-	if aln > d.bw.Available() {
-		return 0, ErrNotEnoughRoom
-	}
-	n, err := d.bw.Write(emptyPage[:off-aln])
-	if err != nil {
-		return n, err
-	}
-	return n, nil
 }
 
 func (d *DataWriter) Flush() error {
