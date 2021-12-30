@@ -6,11 +6,10 @@ import (
 	"io"
 )
 
-var emptyPage [4096]byte
-
 type DataWriter struct {
-	bw   *bufio.Writer
-	opts *Options
+	bw        *bufio.Writer
+	opts      *Options
+	emptyPage page
 }
 
 func NewDataWriter(w io.Writer, opt *Options) *DataWriter {
@@ -60,7 +59,7 @@ func (d *DataWriter) Write(p []byte) (int, error) {
 	// check align rules
 	if d.opts.pageAlign {
 		off := d.bw.Size() - d.bw.Buffered()
-		n, err = d.bw.Write(emptyPage[:off])
+		n, err = d.bw.Write(d.emptyPage.data[:off])
 		if err != nil {
 			return n + nn, err
 		}

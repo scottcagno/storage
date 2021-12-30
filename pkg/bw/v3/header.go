@@ -6,8 +6,7 @@ import (
 )
 
 const (
-	headerSize = 16
-
+	headerSize   = 16
 	magicBytes   = 0xBABE
 	kindActive   = 0xA1
 	kindInactive = 0x00
