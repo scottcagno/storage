@@ -13,9 +13,7 @@ type DataWriter struct {
 }
 
 func NewDataWriter(w io.Writer, opt *Options) *DataWriter {
-	if opt == nil {
-		opt = defaultOptions
-	}
+	checkOptions(opt)
 	return &DataWriter{
 		bw:   bufio.NewWriterSize(w, opt.pageSize),
 		opts: opt,
