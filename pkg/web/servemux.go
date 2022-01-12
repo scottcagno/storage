@@ -2,7 +2,6 @@ package web
 
 import (
 	"fmt"
-	"github.com/scottcagno/storage/pkg/lsmt/trees/rbtree"
 	"github.com/scottcagno/storage/pkg/web/logging"
 	"log"
 	"mime"
@@ -20,14 +19,6 @@ type muxEntry struct {
 	method  string
 	pattern string
 	handler http.Handler
-}
-
-func (m muxEntry) Compare(that rbtree.RBEntry) int {
-	return strings.Compare(m.pattern, that.(muxEntry).pattern)
-}
-
-func (m muxEntry) Size() int {
-	return len(m.method) + len(m.pattern) + 8
 }
 
 func (m muxEntry) String() string {
@@ -107,23 +98,21 @@ func checkMuxConfig(conf *MuxConfig) *MuxConfig {
 }
 
 type ServeMux struct {
-	lock sync.Mutex
-	conf *MuxConfig
-	em   map[string]muxEntry
-	es   []muxEntry
-	//routes *rbtree.RBTree
+	lock   sync.Mutex
+	logger *logging.LevelLogger
+	em     map[string]muxEntry
+	es     []muxEntry
 }
 
-func NewServeMux(conf *MuxConfig) *ServeMux {
-	conf = checkMuxConfig(conf)
+func NewServeMux(logger *logging.LevelLogger) *ServeMux {
 	mux := &ServeMux{
-		conf: conf,
-		em:   make(map[string]muxEntry),
-		es:   make([]muxEntry, 0),
+		em: make(map[string]muxEntry),
+		es: make([]muxEntry, 0),
+	}
+	if logger != nil {
+		mux.logger = logger
 	}
 	mux.Get("/favicon.ico", http.NotFoundHandler())
-	mux.Get("/static/img/favicon.ico", http.NotFoundHandler())
-	mux.Get("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(conf.StaticPath))))
 	mux.Get("/info", mux.info())
 	return mux
 }
@@ -209,7 +198,7 @@ func (s *ServeMux) getEntries() []string {
 	return entries
 }
 
-func (s *ServeMux) match(path string) (string, string, http.Handler) {
+func (s *ServeMux) matchEntry(path string) (string, string, http.Handler) {
 	e, ok := s.em[path]
 	if ok {
 		return e.method, e.pattern, e.handler
@@ -223,14 +212,25 @@ func (s *ServeMux) match(path string) (string, string, http.Handler) {
 }
 
 func (s *ServeMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	m, _, h := s.match(r.URL.Path)
+	// check for post request in order to validate via the referer
+	if r.Method == "POST" && !strings.Contains(r.Referer(), r.Host) {
+		// possibly add origin check in there too...
+		//
+		code := http.StatusForbidden // invalid request redirect to 403
+		http.Error(w, http.StatusText(code), code)
+		return
+	}
+	// look for a matching entry
+	m, _, h := s.matchEntry(r.URL.Path)
 	if m != r.Method || h == nil {
+		// otherwise, return not found
 		h = http.NotFoundHandler()
 	}
-	if s.conf.WithLogging {
-		// if logging is configured, then log, otherwise skip
+	// if logging is configured, then log, otherwise skip
+	if s.logger != nil {
 		h = s.requestLogger(h)
 	}
+	// serve
 	h.ServeHTTP(w, r)
 }
 
@@ -256,60 +256,12 @@ func (s *ServeMux) info() http.Handler {
 	return http.HandlerFunc(fn)
 }
 
-// TODO: consider removing...
-/*
-func (s *ServeMux) _renderer() http.Handler {
-	fn := func(w http.ResponseWriter, r *http.Request) {
-		// get view supplied
-		name := r.URL.Query().Get("view")
-		if name == "" {
-			code := http.StatusBadRequest
-			http.Error(w, http.StatusText(code), code)
-			return
-		}
-		// init buffer pool
-		buffer := s.pool.Get().(*bytes.Buffer)
-		buffer.Reset()
-		data := struct {
-			Data interface{}
-		}{
-			Data: r.URL.Query(),
-		}
-		// check to make sure matching template exists
-		if temp := s.tmpl.Lookup(name); temp == nil {
-			// template doesn't exist, so return a 404
-			code := http.StatusNotFound
-			http.Error(w, http.StatusText(code), code)
-			return
-		}
-		// execute template (write to buffer)
-		err := s.tmpl.ExecuteTemplate(buffer, name, data)
-		if err != nil {
-			// if something goes wrong, report
-			s.pool.Put(buffer)
-			s.conf.StdErrLogger.Printf("Error while executing template (%s): %v\n", name, err)
-			http.Redirect(w, r, "/error/404", http.StatusTemporaryRedirect)
-			return
-		}
-		// otherwise, write to the buffer went find, so now we write to the http.ResponseWriter
-		_, err = buffer.WriteTo(w)
-		if err != nil {
-			s.conf.StdErrLogger.Printf("Error while writing (Render) to ResponseWriter: %v\n", err)
-		}
-		// put buffer back in buffer pool
-		s.pool.Put(buffer)
-		return
-	}
-	return http.HandlerFunc(fn)
-}
-*/
-
 func (s *ServeMux) ContentType(w http.ResponseWriter, content string) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	ct := mime.TypeByExtension(content)
 	if ct == "" {
-		s.conf.StdErrLogger.Printf("Error, incompatible content type!\n")
+		s.logger.Error("Error, incompatible content type!\n")
 		return
 	}
 	w.Header().Set("Content-Type", ct)
@@ -346,7 +298,7 @@ func (s *ServeMux) requestLogger(next http.Handler) http.Handler {
 		defer func() {
 			if err := recover(); err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
-				s.conf.StdErrLogger.Printf("err: %v, trace: %s\n", err, debug.Stack())
+				s.logger.Error("err: %v, trace: %s\n", err, debug.Stack())
 			}
 		}()
 		lrw := loggingResponseWriter{
@@ -358,16 +310,18 @@ func (s *ServeMux) requestLogger(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(&lrw, r)
 		if 400 <= lrw.data.status && lrw.data.status <= 599 {
-			logRequest(s.conf.StdErrLogger, lrw.data.status, r)
+			str, args := logRequest(lrw.data.status, r)
+			s.logger.Error(str, args...)
 			return
 		}
-		logRequest(s.conf.StdOutLogger, lrw.data.status, r)
+		str, args := logRequest(lrw.data.status, r)
+		s.logger.Info(str, args...)
 		return
 	}
 	return http.HandlerFunc(fn)
 }
 
-func logRequest(l *log.Logger, code int, r *http.Request) {
+func logRequest(code int, r *http.Request) (string, []interface{}) {
 	format, values := "# %s - - [%s] \"%s %s %s\" %d %d\n", []interface{}{
 		r.RemoteAddr,
 		time.Now().Format(time.RFC1123Z),
@@ -377,5 +331,5 @@ func logRequest(l *log.Logger, code int, r *http.Request) {
 		code,
 		r.ContentLength,
 	}
-	l.Printf(format, values...)
+	return format, values
 }
